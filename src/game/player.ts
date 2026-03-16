@@ -4,6 +4,8 @@ import type { PlayerData } from '@/core/types';
 export class GamePlayer {
   group: THREE.Group;
   data: PlayerData;
+  hasBall = false;
+  aiTarget: THREE.Vector3 | null = null;
   private stats = { points: 0, assists: 0, turnovers: 0 };
   private moveSpeed: number;
 
@@ -69,5 +71,38 @@ export class GamePlayer {
 
   resetStats(): void {
     this.stats = { points: 0, assists: 0, turnovers: 0 };
+  }
+
+  giveBall(): void {
+    this.hasBall = true;
+  }
+
+  loseBall(): void {
+    this.hasBall = false;
+  }
+
+  moveByInput(inputX: number, inputZ: number, dt: number): void {
+    if (inputX === 0 && inputZ === 0) return;
+    const direction = new THREE.Vector3(inputX, 0, inputZ).normalize();
+    const step = this.moveSpeed * dt;
+    this.group.position.addScaledVector(direction, step);
+
+    // Clamp to court bounds
+    this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -7, 7);
+    this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -6.5, 6.5);
+
+    // Face movement direction
+    const angle = Math.atan2(-direction.x, -direction.z);
+    this.group.rotation.y = angle;
+  }
+
+  distanceTo(point: THREE.Vector3): number {
+    const dx = this.group.position.x - point.x;
+    const dz = this.group.position.z - point.z;
+    return Math.sqrt(dx * dx + dz * dz);
+  }
+
+  get position(): THREE.Vector3 {
+    return this.group.position;
   }
 }

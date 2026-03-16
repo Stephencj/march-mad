@@ -45,3 +45,33 @@ describe('GamePlayer', () => {
     expect(facing.dot(forward)).toBeGreaterThan(0.5);
   });
 });
+
+describe('GamePlayer - ball handling', () => {
+  it('tracks hasBall state', () => {
+    const player = new GamePlayer({
+      id: 'p1', name: 'Test', stats: createDefaultPlayerStats(), personality: 'Clutch', isCustom: false,
+    }, new THREE.Vector3(0, 0, 0), 0x3498db);
+    expect(player.hasBall).toBe(false);
+    player.giveBall();
+    expect(player.hasBall).toBe(true);
+    player.loseBall();
+    expect(player.hasBall).toBe(false);
+  });
+
+  it('moveByInput moves player directly from joystick input', () => {
+    const player = new GamePlayer({
+      id: 'p1', name: 'Test', stats: createDefaultPlayerStats(), personality: 'Clutch', isCustom: false,
+    }, new THREE.Vector3(0, 0, 0), 0x3498db);
+    player.moveByInput(0.5, -0.5, 1 / 60);
+    expect(player.group.position.x).toBeGreaterThan(0);
+    expect(player.group.position.z).toBeLessThan(0);
+  });
+
+  it('computes distance to point', () => {
+    const player = new GamePlayer({
+      id: 'p1', name: 'Test', stats: createDefaultPlayerStats(), personality: 'Clutch', isCustom: false,
+    }, new THREE.Vector3(3, 0, 4), 0x3498db);
+    const dist = player.distanceTo(new THREE.Vector3(0, 0, 0));
+    expect(dist).toBeCloseTo(5, 0);
+  });
+});
