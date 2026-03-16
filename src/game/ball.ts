@@ -4,6 +4,12 @@ export class Ball {
   mesh: THREE.Mesh;
   heldBy: string | null = null;
   velocity = new THREE.Vector3();
+  isInFlight = false;
+  private arc: THREE.Vector3[] = [];
+  private arcIndex = 0;
+  private arcSpeed = 60;
+  private passTarget: THREE.Vector3 | null = null;
+  private passSpeed = 12;
 
   constructor(position = new THREE.Vector3(0, 1, 0)) {
     const geometry = new THREE.SphereGeometry(0.12, 12, 8);
@@ -38,8 +44,68 @@ export class Ball {
     return points;
   }
 
+  followHolder(holderPosition: THREE.Vector3): void {
+    this.mesh.position.set(
+      holderPosition.x,
+      holderPosition.y + 1.0,
+      holderPosition.z
+    );
+  }
+
+  shootAt(target: THREE.Vector3, power: number): void {
+    const start = this.mesh.position.clone();
+    this.arc = this.calculateArc(start, target, power);
+    this.arcIndex = 0;
+    this.isInFlight = true;
+    this.passTarget = null;
+    this.release();
+  }
+
+  passTo(target: THREE.Vector3): void {
+    this.passTarget = target.clone();
+    this.isInFlight = true;
+    const direction = new THREE.Vector3().subVectors(target, this.mesh.position).normalize();
+    this.velocity.copy(direction.multiplyScalar(this.passSpeed));
+    this.arc = [];
+    this.arcIndex = 0;
+    this.release();
+  }
+
   update(dt: number): void {
+    // State 1: held by a player
     if (this.heldBy !== null) return;
+
+    // State 2: following a shot arc
+    if (this.arc.length > 0 && this.arcIndex < this.arc.length) {
+      const stepsThisFrame = Math.max(1, Math.round(this.arcSpeed * dt));
+      this.arcIndex = Math.min(this.arcIndex + stepsThisFrame, this.arc.length - 1);
+      this.mesh.position.copy(this.arc[this.arcIndex]);
+      if (this.arcIndex >= this.arc.length - 1) {
+        this.isInFlight = false;
+        this.arc = [];
+        this.arcIndex = 0;
+      }
+      return;
+    }
+
+    // State 3: chest-height pass (no gravity)
+    if (this.passTarget) {
+      const toTarget = new THREE.Vector3().subVectors(this.passTarget, this.mesh.position);
+      const dist = toTarget.length();
+      if (dist < 0.5) {
+        this.isInFlight = false;
+        this.passTarget = null;
+        this.velocity.set(0, 0, 0);
+        return;
+      }
+      // Move toward target at passSpeed, no gravity
+      const direction = toTarget.normalize();
+      this.velocity.copy(direction.multiplyScalar(this.passSpeed));
+      this.mesh.position.addScaledVector(this.velocity, dt);
+      return;
+    }
+
+    // State 4: normal gravity + bounce physics (existing)
     this.velocity.y -= 9.81 * dt;
     this.mesh.position.addScaledVector(this.velocity, dt);
     if (this.mesh.position.y < 0.12) {
