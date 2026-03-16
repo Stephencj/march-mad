@@ -3,10 +3,8 @@ import { GameLoop } from './core/game-loop';
 import { gameEvents } from './core/events';
 import { GameStateMachine, type StateTransition } from './core/state-machine';
 import { createCourt } from './game/court';
-import { Ball } from './game/ball';
-import { GamePlayer } from './game/player';
-import { createDefaultPlayerStats } from './core/types';
-import { MatchEngine } from './game/match';
+import { GameSession } from './game/game-session';
+import type { ControlInput } from './game/controls';
 import { CameraSystem } from './game/camera';
 import { TouchControls } from './game/controls';
 import { KeyboardControls } from './game/keyboard-controls';
@@ -49,6 +47,7 @@ window.addEventListener('resize', () => {
 const transitions: StateTransition[] = [
   { from: 'MainMenu', to: 'PlayerCreation' },
   { from: 'MainMenu', to: 'TournamentSelect' },
+  { from: 'MainMenu', to: 'YourGame' },
   { from: 'PlayerCreation', to: 'MainMenu' },
   { from: 'TournamentSelect', to: 'DraftPhase' },
   { from: 'DraftPhase', to: 'BracketView' },
@@ -71,20 +70,10 @@ export const stateMachine = new GameStateMachine(transitions);
 const court = createCourt();
 scene.add(court);
 
-const ball = new Ball(new THREE.Vector3(0, 1, 2));
-scene.add(ball.mesh);
-
-// Test players (will be replaced by proper team setup later)
-const testPlayer = new GamePlayer(
-  { id: 'test', name: 'Player 1', stats: createDefaultPlayerStats(), personality: 'Team Player', isCustom: false },
-  new THREE.Vector3(-2, 0, 3),
-  0x3498db
-);
-scene.add(testPlayer.group);
+let session: GameSession | null = null;
 
 // --- Game Systems ---
 const cameraSystem = new CameraSystem(camera);
-const matchEngine = new MatchEngine(gameEvents);
 const powerupSystem = new PowerupSystem(gameEvents);
 const crowdSystem = new CrowdSystem(gameEvents);
 const subInSystem = new SubInSystem();
@@ -133,8 +122,21 @@ const uiOverlay = document.getElementById('ui-overlay')!;
 const hud = new HUD(uiOverlay);
 const menuUI = new MenuUI(uiOverlay, handleMenuAction);
 
+function startQuickGame(): void {
+  if (session) {
+    session.removeFromScene(scene);
+  }
+  const teams = generateTeams();
+  session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id);
+  session.addToScene(scene);
+  session.start();
+  stateMachine.transition('YourGame');
+  hud.updateScore(0, 0);
+  hud.updateClock(180);
+}
+
 function handleMenuAction(action: string, _data?: unknown) {
-  if (action === 'play') stateMachine.transition('TournamentSelect');
+  if (action === 'play') startQuickGame();
   if (action === 'select-tier') stateMachine.transition('DraftPhase');
   if (action === 'back') stateMachine.transition('MainMenu');
   if (action === 'settings') { /* settings handled inline */ }
@@ -157,31 +159,49 @@ stateMachine.onExit('TournamentSelect', () => {
   menuUI.hide();
 });
 
+stateMachine.onEnter('YourGame', () => {
+  menuUI.hide();
+});
+
 // Show main menu on start
 menuUI.show('main');
 
 // --- Game Loop ---
 function update(dt: number): void {
-  ball.update(dt);
-  powerupSystem.tick(dt);
-  crowdSystem.tick(dt);
+  if (session && stateMachine.current === 'YourGame') {
+    // Get combined input
+    const touchInput = touchControls.getInput();
+    const kbInput = keyboardControls.getInput();
+    const input: ControlInput = {
+      joystick: {
+        x: touchInput.joystick.x || kbInput.joystick.x,
+        y: touchInput.joystick.y || kbInput.joystick.y,
+      },
+      gesture: touchInput.gesture ?? kbInput.gesture,
+    };
 
-  if (matchEngine.state.phase === 'playing') {
-    matchEngine.tickClock(dt);
+    session.processInput(input, dt);
+    session.update(dt);
 
-    const diff = matchEngine.getScoreDifferential();
+    // Camera
+    const camInfo = session.getCameraInfo();
+    cameraSystem.setMode(camInfo.mode);
+    cameraSystem.update(camInfo.trackPosition, camInfo.lookAt, dt);
+
+    // HUD
+    hud.updateScore(session.matchEngine.state.homeScore, session.matchEngine.state.awayScore);
+    hud.updateClock(session.matchEngine.state.clockSeconds);
+    hud.updateCrowdLevel(crowdSystem.getLevel());
+
+    // Systems
+    powerupSystem.tick(dt);
+    crowdSystem.tick(dt);
+    const diff = session.matchEngine.getScoreDifferential();
     if (diff) {
       powerupSystem.update(diff.deficit, dt);
       crowdSystem.updateScoreDiff(diff.deficit);
     }
   }
-
-  cameraSystem.update(testPlayer.group.position, ball.mesh.position, dt);
-
-  // Update HUD
-  hud.updateScore(matchEngine.state.homeScore, matchEngine.state.awayScore);
-  hud.updateClock(matchEngine.state.clockSeconds);
-  hud.updateCrowdLevel(crowdSystem.getLevel());
 }
 
 function render(): void {
@@ -192,19 +212,16 @@ const loop = new GameLoop({ fixedStep: 1 / 60, update, render });
 loop.start();
 
 export { scene, camera, renderer, gameEvents, loop };
-export { cameraSystem, matchEngine, powerupSystem, crowdSystem, subInSystem, bettingSystem };
+export { cameraSystem, powerupSystem, crowdSystem, subInSystem, bettingSystem };
 
 // Suppress unused-variable warnings for systems used later in game flow
 void Tournament;
 void DraftSystem;
-void generateTeams;
 void BracketViewUI;
 void BettingUI;
 void PlayerCreatorUI;
 void DraftUI;
 void progressionSystem;
 void saveSystem;
-void touchControls;
-void keyboardControls;
 
 console.log('March Madness 3v3 initialized — all systems wired');
