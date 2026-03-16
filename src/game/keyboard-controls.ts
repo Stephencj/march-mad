@@ -4,6 +4,7 @@ export class KeyboardControls {
   private keys = new Set<string>();
   private gestureCallbacks: Array<(g: GestureResult) => void> = [];
   private spaceDownTime = 0;
+  private lastGesture: GestureResult | null = null;
 
   onGesture(callback: (g: GestureResult) => void): void {
     this.gestureCallbacks.push(callback);
@@ -30,6 +31,7 @@ export class KeyboardControls {
   }
 
   private emitGesture(gesture: GestureResult): void {
+    this.lastGesture = gesture;
     this.gestureCallbacks.forEach((cb) => cb(gesture));
   }
 
@@ -42,6 +44,8 @@ export class KeyboardControls {
     if (this.keys.has('KeyS')) y += 1;
     const mag = Math.sqrt(x * x + y * y);
     if (mag > 1) { x /= mag; y /= mag; }
-    return { joystick: { x, y }, gesture: null };
+    const gesture = this.lastGesture;
+    this.lastGesture = null; // consume gesture so it doesn't repeat
+    return { joystick: { x, y }, gesture };
   }
 }

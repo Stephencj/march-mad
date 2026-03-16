@@ -149,9 +149,11 @@ export class TouchControls {
   }
 
   getInput(): ControlInput {
+    const gesture = this.lastGesture;
+    this.lastGesture = null; // consume gesture so it doesn't repeat
     return {
       joystick: { x: this.joystickDelta.x, y: this.joystickDelta.y },
-      gesture: this.lastGesture,
+      gesture,
     };
   }
 
