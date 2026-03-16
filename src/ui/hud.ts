@@ -1,0 +1,128 @@
+import type { CrowdLevel } from '@/core/types';
+import type { SubInStageName } from '@/systems/sub-in';
+
+const CROWD_COLORS: Record<CrowdLevel, string> = {
+  CALM: '#4caf50',
+  ENGAGED: '#8bc34a',
+  HYPED: '#ffeb3b',
+  ROWDY: '#ff9800',
+  CHAOS: '#f44336',
+};
+
+const SUB_IN_STYLES: Record<SubInStageName, { color: string; fontSize: string; fontWeight: string }> = {
+  subtle: { color: '#ffffff', fontSize: '14px', fontWeight: 'normal' },
+  pulsing: { color: '#ffc107', fontSize: '18px', fontWeight: 'bold' },
+  urgent: { color: '#ff5722', fontSize: '22px', fontWeight: 'bold' },
+  'last-stand': { color: '#f44336', fontSize: '28px', fontWeight: 'bold' },
+};
+
+export class HUD {
+  private container: HTMLElement;
+  private scoreEl: HTMLElement;
+  private clockEl: HTMLElement;
+  private powerupEl: HTMLElement;
+  private crowdEl: HTMLElement;
+  private subInEl: HTMLElement;
+
+  constructor(container: HTMLElement) {
+    this.container = container;
+
+    this.scoreEl = document.createElement('div');
+    this.scoreEl.dataset.hudRole = 'score';
+
+    this.clockEl = document.createElement('div');
+    this.clockEl.dataset.hudRole = 'clock';
+
+    this.powerupEl = document.createElement('div');
+    this.powerupEl.dataset.hudRole = 'powerup';
+    this.powerupEl.style.display = 'none';
+
+    this.crowdEl = document.createElement('div');
+    this.crowdEl.dataset.hudRole = 'crowd';
+
+    this.subInEl = document.createElement('div');
+    this.subInEl.dataset.hudRole = 'sub-in';
+    this.subInEl.style.display = 'none';
+
+    this.container.appendChild(this.scoreEl);
+    this.container.appendChild(this.clockEl);
+    this.container.appendChild(this.powerupEl);
+    this.container.appendChild(this.crowdEl);
+    this.container.appendChild(this.subInEl);
+  }
+
+  updateScore(home: number, away: number): void {
+    this.scoreEl.textContent = '';
+
+    const homeSpan = document.createElement('span');
+    homeSpan.textContent = String(home);
+
+    const sep = document.createElement('span');
+    sep.textContent = ' - ';
+
+    const awaySpan = document.createElement('span');
+    awaySpan.textContent = String(away);
+
+    this.scoreEl.appendChild(homeSpan);
+    this.scoreEl.appendChild(sep);
+    this.scoreEl.appendChild(awaySpan);
+  }
+
+  updateClock(seconds: number): void {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    const formatted = `${mins}:${String(secs).padStart(2, '0')}`;
+    this.clockEl.textContent = formatted;
+  }
+
+  showPowerup(type: string, remaining: number): void {
+    this.powerupEl.textContent = '';
+    this.powerupEl.style.display = '';
+
+    const typeSpan = document.createElement('span');
+    typeSpan.textContent = type;
+
+    const timeSpan = document.createElement('span');
+    timeSpan.textContent = ` (${remaining}s)`;
+
+    this.powerupEl.appendChild(typeSpan);
+    this.powerupEl.appendChild(timeSpan);
+  }
+
+  hidePowerup(): void {
+    this.powerupEl.style.display = 'none';
+    this.powerupEl.textContent = '';
+  }
+
+  updateCrowdLevel(level: CrowdLevel): void {
+    this.crowdEl.textContent = level;
+    this.crowdEl.style.color = CROWD_COLORS[level];
+  }
+
+  showSubInPrompt(stage: SubInStageName): void {
+    const style = SUB_IN_STYLES[stage];
+
+    this.subInEl.textContent = '';
+    this.subInEl.style.display = '';
+    this.subInEl.style.color = style.color;
+    this.subInEl.style.fontSize = style.fontSize;
+    this.subInEl.style.fontWeight = style.fontWeight;
+
+    const label = document.createElement('span');
+    label.textContent = 'SUB IN';
+    this.subInEl.appendChild(label);
+  }
+
+  hideSubInPrompt(): void {
+    this.subInEl.style.display = 'none';
+    this.subInEl.textContent = '';
+  }
+
+  destroy(): void {
+    this.container.removeChild(this.scoreEl);
+    this.container.removeChild(this.clockEl);
+    this.container.removeChild(this.powerupEl);
+    this.container.removeChild(this.crowdEl);
+    this.container.removeChild(this.subInEl);
+  }
+}
