@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { GameLoop } from './core/game-loop';
 import { gameEvents } from './core/events';
 import { GameStateMachine, type StateTransition } from './core/state-machine';
+import { createCourt } from './game/court';
+import { Ball } from './game/ball';
+import { GamePlayer } from './game/player';
+import { createDefaultPlayerStats } from './core/types';
 
 // --- Renderer Setup ---
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -44,9 +48,24 @@ const transitions: StateTransition[] = [
 
 export const stateMachine = new GameStateMachine(transitions);
 
+// --- Scene Objects ---
+const court = createCourt();
+scene.add(court);
+
+const ball = new Ball(new THREE.Vector3(0, 1, 2));
+scene.add(ball.mesh);
+
+// Test players (will be replaced by proper team setup later)
+const testPlayer = new GamePlayer(
+  { id: 'test', name: 'Player 1', stats: createDefaultPlayerStats(), personality: 'Team Player', isCustom: false },
+  new THREE.Vector3(-2, 0, 3),
+  0x3498db
+);
+scene.add(testPlayer.group);
+
 // --- Game Loop ---
 function update(dt: number): void {
-  // Physics and game logic will be added here by later tasks
+  ball.update(dt);
 }
 
 function render(): void {
