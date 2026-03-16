@@ -52,6 +52,7 @@ export class GameSession {
     ];
     homeTeam.players.forEach((pd, i) => {
       const gp = new GamePlayer(pd, homePositions[i], homeColor);
+      if (pd.id === humanPlayerId) gp.isHumanControlled = true;
       this.homePlayers.push(gp);
       if (pd.id !== humanPlayerId) {
         this.playerAIs.set(pd.id, new PlayerAI(pd.stats, pd.personality));
@@ -138,6 +139,11 @@ export class GameSession {
 
     // Move AI players toward their targets every frame
     this.moveAIPlayers(dt);
+
+    // Animate all players (dribble, walk cycle, idle)
+    for (const player of this.getAllPlayers()) {
+      player.animate(dt);
+    }
 
     // Update match engine clock
     if (this.matchEngine.state.phase === 'playing') {
