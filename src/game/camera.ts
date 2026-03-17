@@ -27,6 +27,7 @@ export class CameraSystem {
   private targetPosition = new THREE.Vector3();
   private targetLookAt = new THREE.Vector3();
   private _needsSnap = true;
+  fullCourt = false;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -62,8 +63,18 @@ export class CameraSystem {
     }
 
     // Compute target position based on current mode
-    const config = MODE_CONFIGS[this._currentMode];
+    const baseConfig = MODE_CONFIGS[this._currentMode];
+    let config = baseConfig;
+    if (this.fullCourt && (this._currentMode === 'offense' || this._currentMode === 'defense')) {
+      config = {
+        offsetBehind: baseConfig.offsetBehind * 1.3,
+        offsetHeight: baseConfig.offsetHeight * 1.25,
+        offsetSide: baseConfig.offsetSide,
+      };
+    }
     this.computeTargetPosition(playerPosition, hoopPosition, config);
+
+    const effectiveLerpSpeed = this.fullCourt ? 3 : LERP_SPEED;
 
     if (this._needsSnap) {
       // Snap directly to target on mode change
@@ -71,7 +82,7 @@ export class CameraSystem {
       this._needsSnap = false;
     } else {
       // Lerp camera position toward target for smooth transitions
-      const lerpFactor = 1 - Math.exp(-LERP_SPEED * dt);
+      const lerpFactor = 1 - Math.exp(-effectiveLerpSpeed * dt);
       this.camera.position.lerp(this.targetPosition, lerpFactor);
     }
 
