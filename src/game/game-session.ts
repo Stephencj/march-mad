@@ -23,6 +23,7 @@ export class GameSession {
   ball: Ball;
   matchEngine: MatchEngine;
 
+  private cameraRef: THREE.Camera | null = null;
   private events: EventBus;
   private humanPlayerId: string;
   private shotDetector = new ShotDetector();
@@ -73,6 +74,10 @@ export class GameSession {
     });
   }
 
+  setCameraRef(camera: THREE.Camera): void {
+    this.cameraRef = camera;
+  }
+
   addToScene(scene: THREE.Scene): void {
     this.scene = scene;
     scene.add(this.ball.mesh);
@@ -100,7 +105,7 @@ export class GameSession {
     // Update ball position
     if (this.ball.heldBy) {
       const holder = this.getPlayerById(this.ball.heldBy);
-      if (holder) this.ball.followHolder(holder.position);
+      if (holder) this.ball.followHolder(holder.position, holder.group.rotation.y, holder.animTime);
     } else {
       this.ball.update(dt);
     }
@@ -155,8 +160,25 @@ export class GameSession {
     const human = this.getHumanPlayer();
     if (!human) return;
 
-    // Move with joystick
-    human.moveByInput(input.joystick.x, input.joystick.y, dt);
+    // Transform joystick input to camera-relative world space
+    let worldX = input.joystick.x;
+    let worldZ = input.joystick.y; // screen Y → world Z
+
+    if (this.cameraRef) {
+      // Get camera's forward and right vectors projected onto XZ plane
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.cameraRef.quaternion);
+      forward.y = 0;
+      forward.normalize();
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.cameraRef.quaternion);
+      right.y = 0;
+      right.normalize();
+
+      // Transform input: joystick X = camera right, joystick Y = camera forward
+      worldX = right.x * input.joystick.x + forward.x * (-input.joystick.y);
+      worldZ = right.z * input.joystick.x + forward.z * (-input.joystick.y);
+    }
+
+    human.moveByInput(worldX, worldZ, dt);
 
     // Process gesture (consume it so it doesn't repeat next frame)
     if (input.gesture) {

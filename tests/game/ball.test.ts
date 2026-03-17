@@ -44,10 +44,13 @@ describe('Ball - enhanced', () => {
     const ball = new Ball();
     ball.pickup('p1');
     const holderPos = new THREE.Vector3(3, 0, 5);
-    ball.followHolder(holderPos);
+    ball.followHolder(holderPos, 0, 0);
+    // Ball should be near the holder (offset in front based on rotation)
     expect(ball.mesh.position.x).toBeCloseTo(3, 0);
-    expect(ball.mesh.position.z).toBeCloseTo(5, 0);
-    expect(ball.mesh.position.y).toBeGreaterThan(0.5);
+    expect(ball.mesh.position.z).toBeCloseTo(5.4, 0);
+    // Dribble Y should be between 0.3 and 1.0
+    expect(ball.mesh.position.y).toBeGreaterThanOrEqual(0.3);
+    expect(ball.mesh.position.y).toBeLessThanOrEqual(1.0);
   });
 
   it('enters flight state when shot', () => {

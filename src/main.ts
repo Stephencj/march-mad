@@ -129,6 +129,7 @@ function startQuickGame(): void {
   const teams = generateTeams();
   session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id);
   session.addToScene(scene);
+  session.setCameraRef(camera);
   session.start();
   stateMachine.transition('YourGame');
   hud.updateScore(0, 0);

@@ -57,9 +57,10 @@ describe('GamePlayer', () => {
   it('faces movement direction', () => {
     const player = makePlayer();
     player.moveToward(new THREE.Vector3(0, 0, -10), 1 / 60);
-    const forward = new THREE.Vector3(0, 0, -1);
-    const facing = new THREE.Vector3(0, 0, -1).applyQuaternion(player.group.quaternion);
-    expect(facing.dot(forward)).toBeGreaterThan(0.5);
+    const expectedFacing = new THREE.Vector3(0, 0, -1);
+    // In Three.js, default forward is +Z; apply quaternion to get actual facing
+    const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(player.group.quaternion);
+    expect(facing.dot(expectedFacing)).toBeGreaterThan(0.5);
   });
 
   it('different player IDs get different hair styles', () => {

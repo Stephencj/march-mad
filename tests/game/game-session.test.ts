@@ -98,4 +98,23 @@ describe('GameSession', () => {
     session.handleMadeShot('home', 'three-pointer');
     expect(scoreHandler).toHaveBeenCalled();
   });
+
+  it('camera-relative input: camera facing -Z, joystick Y=-1 moves player in -Z', () => {
+    const events = new EventBus();
+    const session = new GameSession(events, makeTeam('h', 'Home'), makeTeam('a', 'Away'), 'h-1');
+    session.start();
+
+    // Create a camera looking down -Z (default orientation)
+    const cam = new THREE.PerspectiveCamera();
+    cam.position.set(0, 10, 15);
+    cam.lookAt(0, 0, 0);
+    cam.updateMatrixWorld();
+    session.setCameraRef(cam);
+
+    const humanPlayer = session.getHumanPlayer();
+    const startZ = humanPlayer.position.z;
+    // Joystick Y=-1 (push forward on stick) should move player in -Z (into the screen / toward hoop)
+    session.processInput({ joystick: { x: 0, y: -1 }, gesture: null }, 1 / 60);
+    expect(humanPlayer.position.z).toBeLessThan(startZ);
+  });
 });

@@ -12,7 +12,7 @@ export class Ball {
   private passSpeed = 12;
 
   constructor(position = new THREE.Vector3(0, 1, 0)) {
-    const geometry = new THREE.SphereGeometry(0.12, 12, 8);
+    const geometry = new THREE.SphereGeometry(0.22, 12, 8);
     const material = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.position.copy(position);
@@ -44,12 +44,15 @@ export class Ball {
     return points;
   }
 
-  followHolder(holderPosition: THREE.Vector3): void {
-    this.mesh.position.set(
-      holderPosition.x,
-      holderPosition.y + 1.0,
-      holderPosition.z
-    );
+  followHolder(holderPosition: THREE.Vector3, holderRotationY: number = 0, animTime: number = 0): void {
+    if (this.heldBy === null) return;
+    // Position ball in front of player based on facing direction
+    const offsetDist = 0.4;
+    const frontX = holderPosition.x + Math.sin(holderRotationY) * offsetDist;
+    const frontZ = holderPosition.z + Math.cos(holderRotationY) * offsetDist;
+    // Dribble bounce: ball goes from hand height down to near ground and back
+    const dribbleY = 0.3 + Math.abs(Math.sin(animTime * 10)) * 0.7;
+    this.mesh.position.set(frontX, dribbleY, frontZ);
   }
 
   shootAt(target: THREE.Vector3, power: number): void {
@@ -108,8 +111,8 @@ export class Ball {
     // State 4: normal gravity + bounce physics (existing)
     this.velocity.y -= 9.81 * dt;
     this.mesh.position.addScaledVector(this.velocity, dt);
-    if (this.mesh.position.y < 0.12) {
-      this.mesh.position.y = 0.12;
+    if (this.mesh.position.y < 0.22) {
+      this.mesh.position.y = 0.22;
       this.velocity.y = -this.velocity.y * 0.6;
     }
   }

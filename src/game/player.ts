@@ -43,7 +43,7 @@ export class GamePlayer {
 
   private stats = { points: 0, assists: 0, turnovers: 0 };
   private moveSpeed: number;
-  private animTime = 0;
+  animTime = 0;
   private lastMoving = false;
   private velocity = new THREE.Vector3();
   private prevPosition = new THREE.Vector3();
@@ -376,32 +376,46 @@ export class GamePlayer {
       }
     }
 
-    // --- Leg walk cycle ---
+    // --- Leg walk cycle & bouncy movement ---
     const upperLeft = this.group.getObjectByName('leg-upper-left');
     const upperRight = this.group.getObjectByName('leg-upper-right');
     const lowerLeft = this.group.getObjectByName('leg-lower-left');
     const lowerRight = this.group.getObjectByName('leg-lower-right');
     const shoeLeft = this.group.getObjectByName('shoe-left');
     const shoeRight = this.group.getObjectByName('shoe-right');
+    const torso = this.group.getObjectByName('torso');
 
     if (isMoving) {
-      const walkCycle = this.animTime * 8.0;
-      const legSwing = 0.35 * Math.sin(walkCycle);
+      // Bouncy body movement
+      this.group.position.y = Math.abs(Math.sin(this.animTime * 12)) * 0.15;
 
-      if (upperLeft) upperLeft.rotation.x = legSwing;
-      if (upperRight) upperRight.rotation.x = -legSwing;
+      // Drop torso slightly while running
+      if (torso) {
+        torso.position.y = 0.98 - 0.08;
+      }
 
-      // Lower legs have a secondary swing (delayed phase)
-      const lowerSwing = 0.25 * Math.sin(walkCycle + 1.2);
-      if (lowerLeft) lowerLeft.rotation.x = lowerSwing;
-      if (lowerRight) lowerRight.rotation.x = -lowerSwing;
+      // Upper legs stride animation
+      if (upperLeft) upperLeft.rotation.x = Math.sin(this.animTime * 8) * 0.4;
+      if (upperRight) upperRight.rotation.x = -Math.sin(this.animTime * 8) * 0.4;
+
+      // Lower legs knee bend
+      if (lowerLeft) lowerLeft.rotation.x = Math.sin(this.animTime * 8) * 0.2 - 0.3;
+      if (lowerRight) lowerRight.rotation.x = -Math.sin(this.animTime * 8) * 0.2 - 0.3;
 
       // Shoes follow lower legs
-      const shoeSwing = 0.15 * Math.sin(walkCycle + 1.5);
+      const shoeSwing = 0.15 * Math.sin(this.animTime * 8 + 1.5);
       if (shoeLeft) shoeLeft.rotation.x = shoeSwing;
       if (shoeRight) shoeRight.rotation.x = -shoeSwing;
     } else {
-      // Idle: legs straight
+      // Idle: smooth return and gentle bob
+      this.group.position.y = Math.sin(this.animTime * 2) * 0.03;
+
+      // Return torso to rest
+      if (torso) {
+        torso.position.y = 0.98;
+      }
+
+      // Legs at rest
       if (upperLeft) upperLeft.rotation.x = 0;
       if (upperRight) upperRight.rotation.x = 0;
       if (lowerLeft) lowerLeft.rotation.x = 0;
@@ -429,7 +443,7 @@ export class GamePlayer {
     this.velocity.copy(direction).multiplyScalar(actualStep / dt);
     this.group.position.addScaledVector(direction, actualStep);
 
-    const angle = Math.atan2(-direction.x, -direction.z);
+    const angle = Math.atan2(direction.x, direction.z);
     this.group.rotation.y = angle;
 
     this.animate(dt);
@@ -471,7 +485,7 @@ export class GamePlayer {
     this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -6.5, 6.5);
 
     // Face movement direction
-    const angle = Math.atan2(-direction.x, -direction.z);
+    const angle = Math.atan2(direction.x, direction.z);
     this.group.rotation.y = angle;
 
     this.animate(dt);
