@@ -451,11 +451,12 @@ export class GameSession {
             assignPos.z * 0.7 + hoopPos.z * 0.3
           );
 
-          // If their man is cutting toward hoop, react
+          // Always track their man — use reacting for close tracking, moving for distant
           if (assignment.velocity && assignment.velocity.lengthSq() > 0.5) {
-            player.aiMovementState = 'reacting';
+            player.aiMovementState = 'reacting'; // man is cutting, react fast
+          } else if (player.aiMovementState === 'holding' && player.aiHoldTimer <= 0) {
+            player.aiMovementState = 'moving'; // done holding, follow man
           }
-          // Otherwise hold position and watch
         }
         continue; // Skip the offensive decision tree
       }
@@ -463,34 +464,35 @@ export class GameSession {
       // --- OFFENSIVE AI WITHOUT BALL: V-Cuts and patience ---
       if (isOnOffense && !player.hasBall) {
         // V-Cut system: hold position, then cut, then return
-        if (player.aiMovementState === 'holding') {
-          // Standing at spot — face ball handler
-          // Don't set new target, let hold timer run out in moveAIPlayers
-          if (player.aiHoldTimer <= 0) {
-            // Time to make a move — pick a V-cut or reposition
-            const roll = Math.random();
-            if (roll < 0.4) {
-              // V-CUT TOWARD HOOP: fake toward basket
-              player.aiTarget = new THREE.Vector3(
-                COURT_DIMENSIONS.hoopPosition.x + (Math.random() - 0.5) * 3,
-                0,
-                COURT_DIMENSIONS.hoopPosition.z + 2 + Math.random() * 2
-              );
-              player.aiMovementState = 'moving';
-            } else if (roll < 0.7) {
-              // V-CUT TO WING: move to open perimeter spot
-              const side = player.position.x > 0 ? -1 : 1;
-              player.aiTarget = new THREE.Vector3(
-                side * (4 + Math.random() * 2),
-                0,
-                1 + Math.random() * 3
-              );
-              player.aiMovementState = 'moving';
-            } else {
-              // HOLD AND WAIT: stay at current spot longer
-              player.aiHoldTimer = 1.5 + Math.random() * 2;
-            }
+        if (player.aiMovementState === 'holding' && player.aiHoldTimer <= 0) {
+          // Time to make a move — pick a V-cut or reposition
+          const roll = Math.random();
+          if (roll < 0.4) {
+            // V-CUT TOWARD HOOP: fake toward basket
+            player.aiTarget = new THREE.Vector3(
+              COURT_DIMENSIONS.hoopPosition.x + (Math.random() - 0.5) * 3,
+              0,
+              COURT_DIMENSIONS.hoopPosition.z + 2 + Math.random() * 2
+            );
+            player.aiMovementState = 'moving';
+          } else if (roll < 0.7) {
+            // V-CUT TO WING: move to open perimeter spot
+            const side = player.position.x > 0 ? -1 : 1;
+            player.aiTarget = new THREE.Vector3(
+              side * (4 + Math.random() * 2),
+              0,
+              1 + Math.random() * 3
+            );
+            player.aiMovementState = 'moving';
+          } else {
+            // HOLD AND WAIT: stay at current spot longer
+            player.aiHoldTimer = 1 + Math.random() * 1.5;
           }
+        } else if (player.aiMovementState !== 'holding' && player.aiMovementState !== 'moving') {
+          // Just arrived or no state — get a formation position and hold
+          this.moveToFormation(player);
+          player.aiMovementState = 'holding';
+          player.aiHoldTimer = 0.8 + Math.random() * 1.2;
         }
         continue; // Skip the old decision tree
       }
@@ -585,38 +587,48 @@ export class GameSession {
     for (const player of this.getAllPlayers()) {
       if (player.data.id === this.humanPlayerId) continue;
 
-      if (!player.aiTarget) continue;
-
       switch (player.aiMovementState) {
         case 'holding':
           // Stand still, face the ball, countdown timer
           player.aiHoldTimer -= dt;
           if (player.aiHoldTimer <= 0) {
-            player.aiMovementState = 'moving';
+            // Timer expired — if we have a target, start moving; otherwise stay holding briefly
+            if (player.aiTarget) {
+              player.aiMovementState = 'moving';
+            } else {
+              // No target yet — give a formation target as fallback
+              this.moveToFormation(player);
+              player.aiMovementState = 'moving';
+            }
           }
           // Don't move — just animate idle
           player.velocity.set(0, 0, 0);
           break;
 
         case 'moving': {
-          const dist = player.distanceTo(player.aiTarget);
+          if (!player.aiTarget) {
+            // No target — get a formation position and keep moving
+            this.moveToFormation(player);
+          }
+          const dist = player.distanceTo(player.aiTarget!);
           if (dist < 0.3) {
-            // Reached target — switch to holding for 1-3 seconds
+            // Reached target — switch to holding for 1-2 seconds
             player.aiMovementState = 'holding';
-            player.aiHoldTimer = 1 + Math.random() * 2;
+            player.aiHoldTimer = 0.8 + Math.random() * 1.2;
           } else {
-            player.moveToward(player.aiTarget, dt);
+            player.moveToward(player.aiTarget!, dt);
           }
           break;
         }
 
         case 'reacting': {
+          if (!player.aiTarget) break;
           // Quick burst movement — no holding, just go
           player.moveToward(player.aiTarget, dt);
           const reactDist = player.distanceTo(player.aiTarget);
           if (reactDist < 0.5) {
             player.aiMovementState = 'holding';
-            player.aiHoldTimer = 0.5 + Math.random();
+            player.aiHoldTimer = 0.3 + Math.random() * 0.7;
           }
           break;
         }

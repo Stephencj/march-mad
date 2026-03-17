@@ -437,11 +437,11 @@ export class GamePlayer {
         kneeL.rotation.x = 0.15 + Math.max(0, stride) * 0.6;
         kneeR.rotation.x = 0.15 + Math.max(0, -stride) * 0.6;
 
-        // Arms swing opposite to legs
-        shoulderL.rotation.x = stride * 0.5;
-        shoulderR.rotation.x = -stride * 0.5;
-        elbowL.rotation.x = 0.3 + Math.max(0, -stride) * 0.3;
-        elbowR.rotation.x = 0.3 + Math.max(0, stride) * 0.3;
+        // Arms swing opposite to legs (negative rotation.x = forward in nested skeleton)
+        shoulderL.rotation.x = -stride * 0.5;
+        shoulderR.rotation.x = stride * 0.5;
+        elbowL.rotation.x = 0.3 + Math.max(0, stride) * 0.3;
+        elbowR.rotation.x = 0.3 + Math.max(0, -stride) * 0.3;
         break;
       }
 
@@ -501,17 +501,39 @@ export class GamePlayer {
       }
 
       case 'steal': {
-        // Swipe animation — one arm lunges forward
+        // DRAMATIC swipe — arm lunges forward and scales up
         const progress = 1 - (this.stealTimer / 0.3); // 0 to 1 over 0.3s
-        bodyPivot.rotation.x = 0.3;
-        shoulderR.rotation.x = -1.2 * Math.sin(progress * Math.PI); // forward lunge
-        elbowR.rotation.x = 0.2;
-        shoulderL.rotation.x = 0.3; // balance arm back
-        elbowL.rotation.x = 0.4;
-        hipL.rotation.x = -0.2;
-        hipR.rotation.x = 0.2;
-        kneeL.rotation.x = 0.3;
-        kneeR.rotation.x = 0.3;
+        const swipeArc = Math.sin(progress * Math.PI); // peaks at 0.5
+
+        // Body lunges forward
+        bodyPivot.rotation.x = 0.35 + swipeArc * 0.15;
+
+        // Right arm SWEEPS forward dramatically
+        shoulderR.rotation.x = -1.5 * swipeArc; // big forward reach
+        shoulderR.rotation.z = -0.3 * swipeArc; // arm swings across body
+        elbowR.rotation.x = 0.6 * swipeArc; // elbow extends at peak
+
+        // Forearm SCALES UP as it reaches (dramatic enlargement)
+        const forearmR = this.group.getObjectByName('forearm-right');
+        if (forearmR) {
+          const scaleBoost = 1 + swipeArc * 0.8; // grows up to 1.8x at peak
+          forearmR.scale.set(scaleBoost, scaleBoost, scaleBoost);
+        }
+
+        // Left arm pulls back for balance
+        shoulderL.rotation.x = 0.4;
+        elbowL.rotation.x = 0.5;
+
+        // Legs in lunge stance
+        hipL.rotation.x = -0.3; // front leg forward
+        hipR.rotation.x = 0.3; // back leg back
+        kneeL.rotation.x = 0.4;
+        kneeR.rotation.x = 0.2;
+
+        // Reset forearm scale when steal ends
+        if (this.stealTimer <= 0 && forearmR) {
+          forearmR.scale.set(1, 1, 1);
+        }
         break;
       }
 
@@ -587,10 +609,16 @@ export class GamePlayer {
       }
     }
 
-    // Reset shoulder Z rotation if not in dribble/guard
-    if (this.animState !== 'dribble' && this.animState !== 'guard') {
+    // Reset shoulder Z rotation if not in dribble/guard/steal
+    if (this.animState !== 'dribble' && this.animState !== 'guard' && this.animState !== 'steal') {
       shoulderL.rotation.z = 0;
       shoulderR.rotation.z = 0;
+    }
+
+    // Reset forearm scale if not stealing
+    if (this.animState !== 'steal') {
+      const forearmR = this.group.getObjectByName('forearm-right');
+      if (forearmR) forearmR.scale.set(1, 1, 1);
     }
 
     this.lastMoving = isMoving;
