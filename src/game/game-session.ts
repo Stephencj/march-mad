@@ -496,14 +496,15 @@ export class GameSession {
       if (player.data.id === this.humanPlayerId) continue;
       if (player.aiTarget) {
         const dist = player.distanceTo(player.aiTarget);
-        if (dist < 0.5) {
-          // Small wander around target point to prevent freezing
-          const wander = new THREE.Vector3(
-            (Math.random() - 0.5) * 0.5,
+        if (dist < 0.3) {
+          // Gentle drift around target — use sine wave, not random jitter
+          const t = performance.now() * 0.001;
+          const id = player.data.id.charCodeAt(0); // unique per player
+          player.aiTarget = player.aiTarget.clone().set(
+            player.aiTarget.x + Math.sin(t * 0.8 + id) * 0.3,
             0,
-            (Math.random() - 0.5) * 0.5
+            player.aiTarget.z + Math.cos(t * 0.6 + id * 2) * 0.3
           );
-          player.aiTarget = player.aiTarget.clone().add(wander);
         }
         player.moveToward(player.aiTarget, dt);
       }

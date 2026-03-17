@@ -50,7 +50,7 @@ export class GamePlayer {
 
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
-    this.moveSpeed = 3 + data.stats.speed * 0.5;
+    this.moveSpeed = 2 + data.stats.speed * 0.35; // 2.35 to 5.5 m/s — deliberate, not frantic
     this.group = this.createMesh(teamColor);
     this.group.position.copy(position);
     this.prevPosition.copy(position);
