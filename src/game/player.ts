@@ -657,20 +657,59 @@ export class GamePlayer {
       }
 
       case 'shoot': {
-        // Shooting motion — arms push up, body extends
+        // Basketball shot: snap ball up to shooting position, release, arms back down
+        // Phase 1 (0-0.15): Snap hands up together — ball in right hand (back), left guides (side)
+        // Phase 2 (0.15-0.4): Quick release — right arm extends up, left peels away
+        // Phase 3 (0.4-1.0): Follow through and arms back down
         bodyPivot.scale.set(1, 1, 1);
-        const progress = 1 - (this.shootTimer / 0.4); // 0 to 1 over 0.4s
-        bodyPivot.rotation.x = -0.1 * (1 - progress); // lean back then straighten
-        // Both arms push up
-        shoulderL.rotation.x = -0.5 - progress * 1.0;
-        shoulderR.rotation.x = -0.5 - progress * 1.0;
-        elbowL.rotation.x = -0.8 * (1 - progress); // NEGATIVE, extends to 0 at release
-        elbowR.rotation.x = -0.8 * (1 - progress); // NEGATIVE
-        // Legs straighten from crouch
+        const shootDuration = 0.4;
+        const progress = 1 - (this.shootTimer / shootDuration); // 0 to 1
+
+        if (progress < 0.15) {
+          // SNAP: hands come up together to shooting position
+          const snap = progress / 0.15; // 0 to 1 fast
+          // Right arm (shooting hand): up and back behind head
+          shoulderR.rotation.x = -1.8 * snap; // snaps up high
+          shoulderR.rotation.z = 0.1 * snap; // slightly outward
+          elbowR.rotation.x = -1.2 * snap; // bent, ball behind head
+          // Left arm (guide hand): up and to the side of ball
+          shoulderL.rotation.x = -1.6 * snap; // up, slightly less than right
+          shoulderL.rotation.z = -0.3 * snap; // left arm comes inward toward ball
+          elbowL.rotation.x = -0.8 * snap; // bent, hand on side of ball
+          // Slight crouch
+          bodyPivot.rotation.x = 0.05;
+          kneeL.rotation.x = 0.2 * snap;
+          kneeR.rotation.x = 0.2 * snap;
+        } else if (progress < 0.4) {
+          // RELEASE: right arm extends up, left peels away
+          const release = (progress - 0.15) / 0.25; // 0 to 1
+          // Right arm extends fully upward (shooting follow-through)
+          shoulderR.rotation.x = -1.8 - release * 0.8; // goes higher (-2.6)
+          shoulderR.rotation.z = 0.1;
+          elbowR.rotation.x = -1.2 + release * 1.0; // straightens out (-0.2)
+          // Left arm peels away to the side
+          shoulderL.rotation.x = -1.6 + release * 1.0; // drops to -0.6
+          shoulderL.rotation.z = -0.3 - release * 0.3; // opens outward more
+          elbowL.rotation.x = -0.8 + release * 0.5; // relaxes
+          // Body extends, legs straighten
+          bodyPivot.rotation.x = 0.05 - release * 0.15; // slight lean back
+          kneeL.rotation.x = 0.2 * (1 - release);
+          kneeR.rotation.x = 0.2 * (1 - release);
+        } else {
+          // RECOVER: arms come back down to sides
+          const recover = (progress - 0.4) / 0.6; // 0 to 1
+          shoulderR.rotation.x = -2.6 + recover * 2.6; // back to 0
+          shoulderR.rotation.z = 0.1 * (1 - recover);
+          elbowR.rotation.x = -0.2 + recover * 0.1; // back to -0.1
+          shoulderL.rotation.x = -0.6 + recover * 0.6; // back to 0
+          shoulderL.rotation.z = -0.6 + recover * 0.6; // back to 0
+          elbowL.rotation.x = -0.3 + recover * 0.2; // back to -0.1
+          bodyPivot.rotation.x = -0.1 + recover * 0.1; // back to 0
+          kneeL.rotation.x = 0;
+          kneeR.rotation.x = 0;
+        }
         hipL.rotation.x = 0;
         hipR.rotation.x = 0;
-        kneeL.rotation.x = 0.3 * (1 - progress);
-        kneeR.rotation.x = 0.3 * (1 - progress);
         break;
       }
 
