@@ -332,14 +332,14 @@ export class GamePlayer {
     const forearmLeft = this.group.getObjectByName('forearm-left');
 
     if (this.hasBall) {
-      // Dribble animation: right arm/forearm bobs up and down
+      // Dribble animation: right arm/forearm bobs up and down (synced with ball dribble)
       if (armRight) {
-        armRight.rotation.x = 0.3 * Math.sin(this.animTime * 10.0);
+        armRight.rotation.x = 0.3 * Math.sin(this.animTime * 6.0);
       }
       if (forearmRight) {
-        const dribbleBob = 0.12 * Math.sin(this.animTime * 10.0);
+        const dribbleBob = 0.12 * Math.sin(this.animTime * 6.0);
         forearmRight.position.y = 0.77 + dribbleBob;
-        forearmRight.rotation.x = 0.4 * Math.sin(this.animTime * 10.0 + 0.5);
+        forearmRight.rotation.x = 0.4 * Math.sin(this.animTime * 6.0 + 0.5);
       }
       // Left arm stays mostly still when dribbling
       if (armLeft) {
@@ -350,16 +350,16 @@ export class GamePlayer {
         forearmLeft.rotation.x = 0;
       }
     } else if (isMoving) {
-      // Running arm swing
-      const swing = 0.4 * Math.sin(this.animTime * 8.0);
+      // Running arm swing — synced with leg stride
+      const swing = 0.4 * Math.sin(this.animTime * 5.0);
       if (armRight) armRight.rotation.x = swing;
       if (armLeft) armLeft.rotation.x = -swing;
       if (forearmRight) {
-        forearmRight.rotation.x = 0.2 * Math.sin(this.animTime * 8.0 + 1.0);
+        forearmRight.rotation.x = 0.2 * Math.sin(this.animTime * 5.0 + 1.0);
         forearmRight.position.y = 0.77;
       }
       if (forearmLeft) {
-        forearmLeft.rotation.x = -0.2 * Math.sin(this.animTime * 8.0 + 1.0);
+        forearmLeft.rotation.x = -0.2 * Math.sin(this.animTime * 5.0 + 1.0);
         forearmLeft.position.y = 0.77;
       }
     } else {
@@ -386,29 +386,32 @@ export class GamePlayer {
     const torso = this.group.getObjectByName('torso');
 
     if (isMoving) {
-      // Bouncy body movement
-      this.group.position.y = Math.abs(Math.sin(this.animTime * 12)) * 0.15;
+      // Bouncy body movement — slower, more dramatic bounce
+      this.group.position.y = Math.abs(Math.sin(this.animTime * 5)) * 0.25;
 
       // Drop torso slightly while running
       if (torso) {
         torso.position.y = 0.98 - 0.08;
       }
 
-      // Upper legs stride animation
-      if (upperLeft) upperLeft.rotation.x = Math.sin(this.animTime * 8) * 0.4;
-      if (upperRight) upperRight.rotation.x = -Math.sin(this.animTime * 8) * 0.4;
+      // Upper legs stride animation — slower, wider stride
+      const stride = Math.sin(this.animTime * 5) * 0.5;
+      if (upperLeft) upperLeft.rotation.x = stride;
+      if (upperRight) upperRight.rotation.x = -stride;
 
-      // Lower legs knee bend
-      if (lowerLeft) lowerLeft.rotation.x = Math.sin(this.animTime * 8) * 0.2 - 0.3;
-      if (lowerRight) lowerRight.rotation.x = -Math.sin(this.animTime * 8) * 0.2 - 0.3;
+      // Lower legs knee bend — positive rotation.x swings calf backward (realistic knee bend)
+      // Each lower leg bends back more when its upper leg is in the forward part of the stride
+      const leftKneeBend = Math.max(0, stride) * 0.6 + 0.15;
+      const rightKneeBend = Math.max(0, -stride) * 0.6 + 0.15;
+      if (lowerLeft) lowerLeft.rotation.x = leftKneeBend;
+      if (lowerRight) lowerRight.rotation.x = rightKneeBend;
 
       // Shoes follow lower legs
-      const shoeSwing = 0.15 * Math.sin(this.animTime * 8 + 1.5);
-      if (shoeLeft) shoeLeft.rotation.x = shoeSwing;
-      if (shoeRight) shoeRight.rotation.x = -shoeSwing;
+      if (shoeLeft) shoeLeft.rotation.x = leftKneeBend * 0.5;
+      if (shoeRight) shoeRight.rotation.x = rightKneeBend * 0.5;
     } else {
       // Idle: smooth return and gentle bob
-      this.group.position.y = Math.sin(this.animTime * 2) * 0.03;
+      this.group.position.y = Math.sin(this.animTime * 1.5) * 0.04;
 
       // Return torso to rest
       if (torso) {

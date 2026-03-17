@@ -51,7 +51,7 @@ export class Ball {
     const frontX = holderPosition.x + Math.sin(holderRotationY) * offsetDist;
     const frontZ = holderPosition.z + Math.cos(holderRotationY) * offsetDist;
     // Dribble bounce: ball goes from hand height down to near ground and back
-    const dribbleY = 0.3 + Math.abs(Math.sin(animTime * 10)) * 0.7;
+    const dribbleY = 0.3 + Math.abs(Math.sin(animTime * 6)) * 0.7;
     this.mesh.position.set(frontX, dribbleY, frontZ);
   }
 

@@ -223,9 +223,11 @@ export class GameSession {
       mode = 'defense';
     }
 
+    const stableTrack = trackTarget.clone();
+    stableTrack.y = 0; // Prevent camera from bouncing with player animation
     return {
       mode,
-      trackPosition: trackTarget.clone(),
+      trackPosition: stableTrack,
       lookAt: COURT_DIMENSIONS.hoopPosition.clone(),
     };
   }
