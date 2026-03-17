@@ -443,8 +443,8 @@ export class GamePlayer {
         kneeR.rotation.x = 0.05;
         shoulderL.rotation.x = 0;
         shoulderR.rotation.x = 0;
-        elbowL.rotation.x = 0.1; // slight natural elbow bend
-        elbowR.rotation.x = 0.1;
+        elbowL.rotation.x = -0.1; // slight natural elbow bend
+        elbowR.rotation.x = -0.1;
         // Gentle idle bob
         this.group.position.y = Math.sin(this.animTime * 1.5) * 0.03;
         break;
@@ -452,8 +452,9 @@ export class GamePlayer {
 
       case 'walk': {
         // Floaty bouncy stride
-        const t = this.animTime * 4;
-        const bouncePhase = (Math.sin(t) + 1) / 2;
+        const t = this.animTime * 4; // stride frequency
+        const bounceT = this.animTime * 8; // double frequency for bounce (once per foot)
+        const bouncePhase = (Math.sin(bounceT) + 1) / 2;
         this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.25;
 
         // Squash-stretch on body pivot
@@ -479,12 +480,10 @@ export class GamePlayer {
         kneeR.rotation.x = 0.15 + Math.max(0, -stride) * 0.6;
 
         // Arms swing opposite to their OPPOSITE legs
-        // Left arm opposes right leg, right arm opposes left leg
-        // Positive rotation.x = backward, negative = forward in nested skeleton
-        shoulderL.rotation.x = stride * 0.5;   // stride>0 = right leg back, so left arm back (positive)
-        shoulderR.rotation.x = -stride * 0.5;  // stride>0 = left leg forward, so right arm forward (negative)
-        elbowL.rotation.x = 0.3 + Math.max(0, stride) * 0.3;
-        elbowR.rotation.x = 0.3 + Math.max(0, -stride) * 0.3;
+        shoulderL.rotation.x = stride * 0.5;
+        shoulderR.rotation.x = -stride * 0.5;
+        elbowL.rotation.x = -0.3 - Math.max(0, stride) * 0.3;  // NEGATIVE = natural bend
+        elbowR.rotation.x = -0.3 - Math.max(0, -stride) * 0.3; // NEGATIVE
         break;
       }
 
@@ -493,7 +492,8 @@ export class GamePlayer {
 
         if (this.velocity.lengthSq() > 0.01) {
           // Moving with ball — walk + dribble arm
-          const bouncePhase = (Math.sin(t) + 1) / 2;
+          const bounceT = this.animTime * 8; // double frequency for bounce (once per foot)
+          const bouncePhase = (Math.sin(bounceT) + 1) / 2;
           this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.2;
 
           // Squash-stretch on body pivot
@@ -523,34 +523,56 @@ export class GamePlayer {
           kneeR.rotation.x = 0.15;
         }
 
-        // Dribble arm (right): reaches forward-down then pulls back up
-        const dribbleT = this.animTime * 3; // synced with ball bounce
-        shoulderR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.4; // always negative = forward, varies -0.5 to -0.9
-        elbowR.rotation.x = 0.4 + Math.abs(Math.sin(dribbleT + 0.5)) * 0.5; // elbow bends more at ball contact
+        // Dribble arm (right): pumps DOWN to bounce ball
+        const dribbleT = this.animTime * 3;
+        shoulderR.rotation.x = -0.3; // slightly forward (constant)
+        elbowR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.6; // NEGATIVE = forward/down pump
 
-        // Guard arm (left): held out to side to protect ball
-        shoulderL.rotation.x = -0.2; // slightly forward
-        shoulderL.rotation.z = 0.4; // out to side
-        elbowL.rotation.x = 0.5; // bent
+        // Guard arm (left): UP and OUT for balance
+        shoulderL.rotation.x = -0.4; // forward and up
+        shoulderL.rotation.z = 0.5; // out to the side
+        elbowL.rotation.x = -0.6; // NEGATIVE = natural forward bend, arm up
         break;
       }
 
       case 'guard': {
-        // Low defensive stance
+        // Low defensive stance with arms UP HIGH to block
         bodyPivot.scale.set(1, 1, 1);
-        bodyPivot.rotation.x = 0.2;
-        hipL.rotation.x = 0.1;
-        hipR.rotation.x = -0.1;
-        kneeL.rotation.x = 0.4;
+        bodyPivot.rotation.x = 0.15; // slight forward lean
+        hipL.rotation.x = 0.15; // wide stance
+        hipR.rotation.x = -0.15;
+        kneeL.rotation.x = 0.4; // deep crouch
         kneeR.rotation.x = 0.4;
-        // Arms out wide
-        shoulderL.rotation.x = -0.2;
-        shoulderL.rotation.z = 0.6;
-        shoulderR.rotation.x = -0.2;
-        shoulderR.rotation.z = -0.6;
-        elbowL.rotation.x = 0.5;
-        elbowR.rotation.x = 0.5;
-        this.group.position.y = -0.05; // lower stance
+
+        // Arms UP HIGH to block — both reaching upward
+        shoulderL.rotation.x = -1.2; // way up/forward
+        shoulderL.rotation.z = 0.4; // spread wide
+        shoulderR.rotation.x = -1.2;
+        shoulderR.rotation.z = -0.4;
+        elbowL.rotation.x = -0.3; // slight natural bend, arms mostly extended up
+        elbowR.rotation.x = -0.3;
+
+        this.group.position.y = -0.08; // lower stance
+
+        // Show/create block screen (semi-transparent plane in front)
+        let screen = this.group.getObjectByName('block-screen');
+        if (!screen) {
+          const screenGeo = new THREE.PlaneGeometry(1.2, 1.5);
+          const screenMat = new THREE.MeshBasicMaterial({
+            color: 0x4488ff,
+            transparent: true,
+            opacity: 0.15,
+            side: THREE.DoubleSide,
+          });
+          screen = new THREE.Mesh(screenGeo, screenMat);
+          screen.name = 'block-screen';
+          screen.position.set(0, 1.2, 0.5); // in front of player, chest height
+          this.group.add(screen);
+        }
+        screen.visible = true;
+        // Pulse the screen opacity
+        const screenMat = (screen as THREE.Mesh).material as THREE.MeshBasicMaterial;
+        screenMat.opacity = 0.1 + Math.sin(this.animTime * 6) * 0.08;
         break;
       }
 
@@ -563,10 +585,10 @@ export class GamePlayer {
         // Body lunges forward
         bodyPivot.rotation.x = 0.35 + swipeArc * 0.15;
 
-        // Right arm SWEEPS forward dramatically
+        // Right arm SWEEPS forward — elbow EXTENDS (less bend = more reach)
         shoulderR.rotation.x = -1.5 * swipeArc; // big forward reach
         shoulderR.rotation.z = -0.3 * swipeArc; // arm swings across body
-        elbowR.rotation.x = 0.6 * swipeArc; // elbow extends at peak
+        elbowR.rotation.x = -0.2 * (1 - swipeArc); // NEGATIVE, extends at peak (closer to 0 = straighter)
 
         // Forearm SCALES UP as it reaches (dramatic enlargement)
         const forearmR = this.group.getObjectByName('forearm-right');
@@ -575,9 +597,9 @@ export class GamePlayer {
           forearmR.scale.set(scaleBoost, scaleBoost, scaleBoost);
         }
 
-        // Left arm pulls back for balance
+        // Left arm back for balance
         shoulderL.rotation.x = 0.4;
-        elbowL.rotation.x = 0.5;
+        elbowL.rotation.x = -0.4; // NEGATIVE natural bend
 
         // Legs in lunge stance
         hipL.rotation.x = -0.3; // front leg forward
@@ -600,8 +622,8 @@ export class GamePlayer {
         // Both arms push up
         shoulderL.rotation.x = -0.5 - progress * 1.0;
         shoulderR.rotation.x = -0.5 - progress * 1.0;
-        elbowL.rotation.x = 0.8 * (1 - progress);
-        elbowR.rotation.x = 0.8 * (1 - progress);
+        elbowL.rotation.x = -0.8 * (1 - progress); // NEGATIVE, extends to 0 at release
+        elbowR.rotation.x = -0.8 * (1 - progress); // NEGATIVE
         // Legs straighten from crouch
         hipL.rotation.x = 0;
         hipR.rotation.x = 0;
@@ -630,8 +652,8 @@ export class GamePlayer {
           hipR.rotation.x = 0.1;
           shoulderL.rotation.x = 0;
           shoulderR.rotation.x = 0;
-          elbowL.rotation.x = 0.1;
-          elbowR.rotation.x = 0.1;
+          elbowL.rotation.x = -0.1;
+          elbowR.rotation.x = -0.1;
         } else if (progress < 0.7) {
           // Extended in air
           bodyPivot.rotation.x = -0.1;
@@ -642,8 +664,8 @@ export class GamePlayer {
           // Arms up
           shoulderL.rotation.x = -1.2;
           shoulderR.rotation.x = -1.2;
-          elbowL.rotation.x = 0.1;
-          elbowR.rotation.x = 0.1;
+          elbowL.rotation.x = -0.1;
+          elbowR.rotation.x = -0.1;
         } else {
           // Landing
           bodyPivot.rotation.x = 0.15;
@@ -653,8 +675,8 @@ export class GamePlayer {
           hipR.rotation.x = 0;
           shoulderL.rotation.x = 0;
           shoulderR.rotation.x = 0;
-          elbowL.rotation.x = 0.1;
-          elbowR.rotation.x = 0.1;
+          elbowL.rotation.x = -0.1;
+          elbowR.rotation.x = -0.1;
         }
 
         if (this.jumpTimer <= 0) {
@@ -664,6 +686,12 @@ export class GamePlayer {
         }
         break;
       }
+    }
+
+    // Hide block screen when not guarding
+    if (this.animState !== 'guard') {
+      const screen = this.group.getObjectByName('block-screen');
+      if (screen) screen.visible = false;
     }
 
     // Reset shoulder Z rotation if not in dribble/guard/steal
