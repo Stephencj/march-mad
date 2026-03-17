@@ -204,10 +204,17 @@ function animate() {
   if (autoRotate) {
     camAngle += rawDt * 0.5;
   }
+  // Pull camera back for airborne animations
+  let viewCamDist = camDist;
+  let viewCamHeight = camHeight;
+  if (currentAnim === 'dunk' || currentAnim === 'jump' || currentAnim === 'jump-block' || currentAnim === 'fall') {
+    viewCamDist = Math.max(camDist, 6); // at least 6 units back
+    viewCamHeight = Math.max(camHeight, 3); // higher to see the arc
+  }
   camera.position.set(
-    Math.sin(camAngle) * camDist,
-    camHeight,
-    Math.cos(camAngle) * camDist
+    Math.sin(camAngle) * viewCamDist,
+    viewCamHeight,
+    Math.cos(camAngle) * viewCamDist
   );
   camera.lookAt(0, 0.8, 0);
 

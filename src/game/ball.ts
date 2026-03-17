@@ -47,6 +47,8 @@ export class Ball {
   pickup(playerId: string): void {
     this.heldBy = playerId;
     this.velocity.set(0, 0, 0);
+    this.dribbleHandMaxY = 0;
+    this.dribbleHandMinY = 0;
   }
 
   release(): void {
@@ -70,11 +72,9 @@ export class Ball {
   }
 
   // Dribble bounce state
-  private dribbleBouncing = false;
-  private dribbleBounceVel = 0;
-  private dribbleBounceTimer = 0;
   private lastHandY = 0;
-  private handWasDescending = false;
+  private dribbleHandMaxY = 0;
+  private dribbleHandMinY = 0;
 
   followHolder(playerGroup: THREE.Group, isDribbling = false): void {
     if (this.heldBy === null) return;
@@ -95,69 +95,44 @@ export class Ball {
 
     if (!isDribbling) {
       // Not dribbling — ball glued to hand (shooting, dunk, etc.)
-      this.dribbleBouncing = false;
       this.mesh.position.copy(handWorld);
       this.lastHandY = handWorld.y;
       return;
     }
 
-    // DRIBBLE BOUNCE LOGIC
-    // Detect hand direction: is it lower than last frame?
-    const handDelta = handWorld.y - this.lastHandY;
-    const handDescending = handDelta < -0.001;
-    const handAscending = handDelta > 0.001;
+    // DRIBBLE: ball follows hand in upper portion, bounces to floor in lower portion
+    // Track the hand's Y range
+    if (this.dribbleHandMaxY === 0) {
+      this.dribbleHandMaxY = handWorld.y;
+      this.dribbleHandMinY = handWorld.y;
+    }
+    this.dribbleHandMaxY = Math.max(this.dribbleHandMaxY, handWorld.y) - 0.002; // slowly decay
+    this.dribbleHandMinY = Math.min(this.dribbleHandMinY, handWorld.y) + 0.002;
 
-    if (!this.dribbleBouncing) {
-      // Ball is in hand — track hand position
+    const range = this.dribbleHandMaxY - this.dribbleHandMinY;
+    if (range < 0.05) {
+      // Hand barely moving — just stick to hand
       this.mesh.position.copy(handWorld);
-
-      // Release when hand changes from descending to ascending (bottom of pump)
-      if (handAscending && this.handWasDescending) {
-        this.dribbleBouncing = true;
-        this.dribbleBounceVel = -6;
-        this.dribbleBounceTimer = 0;
-      }
     } else {
-      // Ball is bouncing — timed bounce cycle
-      const dt = 1 / 60;
-      this.dribbleBounceTimer += dt;
+      // Normalize hand Y to 0-1 range (0 = lowest, 1 = highest)
+      const normalized = Math.max(0, Math.min(1, (handWorld.y - this.dribbleHandMinY) / range));
 
-      // Simple parametric bounce: drop, hit floor, come back up
-      // Total bounce takes ~0.25 seconds
-      const bounceDuration = 0.25;
-      const t = Math.min(this.dribbleBounceTimer / bounceDuration, 1);
-
-      // Parabolic arc: starts at hand height, goes to floor, comes back
-      const startY = handWorld.y;
-      const floorY = this.radius;
-      const bounceHeight = startY - floorY;
-
-      if (t < 0.5) {
-        // Dropping to floor
-        const dropT = t / 0.5;
-        this.mesh.position.y = startY - bounceHeight * dropT;
-      } else {
-        // Rising back to hand
-        const riseT = (t - 0.5) / 0.5;
-        this.mesh.position.y = floorY + bounceHeight * riseT;
-      }
-
-      // Track x/z with hand
-      this.mesh.position.x = handWorld.x;
-      this.mesh.position.z = handWorld.z;
-
-      // Reconnect after bounce completes
-      if (t >= 1) {
-        this.dribbleBouncing = false;
+      if (normalized > 0.4) {
+        // Upper 60% — ball in hand
         this.mesh.position.copy(handWorld);
-        this.handWasDescending = true;
-        this.lastHandY = handWorld.y;
-        return;
+      } else {
+        // Lower 40% — ball does floor bounce
+        // Map 0.4->0 to a bounce arc: down to floor and back
+        const bounceT = 1 - (normalized / 0.4); // 0 at hand release, 1 at hand lowest
+        const floorY = this.radius;
+        const releaseY = this.dribbleHandMinY + range * 0.4; // Y at the release point
+        // Parabolic: quick drop, bounce, quick rise
+        const arcT = Math.abs(bounceT * 2 - 1); // V shape: 0→1→0
+        const bounceY = floorY + (releaseY - floorY) * arcT;
+        this.mesh.position.set(handWorld.x, bounceY, handWorld.z);
       }
     }
-
     this.lastHandY = handWorld.y;
-    this.handWasDescending = handDescending;
   }
 
   shootAt(target: THREE.Vector3, power: number): void {
