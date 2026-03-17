@@ -11,12 +11,36 @@ export class Ball {
   private passTarget: THREE.Vector3 | null = null;
   private passSpeed = 12;
 
+  private trail: THREE.Mesh[] = [];
+  private trailGroup: THREE.Group;
+  private readonly TRAIL_LENGTH = 8;
+  private readonly TRAIL_INTERVAL = 0.02; // seconds between trail dots
+  private trailTimer = 0;
+
   constructor(position = new THREE.Vector3(0, 1, 0)) {
     const geometry = new THREE.SphereGeometry(0.22, 12, 8);
     const material = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.position.copy(position);
     this.mesh.name = 'ball';
+
+    // Create trail group with shrinking, fading dots
+    this.trailGroup = new THREE.Group();
+    this.trailGroup.name = 'ball-trail';
+    const trailMat = new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true });
+    for (let i = 0; i < this.TRAIL_LENGTH; i++) {
+      const dot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12 - i * 0.01, 6, 4),
+        trailMat.clone()
+      );
+      dot.visible = false;
+      this.trail.push(dot);
+      this.trailGroup.add(dot);
+    }
+  }
+
+  getTrailGroup(): THREE.Group {
+    return this.trailGroup;
   }
 
   pickup(playerId: string): void {
@@ -51,7 +75,7 @@ export class Ball {
     const frontX = holderPosition.x + Math.sin(holderRotationY) * offsetDist;
     const frontZ = holderPosition.z + Math.cos(holderRotationY) * offsetDist;
     // Dribble bounce: ball goes from hand height down to near ground and back
-    const dribbleY = 0.3 + Math.abs(Math.sin(animTime * 6)) * 0.7;
+    const dribbleY = 0.3 + Math.abs(Math.sin(animTime * 3)) * 0.7;
     this.mesh.position.set(frontX, dribbleY, frontZ);
   }
 
@@ -76,7 +100,10 @@ export class Ball {
 
   update(dt: number): void {
     // State 1: held by a player
-    if (this.heldBy !== null) return;
+    if (this.heldBy !== null) {
+      this.hideTrail();
+      return;
+    }
 
     // State 2: following a shot arc
     if (this.arc.length > 0 && this.arcIndex < this.arc.length) {
@@ -88,6 +115,7 @@ export class Ball {
         this.arc = [];
         this.arcIndex = 0;
       }
+      this.updateTrail(dt);
       return;
     }
 
@@ -99,12 +127,14 @@ export class Ball {
         this.isInFlight = false;
         this.passTarget = null;
         this.velocity.set(0, 0, 0);
+        this.updateTrail(dt);
         return;
       }
       // Move toward target at passSpeed, no gravity
       const direction = toTarget.normalize();
       this.velocity.copy(direction.multiplyScalar(this.passSpeed));
       this.mesh.position.addScaledVector(this.velocity, dt);
+      this.updateTrail(dt);
       return;
     }
 
@@ -115,5 +145,37 @@ export class Ball {
       this.mesh.position.y = 0.22;
       this.velocity.y = -this.velocity.y * 0.6;
     }
+    this.updateTrail(dt);
+  }
+
+  private updateTrail(dt: number): void {
+    if (this.isInFlight) {
+      this.trailTimer += dt;
+      if (this.trailTimer >= this.TRAIL_INTERVAL) {
+        this.trailTimer = 0;
+        // Shift trail positions down
+        for (let i = this.trail.length - 1; i > 0; i--) {
+          this.trail[i].position.copy(this.trail[i - 1].position);
+          this.trail[i].visible = this.trail[i - 1].visible;
+        }
+        // Set first trail dot to current ball position
+        this.trail[0].position.copy(this.mesh.position);
+        this.trail[0].visible = true;
+      }
+      // Update trail opacity (fade out toward tail)
+      for (let i = 0; i < this.trail.length; i++) {
+        const mat = this.trail[i].material as THREE.MeshBasicMaterial;
+        mat.opacity = 1 - (i / this.trail.length);
+      }
+    } else {
+      this.hideTrail();
+    }
+  }
+
+  private hideTrail(): void {
+    for (const dot of this.trail) {
+      dot.visible = false;
+    }
+    this.trailTimer = 0;
   }
 }

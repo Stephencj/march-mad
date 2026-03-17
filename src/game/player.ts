@@ -334,12 +334,12 @@ export class GamePlayer {
     if (this.hasBall) {
       // Dribble animation: right arm/forearm bobs up and down (synced with ball dribble)
       if (armRight) {
-        armRight.rotation.x = 0.3 * Math.sin(this.animTime * 6.0);
+        armRight.rotation.x = 0.3 * Math.sin(this.animTime * 3.0);
       }
       if (forearmRight) {
-        const dribbleBob = 0.12 * Math.sin(this.animTime * 6.0);
+        const dribbleBob = 0.12 * Math.sin(this.animTime * 3.0);
         forearmRight.position.y = 0.77 + dribbleBob;
-        forearmRight.rotation.x = 0.4 * Math.sin(this.animTime * 6.0 + 0.5);
+        forearmRight.rotation.x = 0.4 * Math.sin(this.animTime * 3.0 + 0.5);
       }
       // Left arm stays mostly still when dribbling
       if (armLeft) {
@@ -351,15 +351,15 @@ export class GamePlayer {
       }
     } else if (isMoving) {
       // Running arm swing — synced with leg stride
-      const swing = 0.4 * Math.sin(this.animTime * 5.0);
+      const swing = 0.4 * Math.sin(this.animTime * 4.0);
       if (armRight) armRight.rotation.x = swing;
       if (armLeft) armLeft.rotation.x = -swing;
       if (forearmRight) {
-        forearmRight.rotation.x = 0.2 * Math.sin(this.animTime * 5.0 + 1.0);
+        forearmRight.rotation.x = 0.2 * Math.sin(this.animTime * 4.0 + 1.0);
         forearmRight.position.y = 0.77;
       }
       if (forearmLeft) {
-        forearmLeft.rotation.x = -0.2 * Math.sin(this.animTime * 5.0 + 1.0);
+        forearmLeft.rotation.x = -0.2 * Math.sin(this.animTime * 4.0 + 1.0);
         forearmLeft.position.y = 0.77;
       }
     } else {
@@ -386,16 +386,19 @@ export class GamePlayer {
     const torso = this.group.getObjectByName('torso');
 
     if (isMoving) {
-      // Bouncy body movement — slower, more dramatic bounce
-      this.group.position.y = Math.abs(Math.sin(this.animTime * 5)) * 0.25;
+      // Floaty bounce: hang at peak and ground contact
+      const bouncePhase = (Math.sin(this.animTime * 4) + 1) / 2; // 0 to 1
+      const floatyBounce = Math.pow(bouncePhase, 0.6) * 0.3; // power < 1 = hang at extremes
+      this.group.position.y = floatyBounce;
 
       // Drop torso slightly while running
       if (torso) {
         torso.position.y = 0.98 - 0.08;
       }
 
-      // Upper legs stride animation — slower, wider stride
-      const stride = Math.sin(this.animTime * 5) * 0.5;
+      // Floaty stride: quick push off, hang at extension
+      const strideRaw = Math.sin(this.animTime * 4);
+      const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.5;
       if (upperLeft) upperLeft.rotation.x = stride;
       if (upperRight) upperRight.rotation.x = -stride;
 
