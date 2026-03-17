@@ -101,37 +101,38 @@ export class Ball {
     }
 
     // DRIBBLE BOUNCE LOGIC
-    const handDescending = handWorld.y < this.lastHandY;
-    const releaseThreshold = playerGroup.position.y + 0.45; // below waist height = release
+    // Detect hand direction: is it lower than last frame?
+    const handDelta = handWorld.y - this.lastHandY;
+    const handDescending = handDelta < -0.001;
+    const handAscending = handDelta > 0.001;
 
     if (!this.dribbleBouncing) {
       // Ball is in hand — track hand position
       this.mesh.position.copy(handWorld);
 
-      // Detect release: hand crosses below threshold while descending
-      if (handWorld.y < releaseThreshold && handDescending && this.handWasDescending) {
+      // Release when hand changes from descending to ascending (bottom of pump)
+      if (handAscending && this.handWasDescending) {
         this.dribbleBouncing = true;
-        this.dribbleBounceVel = -6; // fast downward
-        // Keep x/z from hand, start y from hand
-        this.mesh.position.copy(handWorld);
+        this.dribbleBounceVel = -8; // fast downward
       }
     } else {
-      // Ball is bouncing — simple floor bounce physics
-      this.dribbleBounceVel -= 25 * (1 / 60); // gravity
-      this.mesh.position.y += this.dribbleBounceVel * (1 / 60);
+      // Ball is bouncing independently
+      const dt = 1 / 60;
+      this.dribbleBounceVel -= 30 * dt; // gravity
+      this.mesh.position.y += this.dribbleBounceVel * dt;
 
-      // Track x/z with player so ball stays under them
+      // Track x/z with hand so ball stays under player
       this.mesh.position.x = handWorld.x;
       this.mesh.position.z = handWorld.z;
 
       // Floor bounce
       if (this.mesh.position.y < this.radius) {
         this.mesh.position.y = this.radius;
-        this.dribbleBounceVel = Math.abs(this.dribbleBounceVel) * 0.85; // bounce up
+        this.dribbleBounceVel = Math.abs(this.dribbleBounceVel) * 0.8;
       }
 
-      // Reconnect: ball has bounced back up near hand height
-      if (this.dribbleBounceVel > 0 && this.mesh.position.y >= handWorld.y - 0.1) {
+      // Reconnect when hand descends back down to meet the rising ball
+      if (this.mesh.position.y >= handWorld.y - 0.15 && this.dribbleBounceVel > 0) {
         this.dribbleBouncing = false;
         this.mesh.position.copy(handWorld);
       }
