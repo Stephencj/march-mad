@@ -75,7 +75,7 @@ export class Ball {
 
   // Time-based dribble bounce — runs on its own clock, synced to arm frequency
   private dribbleTimer = 0;
-  private readonly DRIBBLE_FREQ = 4; // Hz, matches elbow animation frequency
+  private readonly DRIBBLE_FREQ = 2; // Hz — one bounce every 0.5 seconds
 
   followHolder(playerGroup: THREE.Group, isDribbling = false): void {
     if (this.heldBy === null) return;

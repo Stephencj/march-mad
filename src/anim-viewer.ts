@@ -41,7 +41,7 @@ platform.position.y = -0.025;
 scene.add(platform);
 
 // --- Hoop ---
-const hoop = createHoop(new THREE.Vector3(0, 3.05, -3), 0xe94560);
+const hoop = createHoop(new THREE.Vector3(0, 3.05, 4), 0xe94560);
 scene.add(hoop);
 
 // Grid lines on platform for reference
@@ -207,7 +207,7 @@ function animate() {
       shootReleased = true;
       player.hasBall = false;
       ball.release();
-      ball.shootAt(new THREE.Vector3(0, 3.05, -3), 0.7); // toward the hoop
+      ball.shootAt(new THREE.Vector3(0, 3.05, 4), 0.7); // toward the hoop
     }
 
     if (ball.isInFlight || (!ball.heldBy && !shootReleased)) {
@@ -270,7 +270,7 @@ function animate() {
     Math.cos(camAngle) * viewCamDist
   );
   if (currentAnim === 'shoot' || currentAnim === 'dunk') {
-    camera.lookAt(0, 1.5, -1.5); // between player and hoop
+    camera.lookAt(0, 1.5, 2); // between player and hoop (hoop at z=4)
   } else {
     camera.lookAt(0, 0.8, 0);
   }
