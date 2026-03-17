@@ -131,10 +131,15 @@ export class Ball {
         this.dribbleBounceVel = Math.abs(this.dribbleBounceVel) * 0.8;
       }
 
-      // Reconnect when hand descends back down to meet the rising ball
-      if (this.mesh.position.y >= handWorld.y - 0.15 && this.dribbleBounceVel > 0) {
+      // Reconnect when ball rises back to hand height AND hand is descending
+      // (hand coming down to meet the ball = natural catch point)
+      if (this.mesh.position.y >= handWorld.y - 0.15 && this.dribbleBounceVel > 0 && handDescending) {
         this.dribbleBouncing = false;
         this.mesh.position.copy(handWorld);
+        // Force handWasDescending so the NEXT inflection triggers correctly
+        this.handWasDescending = true;
+        this.lastHandY = handWorld.y;
+        return;
       }
     }
 
