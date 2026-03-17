@@ -41,7 +41,9 @@ platform.position.y = -0.025;
 scene.add(platform);
 
 // --- Hoop ---
-const hoop = createHoop(new THREE.Vector3(0, 3.05, 4), 0xe94560);
+const hoopPos = new THREE.Vector3(0, 3.05, 4);
+const hoop = createHoop(hoopPos, 0xe94560);
+hoop.rotation.y = Math.PI; // rotate 180° so backboard faces the player
 scene.add(hoop);
 
 // Grid lines on platform for reference

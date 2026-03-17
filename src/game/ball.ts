@@ -69,6 +69,9 @@ export class Ball {
     return points;
   }
 
+  private dribbleReleaseX = 0;
+  private dribbleReleaseZ = 0;
+
   followHolder(playerGroup: THREE.Group, isDribbling = false, dribblePhase = 0): void {
     if (this.heldBy === null) return;
 
@@ -90,39 +93,38 @@ export class Ball {
     // Offset ball phase so ball is at floor when hand is lowest
     const ballPhase = (dribblePhase + 0.25) % 1;
 
-    // Ball position driven by ballPhase (0-1)
-    // 0.0-0.5: ball IN HAND (tracks hand position)
-    // 0.5-0.6: ball RELEASING (drops from hand toward floor)
-    // 0.6-0.8: ball AT FLOOR (bouncing)
-    // 0.8-1.0: ball RISING back to hand
-
-    // Use player root position for stable X/Z when ball is off the hand
-    const stableX = playerGroup.position.x + Math.sin(playerGroup.rotation.y) * 0.3;
-    const stableZ = playerGroup.position.z + Math.cos(playerGroup.rotation.y) * 0.3;
+    // Ball uses hand X/Z always (but smoothed), only Y changes for bounce
+    // Capture release X/Z when ball leaves hand, use it for the entire floor phase
+    const floorY = this.radius;
 
     if (ballPhase < 0.5) {
-      // Ball in hand — track hand exactly
-      this.mesh.position.copy(handWorld);
+      // Ball in hand — track hand position (use hand Y, stable X/Z from player)
+      // Stabilize X/Z to prevent arm-rotation jitter
+      this.dribbleReleaseX = handWorld.x;
+      this.dribbleReleaseZ = handWorld.z;
+      this.mesh.position.set(handWorld.x, handWorld.y, handWorld.z);
     } else if (ballPhase < 0.6) {
-      // Releasing — lerp from hand to floor, start transitioning to stable X/Z
+      // Releasing — drop straight down from last hand position
       const t = (ballPhase - 0.5) / 0.1;
-      const floorY = this.radius;
-      const lx = handWorld.x + (stableX - handWorld.x) * t;
-      const lz = handWorld.z + (stableZ - handWorld.z) * t;
-      this.mesh.position.set(lx, handWorld.y - (handWorld.y - floorY) * t, lz);
+      const releaseY = handWorld.y;
+      this.mesh.position.set(
+        this.dribbleReleaseX,
+        releaseY - (releaseY - floorY) * t,
+        this.dribbleReleaseZ
+      );
     } else if (ballPhase < 0.8) {
-      // At floor — use stable position, no jitter
+      // At floor — stay at release X/Z, tiny bounce
       const t = (ballPhase - 0.6) / 0.2;
-      const floorY = this.radius;
-      const bounceUp = Math.sin(t * Math.PI) * 0.12;
-      this.mesh.position.set(stableX, floorY + bounceUp, stableZ);
+      const bounceUp = Math.sin(t * Math.PI) * 0.1;
+      this.mesh.position.set(this.dribbleReleaseX, floorY + bounceUp, this.dribbleReleaseZ);
     } else {
-      // Rising back to hand — transition from stable back to hand position
+      // Rising — go from release position back to current hand position
       const t = (ballPhase - 0.8) / 0.2;
-      const floorY = this.radius;
-      const lx = stableX + (handWorld.x - stableX) * t;
-      const lz = stableZ + (handWorld.z - stableZ) * t;
-      this.mesh.position.set(lx, floorY + (handWorld.y - floorY) * t, lz);
+      this.mesh.position.set(
+        this.dribbleReleaseX + (handWorld.x - this.dribbleReleaseX) * t,
+        floorY + (handWorld.y - floorY) * t,
+        this.dribbleReleaseZ + (handWorld.z - this.dribbleReleaseZ) * t
+      );
     }
   }
 
