@@ -670,21 +670,20 @@ export class GamePlayer {
 
       case 'steal': {
         // SIDE SWIPE: arm pulls back to side, pauses, quick sweep across
-        bodyPivot.scale.set(1, 1, 1);
-        const stealDuration = 0.5;
+        const stealDuration = 0.6;
         const progress = 1 - (this.stealTimer / stealDuration);
 
-        // Phase 1 (0-0.15): Wind back — arm pulls to the right side
-        // Phase 2 (0.15-0.5): Pause — held back, arm grows, anticipation
-        // Phase 3 (0.5-0.85): Quick swipe — arm sweeps across low
+        // Phase 1 (0-0.2): Wind back — arm pulls to the right side
+        // Phase 2 (0.2-0.55): Pause — held back, arm grows, anticipation
+        // Phase 3 (0.55-0.85): Quick swipe — arm sweeps across low
         // Phase 4 (0.85-1.0): Recovery
 
         const forearmR = this.group.getObjectByName('forearm-right');
         let forearmScale = 1;
 
         bodyPivot.rotation.x = 0.05;
-        if (progress < 0.15) {
-          const wind = progress / 0.15;
+        if (progress < 0.2) {
+          const wind = progress / 0.2;
           // Arm pulls to the right side
           shoulderR.rotation.x = -0.3 * wind;
           shoulderR.rotation.z = 0.8 * wind; // out to right
@@ -692,21 +691,29 @@ export class GamePlayer {
           forearmScale = 1 + wind * 0.4;
           // Torso twists away
           bodyPivot.rotation.y = 0.3 * wind;
-        } else if (progress < 0.5) {
+          // Squash as body coils
+          bodyPivot.scale.set(1.05, 0.95, 1.05);
+        } else if (progress < 0.55) {
           // HOLD: cocked back, big forearm, dramatic pause
           shoulderR.rotation.x = -0.3;
           shoulderR.rotation.z = 0.8;
           elbowR.rotation.x = -0.3;
           forearmScale = 1.6;
           bodyPivot.rotation.y = 0.3;
+          // Compressed/coiled
+          bodyPivot.scale.set(1.06, 0.94, 1.06);
         } else if (progress < 0.85) {
           // SWIPE: quick sweep from right to left, low
-          const swipe = (progress - 0.5) / 0.35;
+          const swipe = (progress - 0.55) / 0.3;
           shoulderR.rotation.x = -0.3 - swipe * 0.3;
           shoulderR.rotation.z = 0.8 - swipe * 1.6; // right to left
           elbowR.rotation.x = -0.3 + swipe * 0.1;
           forearmScale = 1.6 - swipe * 0.4;
           bodyPivot.rotation.y = 0.3 - swipe * 0.6;
+          // Stretch horizontally as the arm sweeps
+          const stretchX = 1.06 - swipe * 0.06 + Math.sin(swipe * Math.PI) * 0.1; // peaks mid-swipe
+          const squashY = 0.94 + swipe * 0.06 - Math.sin(swipe * Math.PI) * 0.08;
+          bodyPivot.scale.set(stretchX, squashY, 1);
         } else {
           // Recovery
           const recover = (progress - 0.85) / 0.15;
@@ -715,6 +722,12 @@ export class GamePlayer {
           elbowR.rotation.x = -0.2 + recover * 0.1;
           forearmScale = 1.2 - recover * 0.2;
           bodyPivot.rotation.y = -0.3 + recover * 0.3;
+          // Return to normal
+          bodyPivot.scale.set(
+            1 + (1 - recover) * 0.04,
+            1 - (1 - recover) * 0.04,
+            1
+          );
         }
 
         if (forearmR) {
@@ -1481,7 +1494,7 @@ export class GamePlayer {
   }
 
   triggerSteal(): void {
-    this.stealTimer = 0.5; // longer for wind-up + pause + swipe
+    this.stealTimer = 0.6; // longer for wind-up + pause + swipe
   }
 
   triggerShoot(): void {

@@ -136,9 +136,11 @@ function animate() {
       }
       break;
     case 'shoot':
-      player.hasBall = false;
+      player.hasBall = true; // start with ball
       player.velocity.set(0, 0, 0);
-      // Don't auto-retrigger here — handled after animate
+      if ((player as unknown as { shootTimer: number }).shootTimer <= 0 && !shootReleased && shootResetDelay <= 0) {
+        player.triggerShoot();
+      }
       break;
     case 'jump':
       player.hasBall = false;
