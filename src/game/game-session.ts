@@ -104,6 +104,13 @@ export class GameSession {
     this.setBallHolder(this.homePlayers[0].data.id);
     this.matchEngine.state.phase = 'playing';
     this.matchEngine.state.possession = 'home';
+
+    // Initialize AI movement states — stagger initial holds
+    for (const player of this.getAllPlayers()) {
+      if (player.data.id === this.humanPlayerId) continue;
+      player.aiMovementState = 'holding';
+      player.aiHoldTimer = 0.5 + Math.random() * 1.5;
+    }
   }
 
   update(dt: number): void {
@@ -332,6 +339,13 @@ export class GameSession {
     const receiver = receivingTeam === 'home' ? this.homePlayers[0] : this.awayPlayers[0];
     this.setBallHolder(receiver.data.id);
     this.matchEngine.checkBallComplete(receivingTeam);
+
+    // Reset AI movement states — stagger initial holds
+    for (const player of this.getAllPlayers()) {
+      if (player.data.id === this.humanPlayerId) continue;
+      player.aiMovementState = 'holding';
+      player.aiHoldTimer = 0.5 + Math.random() * 1.5;
+    }
   }
 
   private checkBallPickup(): void {
@@ -384,105 +398,171 @@ export class GameSession {
     for (const player of this.getAllPlayers()) {
       if (player.data.id === this.humanPlayerId) continue; // Skip human
 
-      const ai = this.playerAIs.get(player.data.id);
-      if (!ai) continue;
-
       // Determine if this player's team has possession (on offense)
       const isHome = this.isHomePlayer(player);
       const isOnOffense = (isHome && possession === 'home') || (!isHome && possession === 'away');
 
-      const ctx: AIContext = {
-        hasBall: player.hasBall,
-        isOnOffense,
-        distanceToHoop: player.distanceTo(COURT_DIMENSIONS.hoopPosition),
-        nearestDefenderDist: this.getNearestOpponentDist(player),
-        teammateOpenness: this.getTeammateOpenness(player),
-        scoreDiff: isHome ? scoreDiff : -scoreDiff,
-        clockSeconds: clock,
-      };
+      // --- DEFENSIVE AI: man-to-man ball pressure ---
+      if (!isOnOffense) {
+        const assignment = this.getDefensiveAssignment(player);
+        if (!assignment) { this.moveToFormation(player); continue; }
 
-      const decision = ai.decide(ctx);
+        const isGuardingBallHandler = assignment.hasBall;
+        const distToAssignment = player.distanceTo(assignment.position);
 
-      // Execute AI decision
-      switch (decision.action) {
-        case 'shoot':
-          if (player.hasBall) {
-            player.loseBall();
-            player.triggerShoot();
-            this.lastShooterId = player.data.id;
-            this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 0.5 + Math.random() * 0.3);
-          }
-          break;
-        case 'pass':
-          if (player.hasBall && decision.targetIndex !== undefined) {
-            const teammates = this.getTeammates(player);
-            const target = teammates[decision.targetIndex % teammates.length];
-            if (target) {
-              player.loseBall();
-              this.ball.passTo(target.position);
-              this.pendingPassTarget = target.data.id;
+        if (isGuardingBallHandler) {
+          // BALL PRESSURE DEFENSE
+          // Position between ball handler and hoop, ~2 units from handler
+          const handlerPos = assignment.position;
+          const hoopPos = COURT_DIMENSIONS.hoopPosition;
+
+          // Direction from handler to hoop
+          const toHoop = new THREE.Vector3().subVectors(hoopPos, handlerPos).normalize();
+
+          // Position 2 units toward hoop from handler (between them and basket)
+          const defensePos = new THREE.Vector3(
+            handlerPos.x + toHoop.x * 2,
+            0,
+            handlerPos.z + toHoop.z * 2
+          );
+
+          // Mirror handler's lateral movement
+          defensePos.x = handlerPos.x * 0.8; // track 80% of their x-movement
+
+          player.aiTarget = defensePos;
+          player.aiMovementState = 'reacting'; // always responsive to ball handler
+
+          // Attempt steal if very close and handler is driving
+          if (distToAssignment < 1.5) {
+            const ai = this.playerAIs.get(player.data.id);
+            if (ai && Math.random() < 0.05) { // 5% chance per decision tick
+              this.attemptSteal(player);
             }
           }
-          break;
-        case 'drive':
-          // Move toward hoop
-          player.aiTarget = COURT_DIMENSIONS.hoopPosition.clone();
-          break;
-        case 'dunk':
-          if (player.hasBall && player.distanceTo(COURT_DIMENSIONS.hoopPosition) < 3) {
-            player.loseBall();
-            player.triggerShoot();
-            this.lastShooterId = player.data.id;
-            this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 1.0);
-          }
-          break;
-        case 'steal':
-          this.attemptSteal(player);
-          break;
-        case 'guard':
-        case 'block': {
-          // Each defender guards their assigned opponent, not all chasing the ball
-          const assignment = this.getDefensiveAssignment(player);
-          if (assignment) {
-            const assignPos = assignment.position;
-            const hoopPos = COURT_DIMENSIONS.hoopPosition;
-            // Position between assignment and hoop (defensive positioning)
-            player.aiTarget = new THREE.Vector3(
-              (assignPos.x + hoopPos.x) / 2,
-              0,
-              (assignPos.z + hoopPos.z) / 2
-            );
-          }
-          break;
-        }
-        case 'cut':
-          // Move toward hoop from an angle
+        } else {
+          // OFF-BALL DEFENSE
+          // Position 2/3 of the way between assignment and hoop (closer to their man)
+          const assignPos = assignment.position;
+          const hoopPos = COURT_DIMENSIONS.hoopPosition;
+
           player.aiTarget = new THREE.Vector3(
-            COURT_DIMENSIONS.hoopPosition.x + (Math.random() - 0.5) * 4,
+            assignPos.x * 0.7 + hoopPos.x * 0.3,
             0,
-            COURT_DIMENSIONS.hoopPosition.z + 2
+            assignPos.z * 0.7 + hoopPos.z * 0.3
           );
-          break;
-        case 'space':
-          // Move away from teammates to spread floor
-          this.moveToFormation(player);
-          break;
-        case 'screen': {
-          // Move near the ball handler
-          const ballHandler = this.getAllPlayers().find(p => p.hasBall);
-          if (ballHandler) {
-            player.aiTarget = new THREE.Vector3(
-              ballHandler.position.x + (Math.random() > 0.5 ? 2 : -2),
-              0,
-              ballHandler.position.z
-            );
+
+          // If their man is cutting toward hoop, react
+          if (assignment.velocity && assignment.velocity.lengthSq() > 0.5) {
+            player.aiMovementState = 'reacting';
           }
-          break;
+          // Otherwise hold position and watch
         }
-        default:
-          // idle — move to formation position
-          this.moveToFormation(player);
-          break;
+        continue; // Skip the offensive decision tree
+      }
+
+      // --- OFFENSIVE AI WITHOUT BALL: V-Cuts and patience ---
+      if (isOnOffense && !player.hasBall) {
+        // V-Cut system: hold position, then cut, then return
+        if (player.aiMovementState === 'holding') {
+          // Standing at spot — face ball handler
+          // Don't set new target, let hold timer run out in moveAIPlayers
+          if (player.aiHoldTimer <= 0) {
+            // Time to make a move — pick a V-cut or reposition
+            const roll = Math.random();
+            if (roll < 0.4) {
+              // V-CUT TOWARD HOOP: fake toward basket
+              player.aiTarget = new THREE.Vector3(
+                COURT_DIMENSIONS.hoopPosition.x + (Math.random() - 0.5) * 3,
+                0,
+                COURT_DIMENSIONS.hoopPosition.z + 2 + Math.random() * 2
+              );
+              player.aiMovementState = 'moving';
+            } else if (roll < 0.7) {
+              // V-CUT TO WING: move to open perimeter spot
+              const side = player.position.x > 0 ? -1 : 1;
+              player.aiTarget = new THREE.Vector3(
+                side * (4 + Math.random() * 2),
+                0,
+                1 + Math.random() * 3
+              );
+              player.aiMovementState = 'moving';
+            } else {
+              // HOLD AND WAIT: stay at current spot longer
+              player.aiHoldTimer = 1.5 + Math.random() * 2;
+            }
+          }
+        }
+        continue; // Skip the old decision tree
+      }
+
+      // --- OFFENSIVE AI WITH BALL: patience then act ---
+      if (isOnOffense && player.hasBall) {
+        // Ball handler — survey for 0.5-1s then act
+        if (player.aiMovementState === 'holding' && player.aiHoldTimer > 0) {
+          // Holding ball, surveying — don't move, let timer run
+          continue;
+        }
+
+        // Now decide what to do
+        const ai = this.playerAIs.get(player.data.id);
+        if (!ai) continue;
+
+        const ctx: AIContext = {
+          hasBall: player.hasBall,
+          isOnOffense,
+          distanceToHoop: player.distanceTo(COURT_DIMENSIONS.hoopPosition),
+          nearestDefenderDist: this.getNearestOpponentDist(player),
+          teammateOpenness: this.getTeammateOpenness(player),
+          scoreDiff: isHome ? scoreDiff : -scoreDiff,
+          clockSeconds: clock,
+        };
+
+        const decision = ai.decide(ctx);
+
+        switch (decision.action) {
+          case 'shoot':
+            if (player.distanceTo(COURT_DIMENSIONS.hoopPosition) < 8) {
+              player.loseBall();
+              player.triggerShoot();
+              this.lastShooterId = player.data.id;
+              this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 0.5 + Math.random() * 0.3);
+            }
+            // After shooting, go back to holding
+            player.aiMovementState = 'holding';
+            player.aiHoldTimer = 1;
+            break;
+          case 'pass':
+            if (decision.targetIndex !== undefined) {
+              const teammates = this.getTeammates(player);
+              const target = teammates[decision.targetIndex % teammates.length];
+              if (target) {
+                player.loseBall();
+                this.ball.passTo(target.position);
+                this.pendingPassTarget = target.data.id;
+              }
+            }
+            player.aiMovementState = 'holding';
+            player.aiHoldTimer = 0.5;
+            break;
+          case 'drive':
+            player.aiTarget = COURT_DIMENSIONS.hoopPosition.clone();
+            player.aiMovementState = 'moving';
+            break;
+          case 'dunk':
+            if (player.distanceTo(COURT_DIMENSIONS.hoopPosition) < 3) {
+              player.loseBall();
+              player.triggerShoot();
+              this.lastShooterId = player.data.id;
+              this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 1.0);
+            }
+            break;
+          default:
+            // Hold and survey
+            player.aiMovementState = 'holding';
+            player.aiHoldTimer = 0.5 + Math.random();
+            break;
+        }
+        continue;
       }
     }
   }
@@ -504,19 +584,42 @@ export class GameSession {
   private moveAIPlayers(dt: number): void {
     for (const player of this.getAllPlayers()) {
       if (player.data.id === this.humanPlayerId) continue;
-      if (player.aiTarget) {
-        const dist = player.distanceTo(player.aiTarget);
-        if (dist < 0.3) {
-          // Gentle drift around target — use sine wave, not random jitter
-          const t = performance.now() * 0.001;
-          const id = player.data.id.charCodeAt(0); // unique per player
-          player.aiTarget = player.aiTarget.clone().set(
-            player.aiTarget.x + Math.sin(t * 0.8 + id) * 0.3,
-            0,
-            player.aiTarget.z + Math.cos(t * 0.6 + id * 2) * 0.3
-          );
+
+      if (!player.aiTarget) continue;
+
+      switch (player.aiMovementState) {
+        case 'holding':
+          // Stand still, face the ball, countdown timer
+          player.aiHoldTimer -= dt;
+          if (player.aiHoldTimer <= 0) {
+            player.aiMovementState = 'moving';
+          }
+          // Don't move — just animate idle
+          player.velocity.set(0, 0, 0);
+          break;
+
+        case 'moving': {
+          const dist = player.distanceTo(player.aiTarget);
+          if (dist < 0.3) {
+            // Reached target — switch to holding for 1-3 seconds
+            player.aiMovementState = 'holding';
+            player.aiHoldTimer = 1 + Math.random() * 2;
+          } else {
+            player.moveToward(player.aiTarget, dt);
+          }
+          break;
         }
-        player.moveToward(player.aiTarget, dt);
+
+        case 'reacting': {
+          // Quick burst movement — no holding, just go
+          player.moveToward(player.aiTarget, dt);
+          const reactDist = player.distanceTo(player.aiTarget);
+          if (reactDist < 0.5) {
+            player.aiMovementState = 'holding';
+            player.aiHoldTimer = 0.5 + Math.random();
+          }
+          break;
+        }
       }
     }
   }

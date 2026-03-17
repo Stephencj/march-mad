@@ -40,12 +40,14 @@ export class GamePlayer {
   hasBall = false;
   aiTarget: THREE.Vector3 | null = null;
   isHumanControlled = false;
+  aiMovementState: 'holding' | 'moving' | 'reacting' = 'holding';
+  aiHoldTimer = 0; // seconds remaining in hold state
 
   private stats = { points: 0, assists: 0, turnovers: 0 };
   private moveSpeed: number;
   animTime = 0;
   private lastMoving = false;
-  private velocity = new THREE.Vector3();
+  velocity = new THREE.Vector3();
   private prevPosition = new THREE.Vector3();
   private animState: 'idle' | 'walk' | 'dribble' | 'guard' | 'steal' | 'shoot' | 'jump' = 'idle';
   private stealTimer = 0;
