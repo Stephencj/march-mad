@@ -341,11 +341,12 @@ export class GamePlayer {
       }
 
       case 'headband': {
-        // Basketball sweatband — thick band sitting like a crown on top of head
-        const geo = new THREE.CylinderGeometry(0.22, 0.24, 0.08, 16, 1, true); // open-ended cylinder
+        // Basketball sweatband wrapped around forehead — like LeBron's headband
+        // Head radius is 0.28, so band radius matches to hug the head
+        const geo = new THREE.CylinderGeometry(0.285, 0.285, 0.06, 16, 1, true);
         const mat = new THREE.MeshStandardMaterial({ color: 0xff2222, side: THREE.DoubleSide });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, 0.58, -0.02); // sits on top of head like a crown
+        mesh.position.set(0, 0.48, 0); // around forehead, above eyes (y=0.39)
         return mesh;
       }
     }
