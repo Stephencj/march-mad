@@ -47,6 +47,12 @@ export class GamePlayer {
   private lastMoving = false;
   private velocity = new THREE.Vector3();
   private prevPosition = new THREE.Vector3();
+  private animState: 'idle' | 'walk' | 'dribble' | 'guard' | 'steal' | 'shoot' | 'jump' = 'idle';
+  private stealTimer = 0;
+  private shootTimer = 0;
+  private jumpTimer = 0;
+  private jumpHeight = 0;
+  isJumping = false;
 
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
@@ -67,130 +73,171 @@ export class GamePlayer {
     const skinMat = new THREE.MeshStandardMaterial({ color: skinColor });
     const jerseyMat = new THREE.MeshStandardMaterial({ color });
 
-    // ========== SHOES (y = 0 to ~0.1) ==========
-    const shoeGeo = new THREE.BoxGeometry(0.14, 0.08, 0.2);
-    const shoeMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    // ========== BODY PIVOT (root joint at hip height) ==========
+    const bodyPivot = new THREE.Group();
+    bodyPivot.position.set(0, 0.78, 0);
+    bodyPivot.name = 'body-pivot';
+    group.add(bodyPivot);
 
-    const shoeLeft = new THREE.Mesh(shoeGeo, shoeMat);
-    shoeLeft.position.set(-0.08, 0.04, 0.02);
-    shoeLeft.name = 'shoe-left';
-    group.add(shoeLeft);
-
-    const shoeRight = new THREE.Mesh(shoeGeo, shoeMat);
-    shoeRight.position.set(0.08, 0.04, 0.02);
-    shoeRight.name = 'shoe-right';
-    group.add(shoeRight);
-
-    // ========== LOWER LEGS (y ~ 0.08 to 0.43) ==========
-    const lowerLegGeo = new THREE.CylinderGeometry(0.05, 0.06, 0.35, 5);
-
-    const lowerLegLeft = new THREE.Mesh(lowerLegGeo, skinMat);
-    lowerLegLeft.position.set(-0.08, 0.255, 0);
-    lowerLegLeft.name = 'leg-lower-left';
-    group.add(lowerLegLeft);
-
-    const lowerLegRight = new THREE.Mesh(lowerLegGeo, skinMat);
-    lowerLegRight.position.set(0.08, 0.255, 0);
-    lowerLegRight.name = 'leg-lower-right';
-    group.add(lowerLegRight);
-
-    // ========== KNEE JOINTS (y ~ 0.43) ==========
-    const kneeGeo = new THREE.SphereGeometry(0.055, 5, 4);
-
-    const kneeLeft = new THREE.Mesh(kneeGeo, skinMat);
-    kneeLeft.position.set(-0.08, 0.43, 0);
-    kneeLeft.name = 'knee-left';
-    group.add(kneeLeft);
-
-    const kneeRight = new THREE.Mesh(kneeGeo, skinMat);
-    kneeRight.position.set(0.08, 0.43, 0);
-    kneeRight.name = 'knee-right';
-    group.add(kneeRight);
-
-    // ========== UPPER LEGS (y ~ 0.43 to 0.78) ==========
-    const upperLegGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.35, 5);
-
-    const upperLegLeft = new THREE.Mesh(upperLegGeo, jerseyMat);
-    upperLegLeft.position.set(-0.08, 0.605, 0);
-    upperLegLeft.name = 'leg-upper-left';
-    group.add(upperLegLeft);
-
-    const upperLegRight = new THREE.Mesh(upperLegGeo, jerseyMat);
-    upperLegRight.position.set(0.08, 0.605, 0);
-    upperLegRight.name = 'leg-upper-right';
-    group.add(upperLegRight);
-
-    // ========== TORSO (y ~ 0.78 to 1.18) ==========
-    const torsoGeo = new THREE.CylinderGeometry(0.13, 0.15, 0.4, 6);
-    const torso = new THREE.Mesh(torsoGeo, jerseyMat);
-    torso.position.set(0, 0.98, 0);
+    // ========== TORSO (relative to body-pivot) ==========
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.4, 6), jerseyMat);
+    torso.position.set(0, 0.2, 0);
     torso.name = 'torso';
-    group.add(torso);
+    bodyPivot.add(torso);
 
-    // ========== ARMS ==========
-    // Upper arms (from shoulder height ~1.15, angled outward)
-    const armGeo = new THREE.CylinderGeometry(0.035, 0.04, 0.28, 4);
+    // ========== NECK GROUP (at top of torso) ==========
+    const neckGroup = new THREE.Group();
+    neckGroup.position.set(0, 0.4, 0);
+    neckGroup.name = 'neck-group';
+    bodyPivot.add(neckGroup);
 
-    const armLeft = new THREE.Mesh(armGeo, skinMat);
-    armLeft.position.set(-0.2, 1.02, 0);
-    armLeft.rotation.z = 0.2; // slightly angled outward
-    armLeft.name = 'arm-left';
-    group.add(armLeft);
-
-    const armRight = new THREE.Mesh(armGeo, skinMat);
-    armRight.position.set(0.2, 1.02, 0);
-    armRight.rotation.z = -0.2;
-    armRight.name = 'arm-right';
-    group.add(armRight);
-
-    // Forearms
-    const forearmGeo = new THREE.CylinderGeometry(0.03, 0.035, 0.22, 4);
-
-    const forearmLeft = new THREE.Mesh(forearmGeo, skinMat);
-    forearmLeft.position.set(-0.22, 0.77, 0);
-    forearmLeft.name = 'forearm-left';
-    group.add(forearmLeft);
-
-    const forearmRight = new THREE.Mesh(forearmGeo, skinMat);
-    forearmRight.position.set(0.22, 0.77, 0);
-    forearmRight.name = 'forearm-right';
-    group.add(forearmRight);
-
-    // ========== NECK (y ~ 1.18 to 1.33) ==========
-    const neckGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.15, 4);
-    const neck = new THREE.Mesh(neckGeo, skinMat);
-    neck.position.set(0, 1.255, 0);
+    // Neck mesh inside neck group
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.15, 4), skinMat);
+    neck.position.set(0, 0.075, 0);
     neck.name = 'neck';
-    group.add(neck);
+    neckGroup.add(neck);
 
-    // ========== HEAD (center ~1.58, radius 0.28 -> top at ~1.86) ==========
-    const headGeo = new THREE.SphereGeometry(0.28, 8, 6);
-    const head = new THREE.Mesh(headGeo, skinMat);
-    head.position.set(0, 1.58, 0);
+    // Head on top of neck
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), skinMat);
+    head.position.set(0, 0.35, 0);
     head.name = 'head';
-    group.add(head);
+    neckGroup.add(head);
 
-    // ========== EYES (simple dark spheres on the head) ==========
-    const eyeGeo = new THREE.SphereGeometry(0.04, 4, 4);
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-    const eyeLeft = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeLeft.position.set(-0.1, 1.62, 0.24);
+    // Eyes on head (relative to neck group)
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
+    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.04, 4, 4), eyeMat);
+    eyeLeft.position.set(-0.1, 0.39, 0.24);
     eyeLeft.name = 'eye-left';
-    group.add(eyeLeft);
-
-    const eyeRight = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeRight.position.set(0.1, 1.62, 0.24);
+    neckGroup.add(eyeLeft);
+    const eyeRight = eyeLeft.clone();
+    eyeRight.position.set(0.1, 0.39, 0.24);
     eyeRight.name = 'eye-right';
-    group.add(eyeRight);
+    neckGroup.add(eyeRight);
 
-    // ========== HAIR (random style based on player ID hash) ==========
+    // ========== HAIR (added to neckGroup) ==========
     const hairStyles: HairStyle[] = ['flat-top', 'afro', 'mohawk', 'headband'];
     const style = hairStyles[h % hairStyles.length];
     const hair = this.createHair(style, hairColor);
     hair.name = 'hair';
-    group.add(hair);
+    neckGroup.add(hair);
 
-    // ========== POSSESSION RING (hidden by default) ==========
+    // ========== SHOULDERS (groups at shoulder joints) ==========
+    const shoulderLeft = new THREE.Group();
+    shoulderLeft.position.set(-0.18, 0.35, 0);
+    shoulderLeft.name = 'shoulder-left';
+    bodyPivot.add(shoulderLeft);
+
+    const shoulderRight = new THREE.Group();
+    shoulderRight.position.set(0.18, 0.35, 0);
+    shoulderRight.name = 'shoulder-right';
+    bodyPivot.add(shoulderRight);
+
+    // Upper arms (hang down from shoulder)
+    const armGeo = new THREE.CylinderGeometry(0.035, 0.04, 0.28, 4);
+    const upperArmLeft = new THREE.Mesh(armGeo, jerseyMat);
+    upperArmLeft.position.set(0, -0.14, 0);
+    upperArmLeft.name = 'upper-arm-left';
+    shoulderLeft.add(upperArmLeft);
+
+    const upperArmRight = new THREE.Mesh(armGeo, jerseyMat);
+    upperArmRight.position.set(0, -0.14, 0);
+    upperArmRight.name = 'upper-arm-right';
+    shoulderRight.add(upperArmRight);
+
+    // Elbows (groups at end of upper arm)
+    const elbowLeft = new THREE.Group();
+    elbowLeft.position.set(0, -0.14, 0);
+    elbowLeft.name = 'elbow-left';
+    upperArmLeft.add(elbowLeft);
+
+    const elbowRight = new THREE.Group();
+    elbowRight.position.set(0, -0.14, 0);
+    elbowRight.name = 'elbow-right';
+    upperArmRight.add(elbowRight);
+
+    // Forearms
+    const forearmGeo = new THREE.CylinderGeometry(0.03, 0.035, 0.22, 4);
+    const forearmLeft = new THREE.Mesh(forearmGeo, skinMat);
+    forearmLeft.position.set(0, -0.11, 0);
+    forearmLeft.name = 'forearm-left';
+    elbowLeft.add(forearmLeft);
+
+    const forearmRight = new THREE.Mesh(forearmGeo, skinMat);
+    forearmRight.position.set(0, -0.11, 0);
+    forearmRight.name = 'forearm-right';
+    elbowRight.add(forearmRight);
+
+    // ========== HIPS (groups at hip joints, relative to body-pivot at y=0) ==========
+    const hipLeft = new THREE.Group();
+    hipLeft.position.set(-0.08, 0, 0);
+    hipLeft.name = 'hip-left';
+    bodyPivot.add(hipLeft);
+
+    const hipRight = new THREE.Group();
+    hipRight.position.set(0.08, 0, 0);
+    hipRight.name = 'hip-right';
+    bodyPivot.add(hipRight);
+
+    // Upper legs (hang down from hips)
+    const upperLegGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.35, 5);
+    const upperLegLeft = new THREE.Mesh(upperLegGeo, jerseyMat);
+    upperLegLeft.position.set(0, -0.175, 0);
+    upperLegLeft.name = 'upper-leg-left';
+    hipLeft.add(upperLegLeft);
+
+    const upperLegRight = new THREE.Mesh(upperLegGeo, jerseyMat);
+    upperLegRight.position.set(0, -0.175, 0);
+    upperLegRight.name = 'upper-leg-right';
+    hipRight.add(upperLegRight);
+
+    // Knees (groups at bottom of upper leg)
+    const kneeLeft = new THREE.Group();
+    kneeLeft.position.set(0, -0.175, 0);
+    kneeLeft.name = 'knee-left';
+    upperLegLeft.add(kneeLeft);
+
+    const kneeRight = new THREE.Group();
+    kneeRight.position.set(0, -0.175, 0);
+    kneeRight.name = 'knee-right';
+    upperLegRight.add(kneeRight);
+
+    // Lower legs (hang from knees)
+    const lowerLegGeo = new THREE.CylinderGeometry(0.05, 0.06, 0.35, 5);
+    const lowerLegLeft = new THREE.Mesh(lowerLegGeo, skinMat);
+    lowerLegLeft.position.set(0, -0.175, 0);
+    lowerLegLeft.name = 'lower-leg-left';
+    kneeLeft.add(lowerLegLeft);
+
+    const lowerLegRight = new THREE.Mesh(lowerLegGeo, skinMat);
+    lowerLegRight.position.set(0, -0.175, 0);
+    lowerLegRight.name = 'lower-leg-right';
+    kneeRight.add(lowerLegRight);
+
+    // Ankles (groups at bottom of lower leg)
+    const ankleLeft = new THREE.Group();
+    ankleLeft.position.set(0, -0.175, 0);
+    ankleLeft.name = 'ankle-left';
+    lowerLegLeft.add(ankleLeft);
+
+    const ankleRight = new THREE.Group();
+    ankleRight.position.set(0, -0.175, 0);
+    ankleRight.name = 'ankle-right';
+    lowerLegRight.add(ankleRight);
+
+    // Shoes
+    const shoeGeo = new THREE.BoxGeometry(0.14, 0.08, 0.2);
+    const shoeMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const shoeLeft = new THREE.Mesh(shoeGeo, shoeMat);
+    shoeLeft.position.set(0, -0.04, 0.02);
+    shoeLeft.name = 'shoe-left';
+    ankleLeft.add(shoeLeft);
+
+    const shoeRight = new THREE.Mesh(shoeGeo, shoeMat);
+    shoeRight.position.set(0, -0.04, 0.02);
+    shoeRight.name = 'shoe-right';
+    ankleRight.add(shoeRight);
+
+    // ========== POSSESSION RING (direct child of group, not body-pivot) ==========
     const ringGeo = new THREE.TorusGeometry(0.35, 0.04, 6, 16);
     const ringMat = new THREE.MeshStandardMaterial({
       color: 0xffd700,
@@ -206,7 +253,7 @@ export class GamePlayer {
     possessionRing.name = 'possession-ring';
     group.add(possessionRing);
 
-    // ========== PLAYER INDICATOR (chevron above head, hidden by default) ==========
+    // ========== PLAYER INDICATOR (direct child of group, not body-pivot) ==========
     const indicator = this.createPlayerIndicator();
     indicator.name = 'player-indicator';
     indicator.visible = false;
@@ -221,12 +268,14 @@ export class GamePlayer {
   private createHair(style: HairStyle, hairColor: number): THREE.Object3D {
     const hairMat = new THREE.MeshStandardMaterial({ color: hairColor });
 
+    // Hair positions are relative to neckGroup (which is at body-pivot y=0.4)
+    // Head center is at 0.35 relative to neckGroup, head top at ~0.63
     switch (style) {
       case 'flat-top': {
         // Box sitting on top of head — classic flat-top look
         const geo = new THREE.BoxGeometry(0.36, 0.16, 0.36);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 1.92, 0);
+        mesh.position.set(0, 0.71, 0); // just above head top
         return mesh;
       }
 
@@ -239,7 +288,7 @@ export class GamePlayer {
           opacity: 0.85,
         });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, 1.78, 0);
+        mesh.position.set(0, 0.55, 0); // around head center-top
         return mesh;
       }
 
@@ -247,7 +296,7 @@ export class GamePlayer {
         // Thin tall box running along the center of the head
         const geo = new THREE.BoxGeometry(0.06, 0.3, 0.32);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 2.0, 0);
+        mesh.position.set(0, 0.78, 0); // above head top
         return mesh;
       }
 
@@ -256,7 +305,7 @@ export class GamePlayer {
         const geo = new THREE.TorusGeometry(0.29, 0.03, 6, 16);
         const mat = new THREE.MeshStandardMaterial({ color: 0xff2222 }); // bright red headband
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, 1.66, 0);
+        mesh.position.set(0, 0.43, 0); // at forehead level
         return mesh;
       }
     }
@@ -300,177 +349,264 @@ export class GamePlayer {
    */
   animate(dt: number): void {
     this.animTime += dt;
-
-    // Detect if moving by comparing positions
     const isMoving = this.velocity.lengthSq() > 0.01;
 
-    // --- Possession ring ---
+    // Determine animation state
+    if (this.isJumping) {
+      this.animState = 'jump';
+    } else if (this.stealTimer > 0) {
+      this.animState = 'steal';
+      this.stealTimer -= dt;
+    } else if (this.shootTimer > 0) {
+      this.animState = 'shoot';
+      this.shootTimer -= dt;
+    } else if (this.hasBall) {
+      this.animState = 'dribble';
+    } else if (isMoving) {
+      this.animState = 'walk';
+    } else {
+      this.animState = 'idle';
+    }
+
+    // Get joint references (nested hierarchy — getObjectByName searches recursively)
+    const bodyPivot = this.group.getObjectByName('body-pivot')!;
+    const hipL = this.group.getObjectByName('hip-left')!;
+    const hipR = this.group.getObjectByName('hip-right')!;
+    const kneeL = this.group.getObjectByName('knee-left')!;
+    const kneeR = this.group.getObjectByName('knee-right')!;
+    const shoulderL = this.group.getObjectByName('shoulder-left')!;
+    const shoulderR = this.group.getObjectByName('shoulder-right')!;
+    const elbowL = this.group.getObjectByName('elbow-left')!;
+    const elbowR = this.group.getObjectByName('elbow-right')!;
+
+    // Possession ring pulse
     const ring = this.group.getObjectByName('possession-ring');
     if (ring) {
       ring.visible = this.hasBall;
       if (this.hasBall) {
-        // Pulse: oscillate scale between 0.85 and 1.15
-        const pulse = 1.0 + 0.15 * Math.sin(this.animTime * 4.0);
-        ring.scale.set(pulse, pulse, 1);
+        const pulse = 1 + Math.sin(this.animTime * 4) * 0.15;
+        ring.scale.set(pulse, 1, pulse);
       }
     }
 
-    // --- Player indicator ---
+    // Player indicator bob
     const indicator = this.group.getObjectByName('player-indicator');
     if (indicator) {
       indicator.visible = this.isHumanControlled;
       if (this.isHumanControlled) {
-        // Gentle bob
-        indicator.position.y = 2.25 + 0.05 * Math.sin(this.animTime * 3.0);
+        indicator.position.y = 2.25 + Math.sin(this.animTime * 3) * 0.08;
       }
     }
 
-    // --- Arm animation ---
-    const armRight = this.group.getObjectByName('arm-right');
-    const armLeft = this.group.getObjectByName('arm-left');
-    const forearmRight = this.group.getObjectByName('forearm-right');
-    const forearmLeft = this.group.getObjectByName('forearm-left');
+    switch (this.animState) {
+      case 'idle': {
+        // Gentle breathing/sway
+        bodyPivot.rotation.x = 0;
+        hipL.rotation.x = 0;
+        hipR.rotation.x = 0;
+        kneeL.rotation.x = 0.05; // very slight natural bend
+        kneeR.rotation.x = 0.05;
+        shoulderL.rotation.x = 0;
+        shoulderR.rotation.x = 0;
+        elbowL.rotation.x = 0.1; // slight natural elbow bend
+        elbowR.rotation.x = 0.1;
+        // Gentle idle bob
+        this.group.position.y = Math.sin(this.animTime * 1.5) * 0.03;
+        break;
+      }
 
-    if (this.hasBall) {
-      // Dribble animation: right arm pumps hard (synced with ball dribble)
-      if (armRight) {
-        armRight.rotation.x = -0.5 + Math.sin(this.animTime * 3.0) * 0.8;
+      case 'walk': {
+        // Floaty bouncy stride
+        const t = this.animTime * 4;
+        const bouncePhase = (Math.sin(t) + 1) / 2;
+        this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.25;
+
+        // Forward lean
+        bodyPivot.rotation.x = 0.12;
+
+        // Leg stride — floaty power curve
+        const strideRaw = Math.sin(t);
+        const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.6;
+
+        hipL.rotation.x = -stride; // negative = forward swing
+        hipR.rotation.x = stride;
+
+        // Knee bend: more when leg is back (pushing off)
+        kneeL.rotation.x = 0.15 + Math.max(0, stride) * 0.6;
+        kneeR.rotation.x = 0.15 + Math.max(0, -stride) * 0.6;
+
+        // Arms swing opposite to legs
+        shoulderL.rotation.x = stride * 0.5;
+        shoulderR.rotation.x = -stride * 0.5;
+        elbowL.rotation.x = 0.3 + Math.max(0, -stride) * 0.3;
+        elbowR.rotation.x = 0.3 + Math.max(0, stride) * 0.3;
+        break;
       }
-      if (forearmRight) {
-        forearmRight.rotation.x = -0.3 + Math.sin(this.animTime * 3.0 + 0.5) * 0.6;
-        forearmRight.position.y = 0.65 + Math.sin(this.animTime * 3.0) * 0.15;
+
+      case 'dribble': {
+        const t = this.animTime * 4;
+
+        if (this.velocity.lengthSq() > 0.01) {
+          // Moving with ball — walk + dribble arm
+          const bouncePhase = (Math.sin(t) + 1) / 2;
+          this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.2;
+          bodyPivot.rotation.x = 0.15; // slight crouch
+
+          const strideRaw = Math.sin(t);
+          const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.5;
+          hipL.rotation.x = -stride;
+          hipR.rotation.x = stride;
+          kneeL.rotation.x = 0.2 + Math.max(0, stride) * 0.5;
+          kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.5;
+        } else {
+          // Stationary dribble
+          this.group.position.y = Math.sin(this.animTime * 1.5) * 0.03;
+          bodyPivot.rotation.x = 0.1;
+          hipL.rotation.x = 0;
+          hipR.rotation.x = 0;
+          kneeL.rotation.x = 0.15;
+          kneeR.rotation.x = 0.15;
+        }
+
+        // Dribble arm (right): strong pump
+        const dribbleT = this.animTime * 3; // synced with ball bounce
+        shoulderR.rotation.x = -0.3 + Math.sin(dribbleT) * 0.6;
+        elbowR.rotation.x = 0.8 + Math.sin(dribbleT + 0.5) * 0.4;
+
+        // Guard arm (left): held out to protect ball
+        shoulderL.rotation.x = -0.3;
+        shoulderL.rotation.z = 0.4; // arm out to side
+        elbowL.rotation.x = 0.5;
+        break;
       }
-      // Left arm: slight natural bend (guarding the ball)
-      if (armLeft) {
-        armLeft.rotation.x = -0.15;
+
+      case 'guard': {
+        // Low defensive stance
+        bodyPivot.rotation.x = 0.2;
+        hipL.rotation.x = 0.1;
+        hipR.rotation.x = -0.1;
+        kneeL.rotation.x = 0.4;
+        kneeR.rotation.x = 0.4;
+        // Arms out wide
+        shoulderL.rotation.x = -0.2;
+        shoulderL.rotation.z = 0.6;
+        shoulderR.rotation.x = -0.2;
+        shoulderR.rotation.z = -0.6;
+        elbowL.rotation.x = 0.5;
+        elbowR.rotation.x = 0.5;
+        this.group.position.y = -0.05; // lower stance
+        break;
       }
-      if (forearmLeft) {
-        forearmLeft.position.y = 0.77;
-        forearmLeft.rotation.x = -0.1;
+
+      case 'steal': {
+        // Swipe animation — one arm lunges forward
+        const progress = 1 - (this.stealTimer / 0.3); // 0 to 1 over 0.3s
+        bodyPivot.rotation.x = 0.3;
+        shoulderR.rotation.x = -1.2 * Math.sin(progress * Math.PI); // forward lunge
+        elbowR.rotation.x = 0.2;
+        shoulderL.rotation.x = 0.3; // balance arm back
+        elbowL.rotation.x = 0.4;
+        hipL.rotation.x = -0.2;
+        hipR.rotation.x = 0.2;
+        kneeL.rotation.x = 0.3;
+        kneeR.rotation.x = 0.3;
+        break;
       }
-    } else if (isMoving) {
-      // Running arm swing — synced with leg stride
-      const swing = 0.4 * Math.sin(this.animTime * 4.0);
-      if (armRight) armRight.rotation.x = swing;
-      if (armLeft) armLeft.rotation.x = -swing;
-      if (forearmRight) {
-        forearmRight.rotation.x = 0.2 * Math.sin(this.animTime * 4.0 + 1.0);
-        forearmRight.position.y = 0.77;
+
+      case 'shoot': {
+        // Shooting motion — arms push up, body extends
+        const progress = 1 - (this.shootTimer / 0.4); // 0 to 1 over 0.4s
+        bodyPivot.rotation.x = -0.1 * (1 - progress); // lean back then straighten
+        // Both arms push up
+        shoulderL.rotation.x = -0.5 - progress * 1.0;
+        shoulderR.rotation.x = -0.5 - progress * 1.0;
+        elbowL.rotation.x = 0.8 * (1 - progress);
+        elbowR.rotation.x = 0.8 * (1 - progress);
+        // Legs straighten from crouch
+        hipL.rotation.x = 0;
+        hipR.rotation.x = 0;
+        kneeL.rotation.x = 0.3 * (1 - progress);
+        kneeR.rotation.x = 0.3 * (1 - progress);
+        break;
       }
-      if (forearmLeft) {
-        forearmLeft.rotation.x = -0.2 * Math.sin(this.animTime * 4.0 + 1.0);
-        forearmLeft.position.y = 0.77;
-      }
-    } else {
-      // Idle: arms relax
-      if (armRight) armRight.rotation.x = 0;
-      if (armLeft) armLeft.rotation.x = 0;
-      if (forearmRight) {
-        forearmRight.rotation.x = 0;
-        forearmRight.position.y = 0.77;
-      }
-      if (forearmLeft) {
-        forearmLeft.rotation.x = 0;
-        forearmLeft.position.y = 0.77;
+
+      case 'jump': {
+        // Jump animation
+        this.jumpTimer -= dt;
+        const jumpDuration = 0.6;
+        const progress = 1 - (this.jumpTimer / jumpDuration);
+
+        // Parabolic height
+        this.jumpHeight = Math.sin(progress * Math.PI) * 1.5;
+        this.group.position.y = this.jumpHeight;
+
+        if (progress < 0.3) {
+          // Crouch at takeoff
+          bodyPivot.rotation.x = 0.2;
+          kneeL.rotation.x = 0.6 * (1 - progress / 0.3);
+          kneeR.rotation.x = 0.6 * (1 - progress / 0.3);
+          hipL.rotation.x = 0.1;
+          hipR.rotation.x = 0.1;
+          shoulderL.rotation.x = 0;
+          shoulderR.rotation.x = 0;
+          elbowL.rotation.x = 0.1;
+          elbowR.rotation.x = 0.1;
+        } else if (progress < 0.7) {
+          // Extended in air
+          bodyPivot.rotation.x = -0.1;
+          kneeL.rotation.x = 0.05;
+          kneeR.rotation.x = 0.05;
+          hipL.rotation.x = -0.1;
+          hipR.rotation.x = 0.1;
+          // Arms up
+          shoulderL.rotation.x = -1.2;
+          shoulderR.rotation.x = -1.2;
+          elbowL.rotation.x = 0.1;
+          elbowR.rotation.x = 0.1;
+        } else {
+          // Landing
+          bodyPivot.rotation.x = 0.15;
+          kneeL.rotation.x = 0.4 * ((progress - 0.7) / 0.3);
+          kneeR.rotation.x = 0.4 * ((progress - 0.7) / 0.3);
+          hipL.rotation.x = 0;
+          hipR.rotation.x = 0;
+          shoulderL.rotation.x = 0;
+          shoulderR.rotation.x = 0;
+          elbowL.rotation.x = 0.1;
+          elbowR.rotation.x = 0.1;
+        }
+
+        if (this.jumpTimer <= 0) {
+          this.isJumping = false;
+          this.jumpTimer = 0;
+          this.group.position.y = 0;
+        }
+        break;
       }
     }
 
-    // --- Leg walk cycle & bouncy movement ---
-    const upperLeft = this.group.getObjectByName('leg-upper-left');
-    const upperRight = this.group.getObjectByName('leg-upper-right');
-    const lowerLeft = this.group.getObjectByName('leg-lower-left');
-    const lowerRight = this.group.getObjectByName('leg-lower-right');
-    const shoeLeft = this.group.getObjectByName('shoe-left');
-    const shoeRight = this.group.getObjectByName('shoe-right');
-    const torso = this.group.getObjectByName('torso');
-
-    if (isMoving) {
-      // Floaty bounce: hang at peak and ground contact
-      const bouncePhase = (Math.sin(this.animTime * 4) + 1) / 2; // 0 to 1
-      const floatyBounce = Math.pow(bouncePhase, 0.6) * 0.3; // power < 1 = hang at extremes
-      this.group.position.y = floatyBounce;
-
-      // Drop torso slightly while running
-      if (torso) {
-        torso.position.y = 0.98 - 0.08;
-      }
-
-      // DRAMATIC stride — much bigger range
-      const strideRaw = Math.sin(this.animTime * 4);
-      const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.8;
-
-      // Upper legs — big forward/back swing
-      if (upperLeft) upperLeft.rotation.x = stride;
-      if (upperRight) upperRight.rotation.x = -stride;
-
-      // SIMULATE KINEMATIC CHAIN for lower legs
-      // When upper leg swings forward (positive rotation), lower leg should bend back at knee
-      // When upper leg swings back, lower leg extends
-      // Knee bend: always some bend when moving (crouched stance) + extra when leg forward
-      const leftKneeBend = 0.3 + Math.max(0, stride) * 0.8;
-      const rightKneeBend = 0.3 + Math.max(0, -stride) * 0.8;
-
-      if (lowerLeft) lowerLeft.rotation.x = leftKneeBend;
-      if (lowerRight) lowerRight.rotation.x = rightKneeBend;
-
-      // MOVE lower legs to follow upper leg pivot
-      // Upper leg pivot point is at y=0.78 (top of upper leg)
-      // When upper leg rotates, the knee (bottom of upper leg) moves
-      const upperLegLength = 0.35;
-      const lowerLeftOffsetZ = -Math.sin(stride) * upperLegLength;
-      const lowerLeftOffsetY = -Math.cos(stride) * upperLegLength + upperLegLength;
-      if (lowerLeft) {
-        lowerLeft.position.z = lowerLeftOffsetZ;
-        lowerLeft.position.y = 0.255 + lowerLeftOffsetY - 0.35;
-      }
-
-      const lowerRightOffsetZ = -Math.sin(-stride) * upperLegLength;
-      const lowerRightOffsetY = -Math.cos(-stride) * upperLegLength + upperLegLength;
-      if (lowerRight) {
-        lowerRight.position.z = lowerRightOffsetZ;
-        lowerRight.position.y = 0.255 + lowerRightOffsetY - 0.35;
-      }
-
-      // Shoes follow lower legs similarly
-      if (shoeLeft) {
-        shoeLeft.position.z = lowerLeftOffsetZ * 1.5;
-        shoeLeft.position.y = 0.04 + Math.max(0, lowerLeftOffsetY - 0.1);
-      }
-      if (shoeRight) {
-        shoeRight.position.z = lowerRightOffsetZ * 1.5;
-        shoeRight.position.y = 0.04 + Math.max(0, lowerRightOffsetY - 0.1);
-      }
-    } else {
-      // Idle: smooth return and gentle bob
-      this.group.position.y = Math.sin(this.animTime * 1.5) * 0.04;
-
-      // Return torso to rest
-      if (torso) {
-        torso.position.y = 0.98;
-      }
-
-      // Reset ALL leg positions back to rest
-      if (upperLeft) upperLeft.rotation.x = 0;
-      if (upperRight) upperRight.rotation.x = 0;
-      if (lowerLeft) {
-        lowerLeft.rotation.x = 0;
-        lowerLeft.position.set(-0.08, 0.255, 0);
-      }
-      if (lowerRight) {
-        lowerRight.rotation.x = 0;
-        lowerRight.position.set(0.08, 0.255, 0);
-      }
-      if (shoeLeft) {
-        shoeLeft.rotation.x = 0;
-        shoeLeft.position.set(-0.08, 0.04, 0.02);
-      }
-      if (shoeRight) {
-        shoeRight.rotation.x = 0;
-        shoeRight.position.set(0.08, 0.04, 0.02);
-      }
+    // Reset shoulder Z rotation if not in dribble/guard
+    if (this.animState !== 'dribble' && this.animState !== 'guard') {
+      shoulderL.rotation.z = 0;
+      shoulderR.rotation.z = 0;
     }
 
     this.lastMoving = isMoving;
+  }
+
+  triggerSteal(): void {
+    this.stealTimer = 0.3;
+  }
+
+  triggerShoot(): void {
+    this.shootTimer = 0.4;
+  }
+
+  jump(): void {
+    if (this.isJumping) return;
+    this.isJumping = true;
+    this.jumpTimer = 0.6;
+    this.jumpHeight = 0;
   }
 
   moveToward(target: THREE.Vector3, dt: number): void {

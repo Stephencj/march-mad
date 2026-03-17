@@ -279,6 +279,7 @@ export class GameSession {
         if (hasBall) {
           // Shoot
           human.loseBall();
+          human.triggerShoot();
           this.lastShooterId = human.data.id;
           this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, gesture.power);
         }
@@ -288,6 +289,7 @@ export class GameSession {
         if (hasBall && human.distanceTo(COURT_DIMENSIONS.hoopPosition) < 3) {
           // Dunk attempt
           human.loseBall();
+          human.triggerShoot();
           this.lastShooterId = human.data.id;
           this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 1.0);
         }
@@ -309,6 +311,10 @@ export class GameSession {
           // Steal attempt
           this.attemptSteal(human);
         }
+        break;
+
+      case 'jump':
+        human.jump();
         break;
 
       case 'double-tap':
@@ -346,6 +352,8 @@ export class GameSession {
     const ballHolder = this.getAllPlayers().find(p => p.hasBall);
     if (!ballHolder) return;
     if (stealer.distanceTo(ballHolder.position) > 2) return;
+
+    stealer.triggerSteal();
 
     // 30% chance of steal, 30% chance of foul, 40% nothing
     const roll = Math.random();
@@ -400,6 +408,7 @@ export class GameSession {
         case 'shoot':
           if (player.hasBall) {
             player.loseBall();
+            player.triggerShoot();
             this.lastShooterId = player.data.id;
             this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 0.5 + Math.random() * 0.3);
           }
@@ -422,6 +431,7 @@ export class GameSession {
         case 'dunk':
           if (player.hasBall && player.distanceTo(COURT_DIMENSIONS.hoopPosition) < 3) {
             player.loseBall();
+            player.triggerShoot();
             this.lastShooterId = player.data.id;
             this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 1.0);
           }

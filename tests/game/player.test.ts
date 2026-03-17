@@ -12,21 +12,23 @@ function makePlayer(id = 'p1', name = 'Test Player') {
 }
 
 describe('GamePlayer', () => {
-  it('creates a mesh group with bobblehead body parts', () => {
+  it('creates a mesh group with body parts accessible by name', () => {
     const player = makePlayer();
     expect(player.group).toBeInstanceOf(THREE.Group);
-    // Bobblehead baller has many parts: shoes(2), lower legs(2), knees(2),
-    // upper legs(2), torso, arms(2), forearms(2), neck, head, eyes(2),
-    // hair, possession-ring, player-indicator = 19 children
-    expect(player.group.children.length).toBeGreaterThanOrEqual(19);
-  });
-
-  it('has all named body parts', () => {
-    const player = makePlayer();
+    // Nested hierarchy: direct children are body-pivot, possession-ring, player-indicator
+    // All body parts should be findable via getObjectByName
     const expectedParts = [
-      'head', 'hair', 'neck', 'torso',
-      'arm-left', 'arm-right', 'forearm-left', 'forearm-right',
-      'leg-upper-left', 'leg-upper-right', 'leg-lower-left', 'leg-lower-right',
+      'body-pivot', 'torso', 'neck', 'head',
+      'eye-left', 'eye-right', 'hair',
+      'shoulder-left', 'shoulder-right',
+      'upper-arm-left', 'upper-arm-right',
+      'elbow-left', 'elbow-right',
+      'forearm-left', 'forearm-right',
+      'hip-left', 'hip-right',
+      'upper-leg-left', 'upper-leg-right',
+      'knee-left', 'knee-right',
+      'lower-leg-left', 'lower-leg-right',
+      'ankle-left', 'ankle-right',
       'shoe-left', 'shoe-right',
       'possession-ring', 'player-indicator',
     ];
@@ -164,5 +166,55 @@ describe('GamePlayer - animation & indicators', () => {
     player.moveByInput(1, 0, 1 / 60);
     const ring = player.group.getObjectByName('possession-ring')!;
     expect(ring.visible).toBe(true);
+  });
+});
+
+describe('GamePlayer - new animation triggers', () => {
+  it('jump sets isJumping to true', () => {
+    const player = makePlayer();
+    expect(player.isJumping).toBe(false);
+    player.jump();
+    expect(player.isJumping).toBe(true);
+  });
+
+  it('jump does not double-trigger while already jumping', () => {
+    const player = makePlayer();
+    player.jump();
+    expect(player.isJumping).toBe(true);
+    // Simulate some frames
+    player.animate(0.1);
+    player.jump(); // should be ignored
+    expect(player.isJumping).toBe(true);
+  });
+
+  it('triggerSteal sets steal timer', () => {
+    const player = makePlayer();
+    player.triggerSteal();
+    // Animate should pick up steal state
+    player.animate(1 / 60);
+    // After one frame the steal timer should still be active (0.3 - 1/60 > 0)
+    expect(player.group.getObjectByName('body-pivot')!.rotation.x).toBeGreaterThan(0);
+  });
+
+  it('triggerShoot sets shoot timer', () => {
+    const player = makePlayer();
+    player.triggerShoot();
+    player.animate(1 / 60);
+    // Shoot animation should be active
+    const shoulderL = player.group.getObjectByName('shoulder-left')!;
+    // During shoot, shoulders rotate negatively (arms push up)
+    expect(shoulderL.rotation.x).toBeLessThan(0);
+  });
+
+  it('jump animation completes and resets isJumping', () => {
+    const player = makePlayer();
+    player.jump();
+    // Simulate enough time for the jump to complete (0.6s)
+    for (let i = 0; i < 40; i++) {
+      player.animate(1 / 60); // 40 * 1/60 = 0.667s > 0.6s
+    }
+    expect(player.isJumping).toBe(false);
+    // After jump completes, idle bob may shift y slightly from 0
+    expect(Math.abs(player.group.position.y)).toBeLessThan(0.1);
   });
 });
