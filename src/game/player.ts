@@ -317,24 +317,26 @@ export class GamePlayer {
     // Hair should sit ON TOP and BEHIND the head, never covering the eyes.
     switch (style) {
       case 'flat-top': {
-        const geo = new THREE.BoxGeometry(0.36, 0.16, 0.30);
+        // Sits flush on head top (head top = 0.63)
+        const geo = new THREE.BoxGeometry(0.36, 0.14, 0.30);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.71, -0.04); // on top, slightly back from face
+        mesh.position.set(0, 0.63 + 0.07, -0.04); // bottom of box at head top
         return mesh;
       }
 
       case 'afro': {
-        // Solid (NOT transparent), sits on top/back of head
+        // Solid, envelops top/back of head
         const geo = new THREE.SphereGeometry(0.32, 8, 6);
-        const mesh = new THREE.Mesh(geo, hairMat); // solid, no transparency
-        mesh.position.set(0, 0.58, -0.06); // higher and behind eyes
+        const mesh = new THREE.Mesh(geo, hairMat);
+        mesh.position.set(0, 0.50, -0.06); // overlaps head, centered above eyes
         return mesh;
       }
 
       case 'mohawk': {
-        const geo = new THREE.BoxGeometry(0.06, 0.3, 0.28);
+        // Thin strip flush on head top
+        const geo = new THREE.BoxGeometry(0.06, 0.22, 0.28);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.78, -0.04); // on top, slightly back
+        mesh.position.set(0, 0.63 + 0.11, -0.04); // bottom at head top
         return mesh;
       }
 
@@ -342,7 +344,7 @@ export class GamePlayer {
         const geo = new THREE.TorusGeometry(0.29, 0.03, 6, 16);
         const mat = new THREE.MeshStandardMaterial({ color: 0xff2222 });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, 0.45, 0); // at forehead, above eyes (y=0.39)
+        mesh.position.set(0, 0.45, 0);
         return mesh;
       }
     }
@@ -515,12 +517,12 @@ export class GamePlayer {
           const bouncePhase = (Math.sin(bounceT) + 1) / 2;
           this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.12; // subtler than walk
 
-          // Squash-stretch on body pivot
-          const squashStretch = bouncePhase; // 0 = ground contact, 1 = peak
+          // Squash-stretch on body pivot (subtle)
+          const squashStretch = bouncePhase;
           bodyPivot.scale.set(
-            1 + (1 - squashStretch) * 0.08,   // wider at ground
-            1 - (1 - squashStretch) * 0.08 + squashStretch * 0.08, // shorter at ground, taller at peak
-            1 + (1 - squashStretch) * 0.08    // wider at ground
+            1 + (1 - squashStretch) * 0.03,
+            1 - (1 - squashStretch) * 0.03 + squashStretch * 0.03,
+            1 + (1 - squashStretch) * 0.03
           );
 
           bodyPivot.rotation.x = 0.15; // slight crouch
@@ -628,18 +630,20 @@ export class GamePlayer {
           forearmScale = 1.8 - swipeDown * 0.8; // shrinks back
         }
 
-        // Phase-dependent body lean: back on wind-up, forward on swipe
+        // Torso TWIST — wind up away, then twist toward the swipe
+        // rotation.y = twist around vertical axis, rotation.x = slight lean only
+        bodyPivot.rotation.x = 0.1; // slight constant forward lean
         if (progress < 0.1) {
-          // Snap up: lean BACK
+          // Snap up: twist AWAY (wind up)
           const snap = progress / 0.1;
-          bodyPivot.rotation.x = -0.2 * snap; // negative = lean back
+          bodyPivot.rotation.y = 0.4 * snap; // twist right (away from swipe)
         } else if (progress < 0.35) {
-          // Hold at crest: held back
-          bodyPivot.rotation.x = -0.2;
+          // Hold at crest: held twisted away
+          bodyPivot.rotation.y = 0.4;
         } else {
-          // Swipe down: lunge FORWARD
+          // Swipe: twist TOWARD target
           const swipeDown = (progress - 0.35) / 0.65;
-          bodyPivot.rotation.x = -0.2 + swipeDown * 0.5; // goes from -0.2 to +0.3 (forward lean)
+          bodyPivot.rotation.y = 0.4 - swipeDown * 0.8; // goes from 0.4 to -0.4
         }
 
         shoulderR.rotation.x = shoulderAngle;
@@ -824,6 +828,11 @@ export class GamePlayer {
     if (this.animState !== 'dribble' && this.animState !== 'guard' && this.animState !== 'steal' && this.animState !== 'jump') {
       shoulderL.rotation.z = 0;
       shoulderR.rotation.z = 0;
+    }
+
+    // Reset body twist if not stealing
+    if (this.animState !== 'steal') {
+      bodyPivot.rotation.y = 0;
     }
 
     // Reset forearm scale if not stealing
