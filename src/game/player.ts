@@ -57,7 +57,7 @@ export class GamePlayer {
   private lastMoving = false;
   velocity = new THREE.Vector3();
   private prevPosition = new THREE.Vector3();
-  private animState: 'idle' | 'walk' | 'sprint' | 'dribble' | 'dribble-sprint' | 'guard' | 'steal' | 'shoot' | 'jump' | 'jump-block' | 'fall' | 'dunk' = 'idle';
+  private animState: 'idle' | 'walk' | 'sprint' | 'dribble' | 'dribble-sprint' | 'guard' | 'steal' | 'shoot' | 'jump' | 'jump-block' | 'fall' | 'dunk' | 'pass' = 'idle';
   private prevAnimState: string = 'idle';
   private hairRestY: number | undefined;
   private stateTransitionTimer = 0;
@@ -72,6 +72,7 @@ export class GamePlayer {
   isSprinting = false;
   private fallTimer = 0;
   private dunkTimer = 0;
+  private passTimer = 0;
   dribblePhase = 0; // 0-1, exposed for ball sync
 
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
@@ -411,6 +412,7 @@ export class GamePlayer {
       if (this.shootTimer > 0) this.shootTimer -= dt;
       if (this.fallTimer > 0) this.fallTimer -= dt;
       if (this.dunkTimer > 0) this.dunkTimer -= dt;
+      if (this.passTimer > 0) this.passTimer -= dt;
     } else if (this.fallTimer > 0) {
       this.animState = 'fall';
       this.fallTimer -= dt;
@@ -427,6 +429,9 @@ export class GamePlayer {
     } else if (this.shootTimer > 0) {
       this.animState = 'shoot';
       this.shootTimer -= dt;
+    } else if (this.passTimer > 0) {
+      this.animState = 'pass';
+      this.passTimer -= dt;
     } else if (this.hasBall && isMoving && this.isSprinting) {
       this.animState = 'dribble-sprint';
     } else if (this.hasBall) {
@@ -1268,17 +1273,17 @@ export class GamePlayer {
         const dunkDuration = 1.2;
         const progress = 1 - (this.dunkTimer / dunkDuration);
 
-        // Height curve — rise, hang at peak (includes slam + rim hang), drop, land
+        // Height curve — feet at 1.2 means hand reaches ~3.2 (rim height)
         let height: number;
         if (progress < 0.15) {
-          height = (progress / 0.15) * 2.5; // quick rise
+          height = (progress / 0.15) * 1.2; // quick rise
         } else if (progress < 0.45) {
-          height = 2.5; // hang at peak (includes slam)
+          height = 1.2; // hang at peak (includes slam)
         } else if (progress < 0.65) {
-          height = 2.5; // still at rim height during hang
+          height = 1.2; // still at rim height during hang
         } else if (progress < 0.85) {
           const drop = (progress - 0.65) / 0.2;
-          height = 2.5 * (1 - drop); // drop to ground
+          height = 1.2 * (1 - drop); // drop to ground
         } else {
           height = 0; // on ground
         }
@@ -1425,6 +1430,52 @@ export class GamePlayer {
         }
         break;
       }
+
+      case 'pass': {
+        bodyPivot.scale.set(1, 1, 1);
+        const passDuration = 0.35;
+        const progress = 1 - (this.passTimer / passDuration);
+
+        if (progress < 0.15) {
+          // Wind up: pull ball to chest
+          const wind = progress / 0.15;
+          shoulderR.rotation.x = -0.4 * wind;
+          shoulderL.rotation.x = -0.4 * wind;
+          elbowR.rotation.x = -0.8 * wind;
+          elbowL.rotation.x = -0.8 * wind;
+          bodyPivot.rotation.x = 0.05 * wind;
+          hipL.rotation.x = 0;
+          hipR.rotation.x = 0;
+          kneeL.rotation.x = 0.05;
+          kneeR.rotation.x = 0.05;
+        } else if (progress < 0.4) {
+          // PUSH: both arms thrust forward
+          const push = (progress - 0.15) / 0.25;
+          shoulderR.rotation.x = -0.4 - push * 0.8;
+          shoulderL.rotation.x = -0.4 - push * 0.8;
+          elbowR.rotation.x = -0.8 + push * 0.7;
+          elbowL.rotation.x = -0.8 + push * 0.7;
+          bodyPivot.rotation.x = 0.05 + push * 0.1;
+          // Step forward
+          hipR.rotation.x = -0.1 * push;
+          kneeR.rotation.x = 0.1 * push;
+          hipL.rotation.x = 0;
+          kneeL.rotation.x = 0.05;
+        } else {
+          // Recovery: arms return to sides
+          const recover = (progress - 0.4) / 0.6;
+          shoulderR.rotation.x = -1.2 + recover * 1.1;
+          shoulderL.rotation.x = -1.2 + recover * 1.1;
+          elbowR.rotation.x = -0.1;
+          elbowL.rotation.x = -0.1;
+          bodyPivot.rotation.x = 0.15 * (1 - recover);
+          hipR.rotation.x = -0.1 * (1 - recover);
+          kneeR.rotation.x = 0.1 * (1 - recover);
+          hipL.rotation.x = 0;
+          kneeL.rotation.x = 0.05;
+        }
+        break;
+      }
     }
 
     // Hide block screen when not guarding
@@ -1503,7 +1554,7 @@ export class GamePlayer {
 
   private forcedAnimState: string | null = null;
 
-  forceAnimState(state: 'idle' | 'walk' | 'sprint' | 'dribble' | 'dribble-sprint' | 'guard' | 'steal' | 'shoot' | 'jump' | 'jump-block' | 'fall' | 'dunk' | null): void {
+  forceAnimState(state: 'idle' | 'walk' | 'sprint' | 'dribble' | 'dribble-sprint' | 'guard' | 'steal' | 'shoot' | 'jump' | 'jump-block' | 'fall' | 'dunk' | 'pass' | null): void {
     this.forcedAnimState = state;
   }
 
@@ -1521,6 +1572,10 @@ export class GamePlayer {
 
   triggerDunk(): void {
     this.dunkTimer = 1.2; // longer for hang + dramatic landing
+  }
+
+  triggerPass(): void {
+    this.passTimer = 0.35;
   }
 
   jump(): void {

@@ -68,6 +68,8 @@ let shootReleased = false;
 let dunkReleased = false;
 let shootResetDelay = 0;
 let shootBallFalling = false;
+let shootInIdle = false;
+let shootIdleTimer = 0;
 
 let player: GamePlayer;
 
@@ -137,10 +139,15 @@ function animate() {
       }
       break;
     case 'shoot':
-      player.hasBall = true; // start with ball
       player.velocity.set(0, 0, 0);
-      if ((player as unknown as { shootTimer: number }).shootTimer <= 0 && !shootReleased && shootResetDelay <= 0) {
-        player.triggerShoot();
+      if (shootInIdle) {
+        // Idle pause between shots
+        player.hasBall = false;
+      } else {
+        player.hasBall = true; // start with ball
+        if ((player as unknown as { shootTimer: number }).shootTimer <= 0 && !shootReleased && shootResetDelay <= 0) {
+          player.triggerShoot();
+        }
       }
       break;
     case 'jump':
@@ -178,6 +185,13 @@ function animate() {
         ball.isInFlight = false;
         player.triggerDunk();
         dunkReleased = false;
+      }
+      break;
+    case 'pass':
+      player.hasBall = true;
+      player.velocity.set(0, 0, 0);
+      if ((player as unknown as { passTimer: number }).passTimer <= 0) {
+        player.triggerPass();
       }
       break;
   }
@@ -241,14 +255,28 @@ function animate() {
     if (shootReleased && !ball.isInFlight && shootTimer <= 0) {
       shootResetDelay += dt;
       if (shootResetDelay > 1.5) {
-        // Full reset
+        // Full reset — go to idle first, not straight to next shot
         ball.pickup('viewer');
         ball.isInFlight = false;
-        player.hasBall = true;
-        player.triggerShoot();
+        shootBallFalling = false;
         shootReleased = false;
         shootResetDelay = 0;
-        shootBallFalling = false;
+        // Idle pause before next shot
+        shootInIdle = true;
+        shootIdleTimer = 1.0;
+        player.hasBall = false;
+      }
+    }
+
+    // Idle pause between shots
+    if (shootInIdle) {
+      shootIdleTimer -= dt;
+      player.hasBall = false;
+      if (shootIdleTimer <= 0) {
+        shootInIdle = false;
+        player.hasBall = true;
+        ball.pickup('viewer');
+        player.triggerShoot();
       }
     }
 
@@ -286,6 +314,10 @@ function animate() {
     ball.mesh.visible = true;
     ball.pickup('viewer');
     ball.followHolder(player.group, true, player.dribblePhase);
+  } else if (currentAnim === 'pass') {
+    ball.mesh.visible = true;
+    ball.pickup('viewer');
+    ball.followHolder(player.group, false, 0);
   } else if (currentAnim !== 'shoot' && currentAnim !== 'dunk') {
     // Non-ball animations
     ball.mesh.visible = false;
@@ -308,19 +340,19 @@ function animate() {
       // Arc phase: jump TO the hoop in a parabola
       const arcT = dunkProgress / 0.35; // 0 to 1
       player.group.position.z = arcT * hoopZ; // linear z toward hoop
-      // Arc from ground (0) to rim height (2.5), peaking above rim
-      const endY = 2.5; // rim height — must match hang phase
-      const overshoot = 1.5; // peak 1.5 above linear interp at midpoint
+      // Feet at 1.2 means hand reaches ~3.2 (rim height)
+      const endY = 1.2;
+      const overshoot = 0.5; // slight arc above, not massive
       player.group.position.y = endY * arcT + overshoot * Math.sin(arcT * Math.PI);
     } else if (dunkProgress < 0.65) {
-      // At the hoop: rim hang phase — stay at hoop position, at rim height
+      // At the hoop: rim hang phase — stay at hoop position
       player.group.position.z = hoopZ;
-      player.group.position.y = 2.5; // rim height
+      player.group.position.y = 1.2;
     } else if (dunkProgress < 0.85) {
       // Drop from rim
       const dropT = (dunkProgress - 0.65) / 0.2;
       player.group.position.z = hoopZ;
-      player.group.position.y = 2.5 * (1 - dropT);
+      player.group.position.y = 1.2 * (1 - dropT);
     } else {
       // On ground — landing
       player.group.position.z = hoopZ;
@@ -368,12 +400,15 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
     (player as unknown as { shootTimer: number }).shootTimer = 0;
     (player as unknown as { fallTimer: number }).fallTimer = 0;
     (player as unknown as { dunkTimer: number }).dunkTimer = 0;
+    (player as unknown as { passTimer: number }).passTimer = 0;
     player.isJumping = false;
     player.isSprinting = false;
     shootReleased = false;
     dunkReleased = false;
     shootResetDelay = 0;
     shootBallFalling = false;
+    shootInIdle = false;
+    shootIdleTimer = 0;
     // Reset player position (dunk moves them forward)
     player.group.position.set(0, 0, 0);
     // Clear forced state — only re-force if selecting guard/fall/dunk
