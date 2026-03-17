@@ -309,6 +309,14 @@ export class GameSession {
             human.loseBall();
             this.ball.passTo(teammate.position);
             this.pendingPassTarget = teammate.data.id;
+
+            // Switch control to the pass target
+            human.isHumanControlled = false;
+            this.playerAIs.set(human.data.id, new PlayerAI(human.data.stats, human.data.personality));
+
+            this.humanPlayerId = teammate.data.id;
+            teammate.isHumanControlled = true;
+            this.playerAIs.delete(teammate.data.id);
           }
         }
         break;

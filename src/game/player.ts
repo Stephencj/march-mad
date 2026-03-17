@@ -437,9 +437,11 @@ export class GamePlayer {
         kneeL.rotation.x = 0.15 + Math.max(0, stride) * 0.6;
         kneeR.rotation.x = 0.15 + Math.max(0, -stride) * 0.6;
 
-        // Arms swing opposite to legs (negative rotation.x = forward in nested skeleton)
-        shoulderL.rotation.x = -stride * 0.5;
-        shoulderR.rotation.x = stride * 0.5;
+        // Arms swing opposite to their OPPOSITE legs
+        // Left arm opposes right leg, right arm opposes left leg
+        // Positive rotation.x = backward, negative = forward in nested skeleton
+        shoulderL.rotation.x = stride * 0.5;   // stride>0 = right leg back, so left arm back (positive)
+        shoulderR.rotation.x = -stride * 0.5;  // stride>0 = left leg forward, so right arm forward (negative)
         elbowL.rotation.x = 0.3 + Math.max(0, stride) * 0.3;
         elbowR.rotation.x = 0.3 + Math.max(0, -stride) * 0.3;
         break;
@@ -470,15 +472,15 @@ export class GamePlayer {
           kneeR.rotation.x = 0.15;
         }
 
-        // Dribble arm (right): strong pump
+        // Dribble arm (right): reaches forward-down then pulls back up
         const dribbleT = this.animTime * 3; // synced with ball bounce
-        shoulderR.rotation.x = -0.3 + Math.sin(dribbleT) * 0.6;
-        elbowR.rotation.x = 0.8 + Math.sin(dribbleT + 0.5) * 0.4;
+        shoulderR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.4; // always negative = forward, varies -0.5 to -0.9
+        elbowR.rotation.x = 0.4 + Math.abs(Math.sin(dribbleT + 0.5)) * 0.5; // elbow bends more at ball contact
 
-        // Guard arm (left): held out to protect ball
-        shoulderL.rotation.x = -0.3;
-        shoulderL.rotation.z = 0.4; // arm out to side
-        elbowL.rotation.x = 0.5;
+        // Guard arm (left): held out to side to protect ball
+        shoulderL.rotation.x = -0.2; // slightly forward
+        shoulderL.rotation.z = 0.4; // out to side
+        elbowL.rotation.x = 0.5; // bent
         break;
       }
 
