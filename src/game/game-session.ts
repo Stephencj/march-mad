@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { TeamData, Possession, ShotType } from '@/core/types';
+import type { TeamData, Possession, ShotType, GameMode } from '@/core/types';
 import type { EventBus } from '@/core/events';
 import type { ControlInput, GestureResult } from './controls';
 import type { CameraMode } from './camera';
@@ -10,6 +10,8 @@ import { ShotDetector } from './shot-detector';
 import { PlayerAI, type AIContext } from '@/ai/player-ai';
 import { TeamAI, type TeamPlay } from '@/ai/team-ai';
 import { COURT_DIMENSIONS } from './court';
+import { FULL_COURT_DIMENSIONS } from './full-court';
+import { getFormation5v5 } from '@/ai/formations-5v5';
 
 interface CameraInfo {
   mode: CameraMode;
@@ -22,11 +24,14 @@ export class GameSession {
   awayPlayers: GamePlayer[] = [];
   ball: Ball;
   matchEngine: MatchEngine;
+  attackingHoop: THREE.Vector3;
+  defendingHoop: THREE.Vector3;
 
+  private mode: GameMode;
   private cameraRef: THREE.Camera | null = null;
   private events: EventBus;
   private humanPlayerId: string;
-  private shotDetector = new ShotDetector();
+  private shotDetector: ShotDetector;
   private playerAIs = new Map<string, PlayerAI>();
   private homeTeamAI: TeamAI;
   private awayTeamAI: TeamAI;
@@ -38,24 +43,47 @@ export class GameSession {
   private cachedPlays: Record<string, { play: TeamPlay; timestamp: number }> = {};
   private playRefreshInterval = 3; // seconds
   private lastPossession: Possession | null = null;
+  private autoSwitchCooldown = 0;
 
-  constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string) {
+  constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
     this.events = events;
+    this.mode = mode;
     this.humanPlayerId = humanPlayerId;
     this.ball = new Ball(new THREE.Vector3(0, 1, 2));
     this.matchEngine = new MatchEngine(events, homeTeam, awayTeam);
     this.homeTeamAI = new TeamAI(homeTeam.archetype);
     this.awayTeamAI = new TeamAI(awayTeam.archetype);
 
+    if (mode === '5v5') {
+      this.attackingHoop = FULL_COURT_DIMENSIONS.hoopHome.clone();
+      this.defendingHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();
+      this.shotDetector = new ShotDetector(this.attackingHoop);
+    } else {
+      this.attackingHoop = COURT_DIMENSIONS.hoopPosition.clone();
+      this.defendingHoop = COURT_DIMENSIONS.hoopPosition.clone();
+      this.shotDetector = new ShotDetector();
+    }
+
     // Spawn home team players
     const homeColor = parseInt(homeTeam.colors.primary.replace('#', ''), 16) || 0x3498db;
-    const homePositions = [
-      new THREE.Vector3(-3, 0, 2),
-      new THREE.Vector3(3, 0, 2),
-      new THREE.Vector3(0, 0, 5),
-    ];
+    let homePositions: THREE.Vector3[];
+    if (mode === '5v5') {
+      homePositions = [
+        new THREE.Vector3(0, 0, -8),
+        new THREE.Vector3(-4, 0, -5),
+        new THREE.Vector3(4, 0, -5),
+        new THREE.Vector3(-2, 0, -3),
+        new THREE.Vector3(2, 0, -3),
+      ];
+    } else {
+      homePositions = [
+        new THREE.Vector3(-3, 0, 2),
+        new THREE.Vector3(3, 0, 2),
+        new THREE.Vector3(0, 0, 5),
+      ];
+    }
     homeTeam.players.forEach((pd, i) => {
-      const gp = new GamePlayer(pd, homePositions[i], homeColor);
+      const gp = new GamePlayer(pd, homePositions[i] ?? homePositions[0], homeColor);
       if (pd.id === humanPlayerId) gp.isHumanControlled = true;
       this.homePlayers.push(gp);
       if (pd.id !== humanPlayerId) {
@@ -65,13 +93,24 @@ export class GameSession {
 
     // Spawn away team players
     const awayColor = parseInt(awayTeam.colors.primary.replace('#', ''), 16) || 0xe74c3c;
-    const awayPositions = [
-      new THREE.Vector3(-2, 0, -2),
-      new THREE.Vector3(2, 0, -2),
-      new THREE.Vector3(0, 0, -4),
-    ];
+    let awayPositions: THREE.Vector3[];
+    if (mode === '5v5') {
+      awayPositions = [
+        new THREE.Vector3(0, 0, 8),
+        new THREE.Vector3(-4, 0, 5),
+        new THREE.Vector3(4, 0, 5),
+        new THREE.Vector3(-2, 0, 3),
+        new THREE.Vector3(2, 0, 3),
+      ];
+    } else {
+      awayPositions = [
+        new THREE.Vector3(-2, 0, -2),
+        new THREE.Vector3(2, 0, -2),
+        new THREE.Vector3(0, 0, -4),
+      ];
+    }
     awayTeam.players.forEach((pd, i) => {
-      const gp = new GamePlayer(pd, awayPositions[i], awayColor);
+      const gp = new GamePlayer(pd, awayPositions[i] ?? awayPositions[0], awayColor);
       this.awayPlayers.push(gp);
       this.playerAIs.set(pd.id, new PlayerAI(pd.stats, pd.personality));
     });
@@ -177,6 +216,30 @@ export class GameSession {
       }
     }
 
+    // Auto-switch human control on defense (with cooldown to prevent jitter)
+    this.autoSwitchCooldown = Math.max(0, this.autoSwitchCooldown - dt);
+    if (this.matchEngine.state.phase === 'playing' && this.autoSwitchCooldown <= 0) {
+      const humanTeam = this.getPlayerTeam(this.humanPlayerId);
+      const isOnDefense = this.matchEngine.state.possession !== humanTeam;
+
+      if (isOnDefense) {
+        const ballHolder = this.getAllPlayers().find(p => p.hasBall);
+        if (ballHolder) {
+          const humanTeamPlayers = humanTeam === 'home' ? this.homePlayers : this.awayPlayers;
+          let nearestId = this.humanPlayerId;
+          let nearestDist = Infinity;
+          for (const p of humanTeamPlayers) {
+            const d = p.distanceTo(ballHolder.position);
+            if (d < nearestDist) { nearestDist = d; nearestId = p.data.id; }
+          }
+          if (nearestId !== this.humanPlayerId) {
+            this.switchHumanControl(nearestId);
+            this.autoSwitchCooldown = 0.5; // prevent rapid toggling
+          }
+        }
+      }
+    }
+
     // Update match engine clock
     if (this.matchEngine.state.phase === 'playing') {
       this.matchEngine.tickClock(dt);
@@ -255,7 +318,7 @@ export class GameSession {
     return {
       mode,
       trackPosition: stableTrack,
-      lookAt: COURT_DIMENSIONS.hoopPosition.clone(),
+      lookAt: this.attackingHoop.clone(),
     };
   }
 
@@ -276,6 +339,19 @@ export class GameSession {
     return this.homePlayers.some(p => p.data.id === playerId) ? 'home' : 'away';
   }
 
+  private switchHumanControl(newPlayerId: string): void {
+    const oldHuman = this.getHumanPlayer();
+    const newHuman = this.getPlayerById(newPlayerId);
+    if (!oldHuman || !newHuman || newPlayerId === this.humanPlayerId) return;
+
+    oldHuman.isHumanControlled = false;
+    this.playerAIs.set(oldHuman.data.id, new PlayerAI(oldHuman.data.stats, oldHuman.data.personality));
+
+    this.humanPlayerId = newPlayerId;
+    newHuman.isHumanControlled = true;
+    this.playerAIs.delete(newPlayerId);
+  }
+
   // --- Private methods ---
 
   private handleGesture(gesture: GestureResult, human: GamePlayer): void {
@@ -288,17 +364,17 @@ export class GameSession {
           human.loseBall();
           human.triggerShoot();
           this.lastShooterId = human.data.id;
-          this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, gesture.power);
+          this.ball.shootAt(this.attackingHoop, gesture.power);
         }
         break;
 
       case 'swipe-down':
-        if (hasBall && human.distanceTo(COURT_DIMENSIONS.hoopPosition) < 3) {
+        if (hasBall && human.distanceTo(this.attackingHoop) < 3) {
           // Dunk attempt
           human.loseBall();
           human.triggerShoot();
           this.lastShooterId = human.data.id;
-          this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 1.0);
+          this.ball.shootAt(this.attackingHoop, 1.0);
         }
         break;
 
@@ -340,19 +416,34 @@ export class GameSession {
 
   private resetAfterScore(receivingTeam: Possession): void {
     this.shotDetector.reset();
-    // Move ball to check-ball position
-    this.ball.mesh.position.set(0, 1, COURT_DIMENSIONS.checkBallLine);
+
+    if (this.mode === '5v5') {
+      // Swap attacking/defending hoops
+      const temp = this.attackingHoop.clone();
+      this.attackingHoop.copy(this.defendingHoop);
+      this.defendingHoop.copy(temp);
+      this.shotDetector.setHoopPosition(this.attackingHoop);
+
+      // Ball to receiving team's first player at their baseline
+      const baselineZ = receivingTeam === 'home' ? -13 : 13;
+      this.ball.mesh.position.set(0, 1, baselineZ * 0.8); // slightly in from baseline
+    } else {
+      // Move ball to check-ball position
+      this.ball.mesh.position.set(0, 1, COURT_DIMENSIONS.checkBallLine);
+    }
+
     this.ball.velocity.set(0, 0, 0);
     // Give ball to receiving team's first player
     const receiver = receivingTeam === 'home' ? this.homePlayers[0] : this.awayPlayers[0];
     this.setBallHolder(receiver.data.id);
     this.matchEngine.checkBallComplete(receivingTeam);
 
-    // Reset AI movement states — stagger initial holds
-    for (const player of this.getAllPlayers()) {
-      if (player.data.id === this.humanPlayerId) continue;
-      player.aiMovementState = 'holding';
-      player.aiHoldTimer = 0.5 + Math.random() * 1.5;
+    // Reset all AI to holding with staggered timers
+    for (const p of this.getAllPlayers()) {
+      if (p.data.id !== this.humanPlayerId) {
+        p.aiMovementState = 'holding';
+        p.aiHoldTimer = 0.5 + Math.random() * 1.5;
+      }
     }
   }
 
@@ -422,7 +513,7 @@ export class GameSession {
           // BALL PRESSURE DEFENSE
           // Position between ball handler and hoop, ~2 units from handler
           const handlerPos = assignment.position;
-          const hoopPos = COURT_DIMENSIONS.hoopPosition;
+          const hoopPos = this.defendingHoop;
 
           // Direction from handler to hoop
           const toHoop = new THREE.Vector3().subVectors(hoopPos, handlerPos).normalize();
@@ -451,7 +542,7 @@ export class GameSession {
           // OFF-BALL DEFENSE
           // Position 2/3 of the way between assignment and hoop (closer to their man)
           const assignPos = assignment.position;
-          const hoopPos = COURT_DIMENSIONS.hoopPosition;
+          const hoopPos = this.defendingHoop;
 
           player.aiTarget = new THREE.Vector3(
             assignPos.x * 0.7 + hoopPos.x * 0.3,
@@ -478,9 +569,9 @@ export class GameSession {
           if (roll < 0.4) {
             // V-CUT TOWARD HOOP: fake toward basket
             player.aiTarget = new THREE.Vector3(
-              COURT_DIMENSIONS.hoopPosition.x + (Math.random() - 0.5) * 3,
+              this.attackingHoop.x + (Math.random() - 0.5) * 3,
               0,
-              COURT_DIMENSIONS.hoopPosition.z + 2 + Math.random() * 2
+              this.attackingHoop.z + 2 + Math.random() * 2
             );
             player.aiMovementState = 'moving';
           } else if (roll < 0.7) {
@@ -520,7 +611,7 @@ export class GameSession {
         const ctx: AIContext = {
           hasBall: player.hasBall,
           isOnOffense,
-          distanceToHoop: player.distanceTo(COURT_DIMENSIONS.hoopPosition),
+          distanceToHoop: player.distanceTo(this.attackingHoop),
           nearestDefenderDist: this.getNearestOpponentDist(player),
           teammateOpenness: this.getTeammateOpenness(player),
           scoreDiff: isHome ? scoreDiff : -scoreDiff,
@@ -531,11 +622,11 @@ export class GameSession {
 
         switch (decision.action) {
           case 'shoot':
-            if (player.distanceTo(COURT_DIMENSIONS.hoopPosition) < 8) {
+            if (player.distanceTo(this.attackingHoop) < 8) {
               player.loseBall();
               player.triggerShoot();
               this.lastShooterId = player.data.id;
-              this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 0.5 + Math.random() * 0.3);
+              this.ball.shootAt(this.attackingHoop, 0.5 + Math.random() * 0.3);
             }
             // After shooting, go back to holding
             player.aiMovementState = 'holding';
@@ -555,15 +646,15 @@ export class GameSession {
             player.aiHoldTimer = 0.5;
             break;
           case 'drive':
-            player.aiTarget = COURT_DIMENSIONS.hoopPosition.clone();
+            player.aiTarget = this.attackingHoop.clone();
             player.aiMovementState = 'moving';
             break;
           case 'dunk':
-            if (player.distanceTo(COURT_DIMENSIONS.hoopPosition) < 3) {
+            if (player.distanceTo(this.attackingHoop) < 3) {
               player.loseBall();
               player.triggerShoot();
               this.lastShooterId = player.data.id;
-              this.ball.shootAt(COURT_DIMENSIONS.hoopPosition, 1.0);
+              this.ball.shootAt(this.attackingHoop, 1.0);
             }
             break;
           default:
@@ -651,6 +742,9 @@ export class GameSession {
     const teammates = isHome ? this.homePlayers : this.awayPlayers;
     const idx = teammates.indexOf(player);
 
+    const isOnOffense = (isHome && this.matchEngine.state.possession === 'home') ||
+                        (!isHome && this.matchEngine.state.possession === 'away');
+
     // Use cached play to prevent jittering from random deviation each tick
     const now = this.matchEngine.state.clockSeconds;
     const cached = this.cachedPlays[teamKey];
@@ -666,9 +760,24 @@ export class GameSession {
       this.cachedPlays[teamKey] = { play, timestamp: now };
     }
 
-    const positions = TeamAI.getFormationPositions(play.formation);
-    if (positions[idx]) {
-      player.aiTarget = new THREE.Vector3(positions[idx].x, 0, positions[idx].z);
+    if (this.mode === '5v5') {
+      const positions = getFormation5v5(play.formation, !isOnOffense);
+      if (positions[idx]) {
+        // Position relative to the hoop we're attacking/defending
+        const refHoop = isOnOffense ? this.attackingHoop : this.defendingHoop;
+        const dir = refHoop.z < 0 ? -1 : 1;
+        player.aiTarget = new THREE.Vector3(
+          positions[idx].x,
+          0,
+          refHoop.z + positions[idx].z * dir
+        );
+      }
+    } else {
+      // Existing 3v3 formation logic
+      const positions = TeamAI.getFormationPositions(play.formation);
+      if (positions[idx]) {
+        player.aiTarget = new THREE.Vector3(positions[idx].x, 0, positions[idx].z);
+      }
     }
   }
 

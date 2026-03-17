@@ -118,3 +118,51 @@ describe('GameSession', () => {
     expect(humanPlayer.position.z).toBeLessThan(startZ);
   });
 });
+
+describe('GameSession - 5v5 mode', () => {
+  function makeTeam5(id: string): TeamData {
+    return {
+      id, name: `Team ${id}`, mascot: 'Test',
+      colors: { primary: '#ff0000', secondary: '#0000ff' },
+      archetype: 'Balanced' as any, seed: 8,
+      players: [
+        makePlayer(`${id}-1`), makePlayer(`${id}-2`), makePlayer(`${id}-3`),
+        makePlayer(`${id}-4`), makePlayer(`${id}-5`),
+      ],
+    };
+  }
+
+  it('initializes with 10 players in 5v5', () => {
+    const events = new EventBus();
+    const session = new GameSession(events, makeTeam5('h'), makeTeam5('a'), 'h-1', '5v5');
+    expect(session.homePlayers).toHaveLength(5);
+    expect(session.awayPlayers).toHaveLength(5);
+  });
+
+  it('has two different hoops in 5v5', () => {
+    const events = new EventBus();
+    const session = new GameSession(events, makeTeam5('h'), makeTeam5('a'), 'h-1', '5v5');
+    expect(session.attackingHoop.z).not.toBeCloseTo(session.defendingHoop.z, 0);
+  });
+
+  it('switches hoops on score', () => {
+    const events = new EventBus();
+    const session = new GameSession(events, makeTeam5('h'), makeTeam5('a'), 'h-1', '5v5');
+    session.start();
+    const firstAttackZ = session.attackingHoop.z;
+    session.handleMadeShot('home', 'three-pointer');
+    expect(session.attackingHoop.z).not.toBeCloseTo(firstAttackZ, 0);
+  });
+
+  it('auto-switches to nearest defender on defense', () => {
+    const events = new EventBus();
+    const session = new GameSession(events, makeTeam5('h'), makeTeam5('a'), 'h-1', '5v5');
+    session.start();
+    session.setBallHolder('a-1');
+    session.matchEngine.state.possession = 'away';
+    // Move h-3 very close to a-1
+    session.homePlayers[2].group.position.copy(session.awayPlayers[0].group.position);
+    session.update(1/60);
+    expect(session.getHumanPlayer().data.id).toBe('h-3');
+  });
+});
