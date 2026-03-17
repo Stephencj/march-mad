@@ -497,18 +497,37 @@ export class GameSession {
 
   private moveToFormation(player: GamePlayer): void {
     const isHome = this.isHomePlayer(player);
+    const teamKey = isHome ? 'home' : 'away';
     const teamAI = isHome ? this.homeTeamAI : this.awayTeamAI;
     const teammates = isHome ? this.homePlayers : this.awayPlayers;
     const idx = teammates.indexOf(player);
-    const play = teamAI.choosePlay({
-      possession: this.matchEngine.state.possession,
-      scoreDiff: this.matchEngine.state.homeScore - this.matchEngine.state.awayScore,
-      clockSeconds: this.matchEngine.state.clockSeconds,
-    });
+
+    // Use cached play to prevent jittering from random deviation each tick
+    const now = this.matchEngine.state.clockSeconds;
+    const cached = this.cachedPlays[teamKey];
+    let play: TeamPlay;
+    if (cached && Math.abs(cached.timestamp - now) < this.playRefreshInterval) {
+      play = cached.play;
+    } else {
+      play = teamAI.choosePlay({
+        possession: this.matchEngine.state.possession,
+        scoreDiff: this.matchEngine.state.homeScore - this.matchEngine.state.awayScore,
+        clockSeconds: now,
+      });
+      this.cachedPlays[teamKey] = { play, timestamp: now };
+    }
+
     const positions = TeamAI.getFormationPositions(play.formation);
     if (positions[idx]) {
       player.aiTarget = new THREE.Vector3(positions[idx].x, 0, positions[idx].z);
     }
+  }
+
+  private getDefensiveAssignment(player: GamePlayer): GamePlayer | null {
+    const opponents = this.isHomePlayer(player) ? this.awayPlayers : this.homePlayers;
+    const playerIdx = (this.isHomePlayer(player) ? this.homePlayers : this.awayPlayers).indexOf(player);
+    // Simple 1-to-1 matching by index
+    return opponents[playerIdx] ?? opponents[0];
   }
 
   private isHomePlayer(player: GamePlayer): boolean {

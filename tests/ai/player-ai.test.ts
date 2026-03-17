@@ -5,6 +5,7 @@ import { createDefaultPlayerStats, PlayerStats } from '@/core/types';
 function makeContext(overrides: Partial<AIContext> = {}): AIContext {
   return {
     hasBall: false,
+    isOnOffense: false,
     distanceToHoop: 10,
     nearestDefenderDist: 5,
     teammateOpenness: [0.5, 0.5, 0.5],

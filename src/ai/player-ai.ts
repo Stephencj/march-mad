@@ -9,10 +9,13 @@ export type AIAction =
   | 'steal'
   | 'block'
   | 'screen'
+  | 'cut'
+  | 'space'
   | 'idle';
 
 export interface AIContext {
   hasBall: boolean;
+  isOnOffense: boolean;
   distanceToHoop: number;
   nearestDefenderDist: number;
   teammateOpenness: number[];
@@ -80,6 +83,9 @@ export class PlayerAI {
     if (ctx.hasBall) {
       return this.decideOffense(ctx, mods);
     }
+    if (ctx.isOnOffense) {
+      return this.decideOffenseWithoutBall(ctx, mods);
+    }
     return this.decideDefense(ctx, mods);
   }
 
@@ -145,6 +151,38 @@ export class PlayerAI {
     return {
       action: best.action,
       targetIndex: best.targetIndex,
+      confidence: Math.max(0, Math.min(1, best.score)),
+    };
+  }
+
+  private decideOffenseWithoutBall(ctx: AIContext, _mods: StatModifiers): AIDecision {
+    // Determine best off-ball action: cut, screen, space, or idle
+    const opennessFactor = Math.min(1, ctx.nearestDefenderDist / 10);
+
+    // Cut toward the hoop when open and not already close
+    const cutScore = (opennessFactor * 0.5) + (ctx.distanceToHoop > 5 ? 0.3 : 0.0) + (Math.random() * 0.1);
+
+    // Set a screen near ball handler
+    const screenScore = (1 - opennessFactor) * 0.4 + (this.weights.passBias > 0 ? 0.2 : 0.0) + (Math.random() * 0.1);
+
+    // Space the floor — move away from teammates
+    const spaceScore = 0.3 + opennessFactor * 0.2 + (Math.random() * 0.1);
+
+    // Idle — hold formation position
+    const idleScore = 0.2 + (Math.random() * 0.1);
+
+    const scores: { action: AIAction; score: number }[] = [
+      { action: 'cut', score: cutScore },
+      { action: 'screen', score: screenScore },
+      { action: 'space', score: spaceScore },
+      { action: 'idle', score: idleScore },
+    ];
+
+    scores.sort((a, b) => b.score - a.score);
+    const best = scores[0];
+
+    return {
+      action: best.action,
       confidence: Math.max(0, Math.min(1, best.score)),
     };
   }
