@@ -155,6 +155,21 @@ export class GameSession {
       player.animate(dt);
     }
 
+    // Make AI players face the ball/ball holder
+    const ballTarget = this.ball.heldBy
+      ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
+      : this.ball.mesh.position;
+
+    for (const player of this.getAllPlayers()) {
+      if (player.data.id === this.humanPlayerId) continue;
+      // Face toward ball holder
+      const dx = ballTarget.x - player.position.x;
+      const dz = ballTarget.z - player.position.z;
+      if (Math.abs(dx) > 0.1 || Math.abs(dz) > 0.1) {
+        player.group.rotation.y = Math.atan2(dx, dz);
+      }
+    }
+
     // Update match engine clock
     if (this.matchEngine.state.phase === 'playing') {
       this.matchEngine.tickClock(dt);

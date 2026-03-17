@@ -332,22 +332,21 @@ export class GamePlayer {
     const forearmLeft = this.group.getObjectByName('forearm-left');
 
     if (this.hasBall) {
-      // Dribble animation: right arm/forearm bobs up and down (synced with ball dribble)
+      // Dribble animation: right arm pumps hard (synced with ball dribble)
       if (armRight) {
-        armRight.rotation.x = 0.3 * Math.sin(this.animTime * 3.0);
+        armRight.rotation.x = -0.5 + Math.sin(this.animTime * 3.0) * 0.8;
       }
       if (forearmRight) {
-        const dribbleBob = 0.12 * Math.sin(this.animTime * 3.0);
-        forearmRight.position.y = 0.77 + dribbleBob;
-        forearmRight.rotation.x = 0.4 * Math.sin(this.animTime * 3.0 + 0.5);
+        forearmRight.rotation.x = -0.3 + Math.sin(this.animTime * 3.0 + 0.5) * 0.6;
+        forearmRight.position.y = 0.65 + Math.sin(this.animTime * 3.0) * 0.15;
       }
-      // Left arm stays mostly still when dribbling
+      // Left arm: slight natural bend (guarding the ball)
       if (armLeft) {
-        armLeft.rotation.x = 0;
+        armLeft.rotation.x = -0.15;
       }
       if (forearmLeft) {
         forearmLeft.position.y = 0.77;
-        forearmLeft.rotation.x = 0;
+        forearmLeft.rotation.x = -0.1;
       }
     } else if (isMoving) {
       // Running arm swing — synced with leg stride
@@ -396,22 +395,51 @@ export class GamePlayer {
         torso.position.y = 0.98 - 0.08;
       }
 
-      // Floaty stride: quick push off, hang at extension
+      // DRAMATIC stride — much bigger range
       const strideRaw = Math.sin(this.animTime * 4);
-      const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.5;
+      const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.8;
+
+      // Upper legs — big forward/back swing
       if (upperLeft) upperLeft.rotation.x = stride;
       if (upperRight) upperRight.rotation.x = -stride;
 
-      // Lower legs knee bend — positive rotation.x swings calf backward (realistic knee bend)
-      // Each lower leg bends back more when its upper leg is in the forward part of the stride
-      const leftKneeBend = Math.max(0, stride) * 0.6 + 0.15;
-      const rightKneeBend = Math.max(0, -stride) * 0.6 + 0.15;
+      // SIMULATE KINEMATIC CHAIN for lower legs
+      // When upper leg swings forward (positive rotation), lower leg should bend back at knee
+      // When upper leg swings back, lower leg extends
+      // Knee bend: always some bend when moving (crouched stance) + extra when leg forward
+      const leftKneeBend = 0.3 + Math.max(0, stride) * 0.8;
+      const rightKneeBend = 0.3 + Math.max(0, -stride) * 0.8;
+
       if (lowerLeft) lowerLeft.rotation.x = leftKneeBend;
       if (lowerRight) lowerRight.rotation.x = rightKneeBend;
 
-      // Shoes follow lower legs
-      if (shoeLeft) shoeLeft.rotation.x = leftKneeBend * 0.5;
-      if (shoeRight) shoeRight.rotation.x = rightKneeBend * 0.5;
+      // MOVE lower legs to follow upper leg pivot
+      // Upper leg pivot point is at y=0.78 (top of upper leg)
+      // When upper leg rotates, the knee (bottom of upper leg) moves
+      const upperLegLength = 0.35;
+      const lowerLeftOffsetZ = -Math.sin(stride) * upperLegLength;
+      const lowerLeftOffsetY = -Math.cos(stride) * upperLegLength + upperLegLength;
+      if (lowerLeft) {
+        lowerLeft.position.z = lowerLeftOffsetZ;
+        lowerLeft.position.y = 0.255 + lowerLeftOffsetY - 0.35;
+      }
+
+      const lowerRightOffsetZ = -Math.sin(-stride) * upperLegLength;
+      const lowerRightOffsetY = -Math.cos(-stride) * upperLegLength + upperLegLength;
+      if (lowerRight) {
+        lowerRight.position.z = lowerRightOffsetZ;
+        lowerRight.position.y = 0.255 + lowerRightOffsetY - 0.35;
+      }
+
+      // Shoes follow lower legs similarly
+      if (shoeLeft) {
+        shoeLeft.position.z = lowerLeftOffsetZ * 1.5;
+        shoeLeft.position.y = 0.04 + Math.max(0, lowerLeftOffsetY - 0.1);
+      }
+      if (shoeRight) {
+        shoeRight.position.z = lowerRightOffsetZ * 1.5;
+        shoeRight.position.y = 0.04 + Math.max(0, lowerRightOffsetY - 0.1);
+      }
     } else {
       // Idle: smooth return and gentle bob
       this.group.position.y = Math.sin(this.animTime * 1.5) * 0.04;
@@ -421,13 +449,25 @@ export class GamePlayer {
         torso.position.y = 0.98;
       }
 
-      // Legs at rest
+      // Reset ALL leg positions back to rest
       if (upperLeft) upperLeft.rotation.x = 0;
       if (upperRight) upperRight.rotation.x = 0;
-      if (lowerLeft) lowerLeft.rotation.x = 0;
-      if (lowerRight) lowerRight.rotation.x = 0;
-      if (shoeLeft) shoeLeft.rotation.x = 0;
-      if (shoeRight) shoeRight.rotation.x = 0;
+      if (lowerLeft) {
+        lowerLeft.rotation.x = 0;
+        lowerLeft.position.set(-0.08, 0.255, 0);
+      }
+      if (lowerRight) {
+        lowerRight.rotation.x = 0;
+        lowerRight.position.set(0.08, 0.255, 0);
+      }
+      if (shoeLeft) {
+        shoeLeft.rotation.x = 0;
+        shoeLeft.position.set(-0.08, 0.04, 0.02);
+      }
+      if (shoeRight) {
+        shoeRight.rotation.x = 0;
+        shoeRight.position.set(0.08, 0.04, 0.02);
+      }
     }
 
     this.lastMoving = isMoving;
