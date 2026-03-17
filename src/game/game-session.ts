@@ -8,7 +8,7 @@ import { Ball } from './ball';
 import { MatchEngine } from './match';
 import { ShotDetector } from './shot-detector';
 import { PlayerAI, type AIContext } from '@/ai/player-ai';
-import { TeamAI } from '@/ai/team-ai';
+import { TeamAI, type TeamPlay } from '@/ai/team-ai';
 import { COURT_DIMENSIONS } from './court';
 
 interface CameraInfo {
@@ -32,9 +32,12 @@ export class GameSession {
   private awayTeamAI: TeamAI;
   private scene: THREE.Scene | null = null;
   private aiDecisionTimer = 0;
-  private readonly AI_DECISION_INTERVAL = 0.5; // seconds between AI decisions
+  private readonly AI_DECISION_INTERVAL = 0.2; // seconds between AI decisions (5/sec for responsiveness)
   private lastShooterId: string | null = null;
   private pendingPassTarget: string | null = null;
+  private cachedPlays: Record<string, { play: TeamPlay; timestamp: number }> = {};
+  private playRefreshInterval = 3; // seconds
+  private lastPossession: Possession | null = null;
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string) {
     this.events = events;
@@ -81,6 +84,7 @@ export class GameSession {
   addToScene(scene: THREE.Scene): void {
     this.scene = scene;
     scene.add(this.ball.mesh);
+    scene.add(this.ball.getTrailGroup());
     for (const p of this.getAllPlayers()) {
       scene.add(p.group);
     }
@@ -88,6 +92,7 @@ export class GameSession {
 
   removeFromScene(scene: THREE.Scene): void {
     scene.remove(this.ball.mesh);
+    scene.remove(this.ball.getTrailGroup());
     for (const p of this.getAllPlayers()) {
       scene.remove(p.group);
     }
@@ -345,6 +350,13 @@ export class GameSession {
   private runAIDecisions(_dt: number): void {
     const scoreDiff = this.matchEngine.state.homeScore - this.matchEngine.state.awayScore;
     const clock = this.matchEngine.state.clockSeconds;
+    const possession = this.matchEngine.state.possession;
+
+    // Invalidate cached plays when possession changes
+    if (this.lastPossession !== null && this.lastPossession !== possession) {
+      this.cachedPlays = {};
+    }
+    this.lastPossession = possession;
 
     for (const player of this.getAllPlayers()) {
       if (player.data.id === this.humanPlayerId) continue; // Skip human
@@ -352,12 +364,17 @@ export class GameSession {
       const ai = this.playerAIs.get(player.data.id);
       if (!ai) continue;
 
+      // Determine if this player's team has possession (on offense)
+      const isHome = this.isHomePlayer(player);
+      const isOnOffense = (isHome && possession === 'home') || (!isHome && possession === 'away');
+
       const ctx: AIContext = {
         hasBall: player.hasBall,
+        isOnOffense,
         distanceToHoop: player.distanceTo(COURT_DIMENSIONS.hoopPosition),
         nearestDefenderDist: this.getNearestOpponentDist(player),
         teammateOpenness: this.getTeammateOpenness(player),
-        scoreDiff: this.isHomePlayer(player) ? scoreDiff : -scoreDiff,
+        scoreDiff: isHome ? scoreDiff : -scoreDiff,
         clockSeconds: clock,
       };
 
@@ -399,15 +416,46 @@ export class GameSession {
           break;
         case 'guard':
         case 'block': {
-          // Move toward ball holder
-          const holder = this.getAllPlayers().find(p => p.hasBall);
-          if (holder) {
-            player.aiTarget = holder.position.clone();
+          // Each defender guards their assigned opponent, not all chasing the ball
+          const assignment = this.getDefensiveAssignment(player);
+          if (assignment) {
+            const assignPos = assignment.position;
+            const hoopPos = COURT_DIMENSIONS.hoopPosition;
+            // Position between assignment and hoop (defensive positioning)
+            player.aiTarget = new THREE.Vector3(
+              (assignPos.x + hoopPos.x) / 2,
+              0,
+              (assignPos.z + hoopPos.z) / 2
+            );
+          }
+          break;
+        }
+        case 'cut':
+          // Move toward hoop from an angle
+          player.aiTarget = new THREE.Vector3(
+            COURT_DIMENSIONS.hoopPosition.x + (Math.random() - 0.5) * 4,
+            0,
+            COURT_DIMENSIONS.hoopPosition.z + 2
+          );
+          break;
+        case 'space':
+          // Move away from teammates to spread floor
+          this.moveToFormation(player);
+          break;
+        case 'screen': {
+          // Move near the ball handler
+          const ballHandler = this.getAllPlayers().find(p => p.hasBall);
+          if (ballHandler) {
+            player.aiTarget = new THREE.Vector3(
+              ballHandler.position.x + (Math.random() > 0.5 ? 2 : -2),
+              0,
+              ballHandler.position.z
+            );
           }
           break;
         }
         default:
-          // idle / screen — move to formation position
+          // idle — move to formation position
           this.moveToFormation(player);
           break;
       }
@@ -432,6 +480,16 @@ export class GameSession {
     for (const player of this.getAllPlayers()) {
       if (player.data.id === this.humanPlayerId) continue;
       if (player.aiTarget) {
+        const dist = player.distanceTo(player.aiTarget);
+        if (dist < 0.5) {
+          // Small wander around target point to prevent freezing
+          const wander = new THREE.Vector3(
+            (Math.random() - 0.5) * 0.5,
+            0,
+            (Math.random() - 0.5) * 0.5
+          );
+          player.aiTarget = player.aiTarget.clone().add(wander);
+        }
         player.moveToward(player.aiTarget, dt);
       }
     }
