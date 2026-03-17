@@ -47,8 +47,7 @@ export class Ball {
   pickup(playerId: string): void {
     this.heldBy = playerId;
     this.velocity.set(0, 0, 0);
-    this.dribbleHandMaxY = 0;
-    this.dribbleHandMinY = 0;
+    this.dribbleTimer = 0;
   }
 
   release(): void {
@@ -71,68 +70,49 @@ export class Ball {
     return points;
   }
 
-  // Dribble bounce state
-  private lastHandY = 0;
-  private dribbleHandMaxY = 0;
-  private dribbleHandMinY = 0;
+  // Time-based dribble bounce — runs on its own clock, synced to arm frequency
+  private dribbleTimer = 0;
+  private readonly DRIBBLE_FREQ = 4; // Hz, matches elbow animation frequency
 
   followHolder(playerGroup: THREE.Group, isDribbling = false): void {
     if (this.heldBy === null) return;
 
-    // Get the right forearm from the nested skeleton
     const forearmRight = playerGroup.getObjectByName('forearm-right');
     if (!forearmRight) {
       this.mesh.position.set(playerGroup.position.x, playerGroup.position.y + 0.8, playerGroup.position.z);
       return;
     }
 
-    // Update world matrices so nested transforms are current
     playerGroup.updateWorldMatrix(true, true);
-
-    // Compute hand world position (tip of forearm)
     const handLocal = new THREE.Vector3(0, -0.11, 0);
     const handWorld = handLocal.applyMatrix4(forearmRight.matrixWorld);
 
     if (!isDribbling) {
-      // Not dribbling — ball glued to hand (shooting, dunk, etc.)
       this.mesh.position.copy(handWorld);
-      this.lastHandY = handWorld.y;
       return;
     }
 
-    // DRIBBLE: ball follows hand in upper portion, bounces to floor in lower portion
-    // Track the hand's Y range
-    if (this.dribbleHandMaxY === 0) {
-      this.dribbleHandMaxY = handWorld.y;
-      this.dribbleHandMinY = handWorld.y;
-    }
-    this.dribbleHandMaxY = Math.max(this.dribbleHandMaxY, handWorld.y) - 0.002; // slowly decay
-    this.dribbleHandMinY = Math.min(this.dribbleHandMinY, handWorld.y) + 0.002;
+    // Tick dribble timer every frame followHolder is called
+    this.dribbleTimer += 1 / 60; // fixed timestep
 
-    const range = this.dribbleHandMaxY - this.dribbleHandMinY;
-    if (range < 0.05) {
-      // Hand barely moving — just stick to hand
+    // TIME-BASED DRIBBLE BOUNCE (NBA 2K approach)
+    // Ball runs on its own sine-wave cycle, independent of hand tracking.
+    // Upper part of cycle = ball in hand. Lower part = ball at floor.
+    const wave = Math.sin(this.dribbleTimer * this.DRIBBLE_FREQ * Math.PI * 2);
+    const phase = (wave + 1) / 2; // 0 to 1 (0 = bottom, 1 = top)
+
+    if (phase > 0.35) {
+      // Ball in hand (upper 65% of cycle)
       this.mesh.position.copy(handWorld);
     } else {
-      // Normalize hand Y to 0-1 range (0 = lowest, 1 = highest)
-      const normalized = Math.max(0, Math.min(1, (handWorld.y - this.dribbleHandMinY) / range));
-
-      if (normalized > 0.4) {
-        // Upper 60% — ball in hand
-        this.mesh.position.copy(handWorld);
-      } else {
-        // Lower 40% — ball does floor bounce
-        // Map 0.4->0 to a bounce arc: down to floor and back
-        const bounceT = 1 - (normalized / 0.4); // 0 at hand release, 1 at hand lowest
-        const floorY = this.radius;
-        const releaseY = this.dribbleHandMinY + range * 0.4; // Y at the release point
-        // Parabolic: quick drop, bounce, quick rise
-        const arcT = Math.abs(bounceT * 2 - 1); // V shape: 0→1→0
-        const bounceY = floorY + (releaseY - floorY) * arcT;
-        this.mesh.position.set(handWorld.x, bounceY, handWorld.z);
-      }
+      // Ball bouncing to floor (lower 35% of cycle)
+      // Map phase 0.35→0→0.35 to a V-shaped floor bounce
+      const bounceProgress = 1 - (phase / 0.35); // 0 at release, 1 at floor
+      const vShape = Math.abs(bounceProgress * 2 - 1); // V: 0→1→0 (1 = at floor)
+      const floorY = this.radius;
+      const ballY = handWorld.y - (handWorld.y - floorY) * (1 - vShape);
+      this.mesh.position.set(handWorld.x, ballY, handWorld.z);
     }
-    this.lastHandY = handWorld.y;
   }
 
   shootAt(target: THREE.Vector3, power: number): void {
