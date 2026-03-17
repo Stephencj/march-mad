@@ -68,15 +68,27 @@ export class Ball {
     return points;
   }
 
-  followHolder(holderPosition: THREE.Vector3, holderRotationY: number = 0, animTime: number = 0): void {
+  followHolder(playerGroup: THREE.Group): void {
     if (this.heldBy === null) return;
-    // Position ball in front of player based on facing direction
-    const offsetDist = 0.4;
-    const frontX = holderPosition.x + Math.sin(holderRotationY) * offsetDist;
-    const frontZ = holderPosition.z + Math.cos(holderRotationY) * offsetDist;
-    // Dribble bounce: ball goes from hand height down to near ground and back
-    const dribbleY = 0.3 + Math.abs(Math.sin(animTime * 3)) * 0.7;
-    this.mesh.position.set(frontX, dribbleY, frontZ);
+
+    // Get the right forearm from the nested skeleton
+    const forearmRight = playerGroup.getObjectByName('forearm-right');
+    if (!forearmRight) {
+      // Fallback: position near player
+      this.mesh.position.set(playerGroup.position.x, playerGroup.position.y + 0.8, playerGroup.position.z);
+      return;
+    }
+
+    // Update world matrices so nested transforms are current
+    playerGroup.updateWorldMatrix(true, true);
+
+    // Hand is at the tip of the forearm
+    // Forearm is 0.22 long (CylinderGeometry height), centered at (0, -0.11, 0) relative to elbow
+    // So the hand tip is at local (0, -0.11, 0) relative to the forearm
+    const handLocal = new THREE.Vector3(0, -0.11, 0);
+    const handWorld = handLocal.applyMatrix4(forearmRight.matrixWorld);
+
+    this.mesh.position.copy(handWorld);
   }
 
   shootAt(target: THREE.Vector3, power: number): void {

@@ -187,13 +187,13 @@ function animate() {
   if (currentAnim === 'dribble' || currentAnim === 'dribble-walk' || currentAnim === 'dribble-sprint') {
     ball.mesh.visible = true;
     ball.pickup('viewer');
-    ball.followHolder(player.group.position, player.group.rotation.y, player.animTime);
+    ball.followHolder(player.group);
   } else if (currentAnim === 'shoot') {
     ball.mesh.visible = false; // ball would be in flight
   } else if (currentAnim === 'dunk') {
     ball.mesh.visible = true;
     ball.pickup('viewer');
-    ball.followHolder(player.group.position, player.group.rotation.y, player.animTime);
+    ball.followHolder(player.group);
   } else {
     ball.mesh.visible = false;
   }

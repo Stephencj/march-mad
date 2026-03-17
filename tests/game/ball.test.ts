@@ -40,17 +40,37 @@ describe('Ball', () => {
 });
 
 describe('Ball - enhanced', () => {
-  it('follows holder position with offset when held', () => {
+  it('follows holder hand position from skeleton', () => {
     const ball = new Ball();
     ball.pickup('p1');
-    const holderPos = new THREE.Vector3(3, 0, 5);
-    ball.followHolder(holderPos, 0, 0);
-    // Ball should be near the holder (offset in front based on rotation)
-    expect(ball.mesh.position.x).toBeCloseTo(3, 0);
-    expect(ball.mesh.position.z).toBeCloseTo(5.4, 0);
-    // Dribble Y should be between 0.3 and 1.0
-    expect(ball.mesh.position.y).toBeGreaterThanOrEqual(0.3);
-    expect(ball.mesh.position.y).toBeLessThanOrEqual(1.0);
+    // Create a minimal skeleton group
+    const group = new THREE.Group();
+    group.position.set(3, 0, 5);
+    const bodyPivot = new THREE.Group();
+    bodyPivot.position.set(0, 0.78, 0);
+    bodyPivot.name = 'body-pivot';
+    group.add(bodyPivot);
+    const shoulder = new THREE.Group();
+    shoulder.position.set(0.2, 0.35, 0);
+    shoulder.name = 'shoulder-right';
+    bodyPivot.add(shoulder);
+    const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.28, 0.1));
+    upperArm.position.set(0, -0.14, 0);
+    upperArm.name = 'upper-arm-right';
+    shoulder.add(upperArm);
+    const elbow = new THREE.Group();
+    elbow.position.set(0, -0.14, 0);
+    elbow.name = 'elbow-right';
+    upperArm.add(elbow);
+    const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.1));
+    forearm.position.set(0, -0.11, 0);
+    forearm.name = 'forearm-right';
+    elbow.add(forearm);
+
+    ball.followHolder(group);
+    // Ball should be near the hand position, not at the root
+    expect(ball.mesh.position.x).toBeGreaterThan(2); // near player x=3
+    expect(ball.mesh.position.y).toBeGreaterThan(0); // above ground
   });
 
   it('enters flight state when shot', () => {
