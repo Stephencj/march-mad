@@ -478,9 +478,9 @@ export class GamePlayer {
         // Squash-stretch on body pivot
         const squashStretch = bouncePhase; // 0 = ground contact, 1 = peak
         bodyPivot.scale.set(
-          1 + (1 - squashStretch) * 0.08,   // wider at ground
-          1 - (1 - squashStretch) * 0.08 + squashStretch * 0.08, // shorter at ground, taller at peak
-          1 + (1 - squashStretch) * 0.08    // wider at ground
+          1 + (1 - squashStretch) * 0.03,   // wider at ground
+          1 - (1 - squashStretch) * 0.03 + squashStretch * 0.03, // shorter at ground, taller at peak
+          1 + (1 - squashStretch) * 0.03    // wider at ground
         );
 
         // Forward lean
