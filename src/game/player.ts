@@ -59,6 +59,7 @@ export class GamePlayer {
   private prevPosition = new THREE.Vector3();
   private animState: 'idle' | 'walk' | 'dribble' | 'guard' | 'steal' | 'shoot' | 'jump' = 'idle';
   private prevAnimState: string = 'idle';
+  private hairRestY: number | undefined;
   private stateTransitionTimer = 0;
   private readonly STATE_BLEND_DURATION = 0.12;
   private lastShoulderL = 0;
@@ -694,10 +695,15 @@ export class GamePlayer {
       }
     }
 
-    // Hair bounce with slight delay from body
+    // Hair bounce with slight delay from body (use stored rest position, never accumulate)
     const hair = this.group.getObjectByName('hair');
-    if (hair && isMoving) {
-      hair.position.y += Math.sin(this.animTime * 4 - 0.3) * 0.04;
+    if (hair) {
+      if (this.hairRestY === undefined) this.hairRestY = hair.position.y; // capture once
+      if (isMoving) {
+        hair.position.y = this.hairRestY + Math.sin(this.animTime * 4 - 0.3) * 0.04;
+      } else {
+        hair.position.y = this.hairRestY;
+      }
     }
 
     this.lastMoving = isMoving;
