@@ -855,7 +855,8 @@ export class GamePlayer {
     if (hair) {
       if (this.hairRestY === undefined) this.hairRestY = hair.position.y; // capture once
       if (isMoving) {
-        hair.position.y = this.hairRestY + Math.sin(this.animTime * 4 - 0.3) * 0.04;
+        // Match the walk/dribble bounce frequency (10) with slight phase delay
+        hair.position.y = this.hairRestY + Math.sin(this.animTime * 10 - 0.4) * 0.03;
       } else {
         hair.position.y = this.hairRestY;
       }
