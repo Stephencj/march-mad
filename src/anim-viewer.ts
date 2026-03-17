@@ -66,6 +66,7 @@ let camHeight = 1.5;
 let camDist = 4;
 let shootReleased = false;
 let dunkReleased = false;
+let shootResetDelay = 0;
 
 let player: GamePlayer;
 
@@ -137,14 +138,7 @@ function animate() {
     case 'shoot':
       player.hasBall = false;
       player.velocity.set(0, 0, 0);
-      if ((player as unknown as { shootTimer: number }).shootTimer <= 0) {
-        // Reset: put ball back in hand and retrigger
-        ball.pickup('viewer');
-        ball.isInFlight = false;
-        player.triggerShoot();
-        player.hasBall = true; // temporarily has ball for the wind-up
-        shootReleased = false;
-      }
+      // Don't auto-retrigger here — handled after animate
       break;
     case 'jump':
       player.hasBall = false;
@@ -204,20 +198,40 @@ function animate() {
   // Handle shoot ball release
   if (currentAnim === 'shoot') {
     const shootTimer = (player as unknown as { shootTimer: number }).shootTimer;
+
+    // Release ball at the right moment
     if (!shootReleased && shootTimer > 0 && shootTimer < 0.2) {
-      // Release point — ball leaves hand toward hoop
       shootReleased = true;
       player.hasBall = false;
       ball.release();
-      ball.shootAt(new THREE.Vector3(0, 3.05, 4), 0.8); // toward the hoop
+      ball.shootAt(new THREE.Vector3(0, 3.05, 4), 0.8);
     }
 
-    if (ball.isInFlight || (!ball.heldBy && !shootReleased)) {
+    // Keep ball updating if in flight
+    if (ball.isInFlight) {
       ball.update(dt);
-    } else if (ball.heldBy) {
-      ball.followHolder(player.group, false);
     }
+
+    // After ball lands and shoot is done, wait then reset
+    if (shootReleased && !ball.isInFlight && shootTimer <= 0) {
+      shootResetDelay += dt;
+      if (shootResetDelay > 0.8) {
+        // Reset for next loop
+        ball.pickup('viewer');
+        ball.isInFlight = false;
+        player.hasBall = true;
+        player.triggerShoot();
+        shootReleased = false;
+        shootResetDelay = 0;
+      }
+    }
+
     ball.mesh.visible = true;
+
+    // While ball is in hand, track it
+    if (ball.heldBy) {
+      ball.followHolder(player.group, false, 0);
+    }
   }
 
   // Handle dunk ball release
@@ -260,11 +274,15 @@ function animate() {
   } else {
     // During dunk, move player toward hoop
     const dunkTimer = (player as unknown as { dunkTimer: number }).dunkTimer;
-    const dunkDuration = 0.7;
+    const dunkDuration = 1.2;
     const dunkProgress = 1 - (dunkTimer / dunkDuration);
-    if (dunkProgress > 0 && dunkProgress < 0.75) {
-      // Move toward hoop during rise and slam phases
-      player.group.position.z = dunkProgress * 3.5; // move toward hoop at z=4
+    if (dunkProgress > 0 && dunkProgress < 0.65) {
+      // Move toward hoop during rise, hang, slam, and rim hang phases
+      player.group.position.z = (dunkProgress / 0.65) * 3.5; // move toward hoop at z=4
+      player.group.position.x = 0;
+    } else if (dunkProgress >= 0.65) {
+      // Stay at hoop during drop and landing
+      player.group.position.z = 3.5;
       player.group.position.x = 0;
     }
   }
@@ -312,6 +330,7 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
     player.isSprinting = false;
     shootReleased = false;
     dunkReleased = false;
+    shootResetDelay = 0;
     // Reset player position (dunk moves them forward)
     player.group.position.set(0, 0, 0);
     // Clear forced state — only re-force if selecting guard/fall/dunk

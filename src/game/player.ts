@@ -780,6 +780,8 @@ export class GamePlayer {
           bodyPivot.rotation.x = 0.05;
           kneeL.rotation.x = 0.3 * (progress / 0.15); // bend knees for crouch
           kneeR.rotation.x = 0.3 * (progress / 0.15);
+          hipL.rotation.x = 0;
+          hipR.rotation.x = 0;
         } else if (progress < 0.25) {
           // RISE: arms continue, legs extend
           const rise = (progress - 0.15) / 0.1;
@@ -794,6 +796,8 @@ export class GamePlayer {
           bodyPivot.rotation.x = 0.05 - subRelease * 0.15;
           kneeL.rotation.x = 0.3 * (1 - rise); // legs extend
           kneeR.rotation.x = 0.3 * (1 - rise);
+          hipL.rotation.x = 0;
+          hipR.rotation.x = 0;
         } else if (progress < 0.4) {
           // HANG TIME + RELEASE: right arm extends up, left peels away
           const subRelease = (progress - 0.15) / 0.25; // 0 to 1
@@ -806,6 +810,8 @@ export class GamePlayer {
           bodyPivot.rotation.x = 0.05 - subRelease * 0.15;
           kneeL.rotation.x = 0.05; // slight bend in air
           kneeR.rotation.x = 0.05;
+          hipL.rotation.x = 0;
+          hipR.rotation.x = 0;
         } else if (progress < 0.55) {
           // COMING DOWN: start recovery
           const descend = (progress - 0.4) / 0.15;
@@ -817,8 +823,12 @@ export class GamePlayer {
           shoulderL.rotation.z = -0.6 + recover * 0.6;
           elbowL.rotation.x = -0.3 + recover * 0.2;
           bodyPivot.rotation.x = -0.1 + recover * 0.1;
-          kneeL.rotation.x = descend * 0.2; // absorb landing
-          kneeR.rotation.x = descend * 0.2;
+          // Staggered landing: right foot first, left behind
+          const land = descend;
+          hipR.rotation.x = -0.15 * land; // right leg forward
+          hipL.rotation.x = 0.1 * land; // left leg back
+          kneeR.rotation.x = 0.4 * land; // right knee absorbs first
+          kneeL.rotation.x = 0.2 * land; // left catches up
         } else {
           // RECOVER: on ground, arms come back down to sides
           const recover = (progress - 0.4) / 0.6; // 0 to 1
@@ -829,11 +839,20 @@ export class GamePlayer {
           shoulderL.rotation.z = -0.6 + recover * 0.6; // back to 0
           elbowL.rotation.x = -0.3 + recover * 0.2; // back to -0.1
           bodyPivot.rotation.x = -0.1 + recover * 0.1; // back to 0
-          kneeL.rotation.x = 0;
-          kneeR.rotation.x = 0;
+          // Staggered landing
+          if (progress >= 0.55) {
+            const land = (progress - 0.55) / 0.45;
+            hipR.rotation.x = -0.12; // right foot slightly forward
+            hipL.rotation.x = 0.08; // left foot slightly back
+            kneeR.rotation.x = 0.3 * (1 - land * 0.7); // absorb then straighten
+            kneeL.rotation.x = 0.15 * (1 - land * 0.5);
+          } else {
+            hipR.rotation.x = -0.15; // right leg forward
+            hipL.rotation.x = 0.1; // left leg back
+            kneeR.rotation.x = 0.4; // right knee absorbs first
+            kneeL.rotation.x = 0.2; // left catches up
+          }
         }
-        hipL.rotation.x = 0;
-        hipR.rotation.x = 0;
 
         // Torso/hip twist during shot
         const torsoNode = this.group.getObjectByName('torso');
@@ -1219,32 +1238,36 @@ export class GamePlayer {
 
       case 'dunk': {
         bodyPivot.scale.set(1, 1, 1);
-        const dunkDuration = 0.7;
+        const dunkDuration = 1.2;
         const progress = 1 - (this.dunkTimer / dunkDuration);
 
-        // Height — quick up, hang, quick down
+        // Height curve — rise, hang at peak (includes slam + rim hang), drop, land
         let height: number;
-        if (progress < 0.25) {
-          // Quick rise
-          height = (progress / 0.25) * 2.5;
-        } else if (progress < 0.55) {
-          // Hang time at peak
-          height = 2.5;
-        } else if (progress < 0.75) {
-          // Slam down (fast)
-          height = 2.5 * (1 - (progress - 0.55) / 0.2);
+        if (progress < 0.15) {
+          height = (progress / 0.15) * 2.5; // quick rise
+        } else if (progress < 0.45) {
+          height = 2.5; // hang at peak (includes slam)
+        } else if (progress < 0.65) {
+          height = 2.5; // still at rim height during hang
+        } else if (progress < 0.85) {
+          const drop = (progress - 0.65) / 0.2;
+          height = 2.5 * (1 - drop); // drop to ground
         } else {
-          // On ground
-          height = 0;
+          height = 0; // on ground
         }
         this.group.position.y = height;
 
-        if (progress < 0.25) {
-          // RISE: both arms bring ball up together
-          const rise = progress / 0.25;
+        if (progress < 0.15) {
+          // RISE: crouch extends, legs start spreading, arms bring ball up
+          const rise = progress / 0.15;
           bodyPivot.rotation.x = 0.1 * (1 - rise); // straighten up
-          kneeL.rotation.x = 0.4 * (1 - rise); // legs extend
-          kneeR.rotation.x = 0.4 * (1 - rise);
+          // Legs transition to MJ pose
+          kneeL.rotation.x = 0.4 * (1 - rise) + 0.7 * rise; // from crouch to deep bend
+          kneeR.rotation.x = 0.4 * (1 - rise) + 0.8 * rise;
+          hipL.rotation.x = 0 + (-0.3) * rise; // spread out
+          hipR.rotation.x = 0 + 0.4 * rise;
+          hipL.rotation.z = -0.2 * rise;
+          hipR.rotation.z = 0.2 * rise;
           // Both arms sweep up together
           shoulderR.rotation.x = -rise * 2.6;
           shoulderL.rotation.x = -rise * 2.6;
@@ -1252,10 +1275,8 @@ export class GamePlayer {
           elbowL.rotation.x = -0.4 * (1 - rise);
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
-          hipL.rotation.x = 0;
-          hipR.rotation.x = 0;
-        } else if (progress < 0.55) {
-          // HANG TIME: arms overhead, slight body arch, legs relaxed
+        } else if (progress < 0.35) {
+          // HANG TIME: MJ pose — deep knee bend, legs wide apart and split
           bodyPivot.rotation.x = -0.1; // slight back arch
           shoulderR.rotation.x = -2.6;
           shoulderL.rotation.x = -2.6;
@@ -1263,13 +1284,15 @@ export class GamePlayer {
           elbowL.rotation.x = -0.1;
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
-          kneeL.rotation.x = 0.15;
-          kneeR.rotation.x = 0.2;
-          hipL.rotation.x = -0.05;
-          hipR.rotation.x = 0.05;
-        } else if (progress < 0.75) {
-          // SLAM: both arms drive DOWN, body curls forward
-          const slam = (progress - 0.55) / 0.2;
+          kneeL.rotation.x = 0.7; // deep knee bend
+          kneeR.rotation.x = 0.8; // slightly more on trailing leg
+          hipL.rotation.x = -0.3; // left leg forward
+          hipR.rotation.x = 0.4; // right leg back
+          hipL.rotation.z = -0.2; // spread out
+          hipR.rotation.z = 0.2;
+        } else if (progress < 0.45) {
+          // SLAM: arms drive down, body curls forward
+          const slam = (progress - 0.35) / 0.1;
           bodyPivot.rotation.x = -0.1 + slam * 0.4; // curl forward
           shoulderR.rotation.x = -2.6 + slam * 2.0; // to -0.6
           shoulderL.rotation.x = -2.6 + slam * 2.0;
@@ -1277,20 +1300,64 @@ export class GamePlayer {
           elbowL.rotation.x = -0.1 - slam * 0.3;
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
-          kneeL.rotation.x = 0.15 + slam * 0.2;
-          kneeR.rotation.x = 0.2 + slam * 0.2;
-        } else {
-          // LAND: absorb impact
-          const land = (progress - 0.75) / 0.25;
-          bodyPivot.rotation.x = 0.3 * (1 - land);
-          shoulderR.rotation.x = -0.6 + land * 0.5;
-          shoulderL.rotation.x = -0.6 + land * 0.5;
-          elbowR.rotation.x = -0.4 + land * 0.3;
-          elbowL.rotation.x = -0.4 + land * 0.3;
+          kneeL.rotation.x = 0.7 - slam * 0.5; // straightening
+          kneeR.rotation.x = 0.8 - slam * 0.6;
+          hipL.rotation.x = -0.3 + slam * 0.3; // back to neutral
+          hipR.rotation.x = 0.4 - slam * 0.4;
+          hipL.rotation.z = -0.2 * (1 - slam);
+          hipR.rotation.z = 0.2 * (1 - slam);
+        } else if (progress < 0.65) {
+          // RIM HANG: one arm up (hanging on rim), legs dangle, slight sway
+          shoulderR.rotation.x = -2.8; // right arm up (hanging on rim)
+          elbowR.rotation.x = -0.6; // bent gripping
+          shoulderL.rotation.x = -0.3; // left arm relaxed
+          elbowL.rotation.x = -0.2;
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
-          kneeL.rotation.x = 0.35 + land * 0.3; // deep bend absorb
-          kneeR.rotation.x = 0.4 + land * 0.3;
+          kneeL.rotation.x = 0.3; // legs dangle
+          kneeR.rotation.x = 0.4;
+          hipL.rotation.x = 0.05;
+          hipR.rotation.x = 0.05;
+          hipL.rotation.z = 0;
+          hipR.rotation.z = 0;
+          bodyPivot.rotation.x = 0;
+          // Slight sway
+          const sway = (progress - 0.45) / 0.2;
+          bodyPivot.rotation.z = Math.sin(sway * Math.PI * 2) * 0.05;
+        } else if (progress < 0.85) {
+          // DROP FROM RIM: fall to ground
+          const drop = (progress - 0.65) / 0.2;
+          bodyPivot.rotation.x = 0.1 * drop;
+          bodyPivot.rotation.z = 0;
+          shoulderR.rotation.x = -2.8 + drop * 2.2; // arms come down
+          shoulderL.rotation.x = -0.3 + drop * 0.2;
+          elbowR.rotation.x = -0.6 + drop * 0.5;
+          elbowL.rotation.x = -0.2 + drop * 0.1;
+          shoulderR.rotation.z = 0;
+          shoulderL.rotation.z = 0;
+          kneeL.rotation.x = 0.3 + drop * 0.3; // brace for landing
+          kneeR.rotation.x = 0.4 + drop * 0.2;
+          hipL.rotation.x = 0.05;
+          hipR.rotation.x = 0.05;
+          hipL.rotation.z = 0;
+          hipR.rotation.z = 0;
+        } else {
+          // DRAMATIC LANDING: deep knee bend, right foot forward, left behind, slowly stand
+          const land = (progress - 0.85) / 0.15;
+          bodyPivot.rotation.x = 0.2 * (1 - land); // lean forward on impact, straighten
+          bodyPivot.rotation.z = 0;
+          hipR.rotation.x = -0.15; // right foot forward
+          hipL.rotation.x = 0.1; // left foot behind
+          kneeR.rotation.x = 0.6 * (1 - land * 0.5); // deep bend, slowly straighten
+          kneeL.rotation.x = 0.4 * (1 - land * 0.5);
+          shoulderR.rotation.x = -0.1;
+          shoulderL.rotation.x = -0.1;
+          elbowR.rotation.x = -0.1;
+          elbowL.rotation.x = -0.1;
+          shoulderR.rotation.z = 0;
+          shoulderL.rotation.z = 0;
+          hipL.rotation.z = 0;
+          hipR.rotation.z = 0;
         }
 
         // Torso/hip twist during dunk — bigger twist for drama
@@ -1298,25 +1365,29 @@ export class GamePlayer {
           const torsoNode = this.group.getObjectByName('torso');
           const hipMeshNode = this.group.getObjectByName('hip-mesh');
           if (torsoNode && hipMeshNode) {
-            if (progress < 0.25) {
+            if (progress < 0.15) {
               // Rise — twist as gathering
-              const rise = progress / 0.25;
+              const rise = progress / 0.15;
               hipMeshNode.rotation.y = 0.2 * rise;
               torsoNode.rotation.y = -0.15 * rise;
-            } else if (progress < 0.55) {
+            } else if (progress < 0.35) {
               // Hang — hold twist
               hipMeshNode.rotation.y = 0.2;
               torsoNode.rotation.y = -0.15;
-            } else if (progress < 0.75) {
-              // Slam — TWIST THROUGH for power (like swinging)
-              const slam = (progress - 0.55) / 0.2;
-              hipMeshNode.rotation.y = 0.2 - slam * 0.5; // twist from 0.2 to -0.3
-              torsoNode.rotation.y = -0.15 + slam * 0.35; // counter-twist
+            } else if (progress < 0.45) {
+              // Slam — TWIST THROUGH for power
+              const slam = (progress - 0.35) / 0.1;
+              hipMeshNode.rotation.y = 0.2 - slam * 0.5;
+              torsoNode.rotation.y = -0.15 + slam * 0.35;
+            } else if (progress < 0.65) {
+              // Rim hang — hold twist
+              hipMeshNode.rotation.y = -0.3;
+              torsoNode.rotation.y = 0.2;
             } else {
-              // Land — return to neutral
-              const land = (progress - 0.75) / 0.25;
-              hipMeshNode.rotation.y = -0.3 * (1 - land);
-              torsoNode.rotation.y = 0.2 * (1 - land);
+              // Drop + Land — return to neutral
+              const recover = progress < 0.85 ? (progress - 0.65) / 0.2 : 1;
+              hipMeshNode.rotation.y = -0.3 * (1 - recover);
+              torsoNode.rotation.y = 0.2 * (1 - recover);
             }
           }
         }
@@ -1346,8 +1417,8 @@ export class GamePlayer {
       bodyPivot.rotation.y = 0;
     }
 
-    // Reset body tilt if not falling
-    if (this.animState !== 'fall') {
+    // Reset body tilt if not falling or dunking
+    if (this.animState !== 'fall' && this.animState !== 'dunk') {
       bodyPivot.rotation.z = 0;
     }
 
@@ -1355,6 +1426,12 @@ export class GamePlayer {
     if (this.animState !== 'steal') {
       const forearmR = this.group.getObjectByName('forearm-right');
       if (forearmR) forearmR.scale.set(1, 1, 1);
+    }
+
+    // Reset hip Z spread if not dunking
+    if (this.animState !== 'dunk') {
+      hipL.rotation.z = 0;
+      hipR.rotation.z = 0;
     }
 
     // Reset torso/hip twist for non-locomotion states (exclude states that handle their own twist)
@@ -1416,7 +1493,7 @@ export class GamePlayer {
   }
 
   triggerDunk(): void {
-    this.dunkTimer = 0.7;
+    this.dunkTimer = 1.2; // longer for hang + dramatic landing
   }
 
   jump(): void {
