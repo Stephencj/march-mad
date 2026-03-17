@@ -5,6 +5,7 @@ export class Ball {
   heldBy: string | null = null;
   velocity = new THREE.Vector3();
   isInFlight = false;
+  readonly radius = 0.22;
   private arc: THREE.Vector3[] = [];
   private arcIndex = 0;
   private arcSpeed = 60;
@@ -68,13 +69,18 @@ export class Ball {
     return points;
   }
 
-  followHolder(playerGroup: THREE.Group): void {
+  // Dribble bounce state
+  private dribbleBouncing = false;
+  private dribbleBounceVel = 0;
+  private lastHandY = 0;
+  private handWasDescending = false;
+
+  followHolder(playerGroup: THREE.Group, isDribbling = false): void {
     if (this.heldBy === null) return;
 
     // Get the right forearm from the nested skeleton
     const forearmRight = playerGroup.getObjectByName('forearm-right');
     if (!forearmRight) {
-      // Fallback: position near player
       this.mesh.position.set(playerGroup.position.x, playerGroup.position.y + 0.8, playerGroup.position.z);
       return;
     }
@@ -82,13 +88,57 @@ export class Ball {
     // Update world matrices so nested transforms are current
     playerGroup.updateWorldMatrix(true, true);
 
-    // Hand is at the tip of the forearm
-    // Forearm is 0.22 long (CylinderGeometry height), centered at (0, -0.11, 0) relative to elbow
-    // So the hand tip is at local (0, -0.11, 0) relative to the forearm
+    // Compute hand world position (tip of forearm)
     const handLocal = new THREE.Vector3(0, -0.11, 0);
     const handWorld = handLocal.applyMatrix4(forearmRight.matrixWorld);
 
-    this.mesh.position.copy(handWorld);
+    if (!isDribbling) {
+      // Not dribbling — ball glued to hand (shooting, dunk, etc.)
+      this.dribbleBouncing = false;
+      this.mesh.position.copy(handWorld);
+      this.lastHandY = handWorld.y;
+      return;
+    }
+
+    // DRIBBLE BOUNCE LOGIC
+    const handDescending = handWorld.y < this.lastHandY;
+    const releaseThreshold = playerGroup.position.y + 0.45; // below waist height = release
+
+    if (!this.dribbleBouncing) {
+      // Ball is in hand — track hand position
+      this.mesh.position.copy(handWorld);
+
+      // Detect release: hand crosses below threshold while descending
+      if (handWorld.y < releaseThreshold && handDescending && this.handWasDescending) {
+        this.dribbleBouncing = true;
+        this.dribbleBounceVel = -6; // fast downward
+        // Keep x/z from hand, start y from hand
+        this.mesh.position.copy(handWorld);
+      }
+    } else {
+      // Ball is bouncing — simple floor bounce physics
+      this.dribbleBounceVel -= 25 * (1 / 60); // gravity
+      this.mesh.position.y += this.dribbleBounceVel * (1 / 60);
+
+      // Track x/z with player so ball stays under them
+      this.mesh.position.x = handWorld.x;
+      this.mesh.position.z = handWorld.z;
+
+      // Floor bounce
+      if (this.mesh.position.y < this.radius) {
+        this.mesh.position.y = this.radius;
+        this.dribbleBounceVel = Math.abs(this.dribbleBounceVel) * 0.85; // bounce up
+      }
+
+      // Reconnect: ball has bounced back up near hand height
+      if (this.dribbleBounceVel > 0 && this.mesh.position.y >= handWorld.y - 0.1) {
+        this.dribbleBouncing = false;
+        this.mesh.position.copy(handWorld);
+      }
+    }
+
+    this.lastHandY = handWorld.y;
+    this.handWasDescending = handDescending;
   }
 
   shootAt(target: THREE.Vector3, power: number): void {

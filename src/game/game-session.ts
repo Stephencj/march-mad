@@ -156,7 +156,7 @@ export class GameSession {
     // Update ball position
     if (this.ball.heldBy) {
       const holder = this.getPlayerById(this.ball.heldBy);
-      if (holder) this.ball.followHolder(holder.group);
+      if (holder) this.ball.followHolder(holder.group, holder.hasBall && !holder.isJumping);
     } else {
       this.ball.update(dt);
     }
