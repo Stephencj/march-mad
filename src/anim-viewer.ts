@@ -41,7 +41,7 @@ platform.position.y = -0.025;
 scene.add(platform);
 
 // --- Hoop ---
-const hoopPos = new THREE.Vector3(0, 3.05, 4);
+const hoopPos = new THREE.Vector3(0, 3.05, 2.5); // closer for dunking
 const hoop = createHoop(hoopPos, 0xe94560);
 hoop.rotation.y = Math.PI; // rotate 180° so backboard faces the player
 scene.add(hoop);
@@ -207,7 +207,7 @@ function animate() {
       shootReleased = true;
       player.hasBall = false;
       ball.release();
-      ball.shootAt(new THREE.Vector3(0, 3.05, 4), 0.8);
+      ball.shootAt(new THREE.Vector3(0, 3.05, 2.5), 0.8);
       shootBallFalling = false;
     }
 
@@ -269,7 +269,7 @@ function animate() {
       player.hasBall = false;
       ball.release();
       // Position ball at the rim and let it fall through the net
-      ball.mesh.position.set(0, 3.05, 4);
+      ball.mesh.position.set(0, 3.05, 2.5);
       ball.velocity.set(0, -5, 0);
     }
 
@@ -298,19 +298,34 @@ function animate() {
     player.group.position.x = 0;
     player.group.position.z = 0;
   } else {
-    // During dunk, move player toward hoop
+    // During dunk, TRUE PARABOLIC ARC from start to hoop
     const dunkTimer = (player as unknown as { dunkTimer: number }).dunkTimer;
     const dunkDuration = 1.2;
     const dunkProgress = 1 - (dunkTimer / dunkDuration);
-    if (dunkProgress > 0 && dunkProgress < 0.65) {
-      // Move toward hoop during rise, hang, slam, and rim hang phases
-      player.group.position.z = (dunkProgress / 0.65) * 3.5; // move toward hoop at z=4
-      player.group.position.x = 0;
-    } else if (dunkProgress >= 0.65) {
-      // Stay at hoop during drop and landing
-      player.group.position.z = 3.5;
-      player.group.position.x = 0;
+    const hoopZ = 2.2; // just short of the hoop
+
+    if (dunkProgress < 0.35) {
+      // Arc phase: jump TO the hoop in a parabola
+      const arcT = dunkProgress / 0.35; // 0 to 1
+      player.group.position.z = arcT * hoopZ; // linear z toward hoop
+      // Override Y with parabolic arc (peaks at 3.0, lands at rim height 2.5)
+      const peakY = 3.0;
+      player.group.position.y = Math.sin(arcT * Math.PI) * peakY;
+    } else if (dunkProgress < 0.65) {
+      // At the hoop: rim hang phase — stay at hoop position, at rim height
+      player.group.position.z = hoopZ;
+      player.group.position.y = 2.5; // rim height
+    } else if (dunkProgress < 0.85) {
+      // Drop from rim
+      const dropT = (dunkProgress - 0.65) / 0.2;
+      player.group.position.z = hoopZ;
+      player.group.position.y = 2.5 * (1 - dropT);
+    } else {
+      // On ground — landing
+      player.group.position.z = hoopZ;
+      player.group.position.y = 0;
     }
+    player.group.position.x = 0;
   }
 
   // Camera orbit
@@ -330,7 +345,7 @@ function animate() {
     Math.cos(camAngle) * viewCamDist
   );
   if (currentAnim === 'shoot' || currentAnim === 'dunk') {
-    camera.lookAt(0, 1.5, 2); // between player and hoop (hoop at z=4)
+    camera.lookAt(0, 1.5, 1.25); // between player and hoop (hoop at z=2.5)
   } else {
     camera.lookAt(0, 0.8, 0);
   }
