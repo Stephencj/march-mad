@@ -341,11 +341,11 @@ export class GamePlayer {
       }
 
       case 'headband': {
-        // Sits snug on the head sphere surface
-        const geo = new THREE.TorusGeometry(0.28, 0.03, 6, 16);
-        const mat = new THREE.MeshStandardMaterial({ color: 0xff2222 });
+        // Basketball sweatband — thick band sitting like a crown on top of head
+        const geo = new THREE.CylinderGeometry(0.22, 0.24, 0.08, 16, 1, true); // open-ended cylinder
+        const mat = new THREE.MeshStandardMaterial({ color: 0xff2222, side: THREE.DoubleSide });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, 0.42, 0); // snug on forehead
+        mesh.position.set(0, 0.58, -0.02); // sits on top of head like a crown
         return mesh;
       }
     }
