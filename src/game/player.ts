@@ -451,11 +451,11 @@ export class GamePlayer {
       }
 
       case 'walk': {
-        // Floaty bouncy stride
-        const t = this.animTime * 4; // stride frequency
-        const bounceT = this.animTime * 8; // double frequency for bounce (once per foot)
+        // Bouncy stride — faster pace, subtler bounce
+        const t = this.animTime * 5; // faster stride
+        const bounceT = this.animTime * 10; // double freq for per-foot bounce
         const bouncePhase = (Math.sin(bounceT) + 1) / 2;
-        this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.25;
+        this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.15; // subtler (was 0.25)
 
         // Squash-stretch on body pivot
         const squashStretch = bouncePhase; // 0 = ground contact, 1 = peak
@@ -488,13 +488,13 @@ export class GamePlayer {
       }
 
       case 'dribble': {
-        const t = this.animTime * 4;
+        const t = this.animTime * 5; // match walk speed
 
         if (this.velocity.lengthSq() > 0.01) {
           // Moving with ball — walk + dribble arm
-          const bounceT = this.animTime * 8; // double frequency for bounce (once per foot)
+          const bounceT = this.animTime * 10; // match walk double-bounce
           const bouncePhase = (Math.sin(bounceT) + 1) / 2;
-          this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.2;
+          this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.12; // subtler than walk
 
           // Squash-stretch on body pivot
           const squashStretch = bouncePhase; // 0 = ground contact, 1 = peak
@@ -524,14 +524,14 @@ export class GamePlayer {
         }
 
         // Dribble arm (right): pumps DOWN to bounce ball
-        const dribbleT = this.animTime * 3;
-        shoulderR.rotation.x = -0.3; // slightly forward (constant)
-        elbowR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.6; // NEGATIVE = forward/down pump
+        const dribbleT = this.animTime * 4; // faster dribble
+        shoulderR.rotation.x = -0.3;
+        elbowR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.6;
 
-        // Guard arm (left): UP and OUT for balance
-        shoulderL.rotation.x = -0.4; // forward and up
-        shoulderL.rotation.z = 0.5; // out to the side
-        elbowL.rotation.x = -0.6; // NEGATIVE = natural forward bend, arm up
+        // Balance arm (left): OUT to the side and slightly forward, NOT tucked in
+        shoulderL.rotation.x = -0.1; // barely forward
+        shoulderL.rotation.z = 0.8; // OUT wide to the side (big z = more outward)
+        elbowL.rotation.x = -0.3; // gentle natural bend
         break;
       }
 
@@ -544,13 +544,13 @@ export class GamePlayer {
         kneeL.rotation.x = 0.4; // deep crouch
         kneeR.rotation.x = 0.4;
 
-        // Arms UP HIGH to block — both reaching upward
-        shoulderL.rotation.x = -1.2; // way up/forward
-        shoulderL.rotation.z = 0.4; // spread wide
-        shoulderR.rotation.x = -1.2;
-        shoulderR.rotation.z = -0.4;
-        elbowL.rotation.x = -0.3; // slight natural bend, arms mostly extended up
-        elbowR.rotation.x = -0.3;
+        // Arms STRAIGHT UP to block — maximum reach
+        shoulderL.rotation.x = -2.8; // nearly vertical (PI/2 = 1.57, go past it)
+        shoulderL.rotation.z = 0.3; // spread slightly
+        shoulderR.rotation.x = -2.8;
+        shoulderR.rotation.z = -0.3;
+        elbowL.rotation.x = -0.1; // nearly straight
+        elbowR.rotation.x = -0.1;
 
         this.group.position.y = -0.08; // lower stance
 
@@ -577,37 +577,60 @@ export class GamePlayer {
       }
 
       case 'steal': {
-        // DRAMATIC swipe — arm lunges forward and scales up
+        // SWORD SWING style: wind up HIGH, pause at crest, swipe DOWN
         bodyPivot.scale.set(1, 1, 1);
-        const progress = 1 - (this.stealTimer / 0.3); // 0 to 1 over 0.3s
-        const swipeArc = Math.sin(progress * Math.PI); // peaks at 0.5
+        const stealDuration = 0.5;
+        const progress = 1 - (this.stealTimer / stealDuration); // 0 to 1
 
-        // Body lunges forward
-        bodyPivot.rotation.x = 0.35 + swipeArc * 0.15;
+        // Phase 1 (0-0.4): Wind up — arm goes HIGH
+        // Phase 2 (0.4-0.6): Pause at crest — arm big, dramatic hold
+        // Phase 3 (0.6-1.0): Swipe DOWN fast
+        let shoulderAngle: number;
+        let elbowAngle: number;
+        let forearmScale: number;
 
-        // Right arm SWEEPS forward — elbow EXTENDS (less bend = more reach)
-        shoulderR.rotation.x = -1.5 * swipeArc; // big forward reach
-        shoulderR.rotation.z = -0.3 * swipeArc; // arm swings across body
-        elbowR.rotation.x = -0.2 * (1 - swipeArc); // NEGATIVE, extends at peak (closer to 0 = straighter)
-
-        // Forearm SCALES UP as it reaches (dramatic enlargement)
-        const forearmR = this.group.getObjectByName('forearm-right');
-        if (forearmR) {
-          const scaleBoost = 1 + swipeArc * 0.8; // grows up to 1.8x at peak
-          forearmR.scale.set(scaleBoost, scaleBoost, scaleBoost);
+        if (progress < 0.4) {
+          // Wind up: arm raises high
+          const windUp = progress / 0.4; // 0 to 1
+          shoulderAngle = -0.3 - windUp * 2.2; // goes from -0.3 to -2.5 (high up)
+          elbowAngle = -0.1;
+          forearmScale = 1 + windUp * 0.6; // starts growing
+        } else if (progress < 0.6) {
+          // Crest pause: hold high, arm at maximum size
+          shoulderAngle = -2.5; // held high
+          elbowAngle = -0.1;
+          forearmScale = 1.8; // maximum size
+        } else {
+          // Swipe down: fast downward slash
+          const swipeDown = (progress - 0.6) / 0.4; // 0 to 1
+          shoulderAngle = -2.5 + swipeDown * 3.0; // swings from -2.5 to +0.5 (down past neutral)
+          elbowAngle = -0.3 * (1 - swipeDown); // extends
+          forearmScale = 1.8 - swipeDown * 0.8; // shrinks back
         }
 
-        // Left arm back for balance
-        shoulderL.rotation.x = 0.4;
-        elbowL.rotation.x = -0.4; // NEGATIVE natural bend
+        // Slight lean only, not dramatic lunge
+        bodyPivot.rotation.x = 0.1;
 
-        // Legs in lunge stance
-        hipL.rotation.x = -0.3; // front leg forward
-        hipR.rotation.x = 0.3; // back leg back
-        kneeL.rotation.x = 0.4;
-        kneeR.rotation.x = 0.2;
+        shoulderR.rotation.x = shoulderAngle;
+        shoulderR.rotation.z = -0.2;
+        elbowR.rotation.x = elbowAngle;
 
-        // Reset forearm scale when steal ends
+        // Forearm scales
+        const forearmR = this.group.getObjectByName('forearm-right');
+        if (forearmR) {
+          forearmR.scale.set(forearmScale, forearmScale, forearmScale);
+        }
+
+        // Left arm: relaxed at side (NOT up their butt)
+        shoulderL.rotation.x = 0; // neutral, hanging
+        elbowL.rotation.x = -0.1; // slight natural bend
+
+        // Slight step forward, not a lunge
+        hipL.rotation.x = -0.1;
+        hipR.rotation.x = 0.1;
+        kneeL.rotation.x = 0.15;
+        kneeR.rotation.x = 0.15;
+
         if (this.stealTimer <= 0 && forearmR) {
           forearmR.scale.set(1, 1, 1);
         }
@@ -742,7 +765,7 @@ export class GamePlayer {
   }
 
   triggerSteal(): void {
-    this.stealTimer = 0.3;
+    this.stealTimer = 0.5; // longer for wind-up + pause + swipe
   }
 
   triggerShoot(): void {
