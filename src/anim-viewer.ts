@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GamePlayer } from './game/player';
+import { Ball } from './game/ball';
 import { createDefaultPlayerStats } from './core/types';
 import type { Position } from './core/types';
 
@@ -80,6 +81,10 @@ function createPlayer(teamColor: number, hairId: number, position?: Position) {
 
 createPlayer(0xe94560, 0);
 
+// --- Ball for dribble/shoot/dunk preview ---
+const ball = new Ball(new THREE.Vector3(0, 1, 0));
+scene.add(ball.mesh);
+
 // --- Animation Loop ---
 let lastTime = performance.now();
 
@@ -134,14 +139,64 @@ function animate() {
         player.jump();
       }
       break;
+    case 'sprint':
+      player.hasBall = false;
+      player.isSprinting = true;
+      player.velocity.set(0, 0, 3);
+      break;
+    case 'dribble-sprint':
+      player.hasBall = true;
+      player.isSprinting = true;
+      player.velocity.set(0, 0, 3);
+      break;
+    case 'jump-block':
+      player.hasBall = false;
+      player.velocity.set(0, 0, 0);
+      if (!player.isJumping) player.jump();
+      break;
+    case 'fall':
+      player.hasBall = false;
+      player.velocity.set(0, 0, 0);
+      break;
+    case 'dunk':
+      player.hasBall = true;
+      player.velocity.set(0, 0, 0);
+      break;
   }
 
-  // Set forced state for guard (forceAnimState is checked inside animate)
+  // Set forced state for guard/fall/dunk (forceAnimState is checked inside animate)
   if (currentAnim === 'guard') {
     player.forceAnimState('guard');
   }
+  if (currentAnim === 'fall') {
+    player.forceAnimState('fall');
+    if ((player as unknown as { fallTimer: number }).fallTimer <= 0) {
+      player.triggerFall();
+    }
+  }
+  if (currentAnim === 'dunk') {
+    player.forceAnimState('dunk');
+    if ((player as unknown as { dunkTimer: number }).dunkTimer <= 0) {
+      player.triggerDunk();
+    }
+  }
 
   player.animate(dt);
+
+  // Ball visibility and position for dribble/shoot/dunk animations
+  if (currentAnim === 'dribble' || currentAnim === 'dribble-walk' || currentAnim === 'dribble-sprint') {
+    ball.mesh.visible = true;
+    ball.pickup('viewer');
+    ball.followHolder(player.group.position, player.group.rotation.y, player.animTime);
+  } else if (currentAnim === 'shoot') {
+    ball.mesh.visible = false; // ball would be in flight
+  } else if (currentAnim === 'dunk') {
+    ball.mesh.visible = true;
+    ball.pickup('viewer');
+    ball.followHolder(player.group.position, player.group.rotation.y, player.animTime);
+  } else {
+    ball.mesh.visible = false;
+  }
 
   // Keep player on platform (don't let bouncing move them off)
   player.group.position.x = 0;
@@ -173,9 +228,20 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
     // Reset timers and forced state so the new animation can start fresh
     (player as unknown as { stealTimer: number }).stealTimer = 0;
     (player as unknown as { shootTimer: number }).shootTimer = 0;
+    (player as unknown as { fallTimer: number }).fallTimer = 0;
+    (player as unknown as { dunkTimer: number }).dunkTimer = 0;
     player.isJumping = false;
-    // Clear forced state — only re-force if selecting guard
-    player.forceAnimState(currentAnim === 'guard' ? 'guard' : null);
+    player.isSprinting = false;
+    // Clear forced state — only re-force if selecting guard/fall/dunk
+    if (currentAnim === 'guard') {
+      player.forceAnimState('guard');
+    } else if (currentAnim === 'fall') {
+      player.forceAnimState('fall');
+    } else if (currentAnim === 'dunk') {
+      player.forceAnimState('dunk');
+    } else {
+      player.forceAnimState(null);
+    }
   });
 });
 

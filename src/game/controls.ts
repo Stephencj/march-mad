@@ -31,6 +31,7 @@ export interface GestureResult {
 export interface ControlInput {
   joystick: { x: number; y: number };
   gesture: GestureResult | null;
+  sprinting?: boolean;
 }
 
 type GestureCallback = (gesture: GestureResult) => void;

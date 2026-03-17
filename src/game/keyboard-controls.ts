@@ -20,6 +20,8 @@ export class KeyboardControls {
       this.emitGesture({ type: 'tap', power: 0, direction: { x: 0, y: 0 } });
     } else if (code === 'KeyF') {
       this.emitGesture({ type: 'jump', power: 1, direction: { x: 0, y: 0 } });
+    } else if (code === 'ShiftLeft' || code === 'ShiftRight') {
+      // Sprint toggle handled via key state, not gesture
     }
   }
 
@@ -48,6 +50,6 @@ export class KeyboardControls {
     if (mag > 1) { x /= mag; y /= mag; }
     const gesture = this.lastGesture;
     this.lastGesture = null; // consume gesture so it doesn't repeat
-    return { joystick: { x, y }, gesture };
+    return { joystick: { x, y }, gesture, sprinting: this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') };
   }
 }

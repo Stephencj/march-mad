@@ -268,6 +268,7 @@ export class GameSession {
       worldZ = right.z * input.joystick.x + forward.z * (-input.joystick.y);
     }
 
+    human.isSprinting = input.sprinting ?? false;
     human.moveByInput(worldX, worldZ, dt);
 
     // Process gesture (consume it so it doesn't repeat next frame)

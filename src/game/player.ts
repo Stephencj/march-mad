@@ -57,7 +57,7 @@ export class GamePlayer {
   private lastMoving = false;
   velocity = new THREE.Vector3();
   private prevPosition = new THREE.Vector3();
-  private animState: 'idle' | 'walk' | 'dribble' | 'guard' | 'steal' | 'shoot' | 'jump' = 'idle';
+  private animState: 'idle' | 'walk' | 'sprint' | 'dribble' | 'dribble-sprint' | 'guard' | 'steal' | 'shoot' | 'jump' | 'jump-block' | 'fall' | 'dunk' = 'idle';
   private prevAnimState: string = 'idle';
   private hairRestY: number | undefined;
   private stateTransitionTimer = 0;
@@ -69,6 +69,9 @@ export class GamePlayer {
   private jumpTimer = 0;
   private jumpHeight = 0;
   isJumping = false;
+  isSprinting = false;
+  private fallTimer = 0;
+  private dunkTimer = 0;
 
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
@@ -398,6 +401,16 @@ export class GamePlayer {
       // Still tick timers even when forced
       if (this.stealTimer > 0) this.stealTimer -= dt;
       if (this.shootTimer > 0) this.shootTimer -= dt;
+      if (this.fallTimer > 0) this.fallTimer -= dt;
+      if (this.dunkTimer > 0) this.dunkTimer -= dt;
+    } else if (this.fallTimer > 0) {
+      this.animState = 'fall';
+      this.fallTimer -= dt;
+    } else if (this.dunkTimer > 0) {
+      this.animState = 'dunk';
+      this.dunkTimer -= dt;
+    } else if (this.isJumping && !this.hasBall) {
+      this.animState = 'jump-block'; // jumping without ball = blocking attempt
     } else if (this.isJumping) {
       this.animState = 'jump';
     } else if (this.stealTimer > 0) {
@@ -406,8 +419,12 @@ export class GamePlayer {
     } else if (this.shootTimer > 0) {
       this.animState = 'shoot';
       this.shootTimer -= dt;
+    } else if (this.hasBall && isMoving && this.isSprinting) {
+      this.animState = 'dribble-sprint';
     } else if (this.hasBall) {
       this.animState = 'dribble';
+    } else if (isMoving && this.isSprinting) {
+      this.animState = 'sprint';
     } else if (isMoving) {
       this.animState = 'walk';
     } else {
@@ -810,6 +827,266 @@ export class GamePlayer {
         }
         break;
       }
+
+      case 'sprint': {
+        const t = this.animTime * 8; // faster than walk (5)
+        const bounceT = this.animTime * 16; // double for per-foot
+        const bouncePhase = (Math.sin(bounceT) + 1) / 2;
+        this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.2; // slightly bigger than walk
+
+        const squashStretch = bouncePhase;
+        bodyPivot.scale.set(
+          1 + (1 - squashStretch) * 0.03,
+          1 - (1 - squashStretch) * 0.03 + squashStretch * 0.03,
+          1 + (1 - squashStretch) * 0.03
+        );
+
+        bodyPivot.rotation.x = 0.2; // more forward lean than walk
+
+        const strideRaw = Math.sin(t);
+        const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.8; // bigger stride
+
+        hipL.rotation.x = -stride;
+        hipR.rotation.x = stride;
+        kneeL.rotation.x = 0.2 + Math.max(0, stride) * 0.7; // deeper knee drive
+        kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.7;
+
+        // Arms pump hard — elbows tight, fists driving
+        shoulderL.rotation.x = stride * 0.7;
+        shoulderR.rotation.x = -stride * 0.7;
+        elbowL.rotation.x = -0.8; // tight elbow bend throughout
+        elbowR.rotation.x = -0.8;
+        break;
+      }
+
+      case 'dribble-sprint': {
+        const t = this.animTime * 7; // between walk and sprint speed
+        const bounceT = this.animTime * 14;
+        const bouncePhase = (Math.sin(bounceT) + 1) / 2;
+        this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.18;
+
+        const squashStretch = bouncePhase;
+        bodyPivot.scale.set(
+          1 + (1 - squashStretch) * 0.03,
+          1 - (1 - squashStretch) * 0.03 + squashStretch * 0.03,
+          1 + (1 - squashStretch) * 0.03
+        );
+
+        bodyPivot.rotation.x = 0.18;
+
+        const strideRaw = Math.sin(t);
+        const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.7;
+
+        hipL.rotation.x = -stride;
+        hipR.rotation.x = stride;
+        kneeL.rotation.x = 0.2 + Math.max(0, stride) * 0.6;
+        kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.6;
+
+        // Right arm dribbles (faster than walk dribble)
+        const dribbleT = this.animTime * 5;
+        shoulderR.rotation.x = -0.3;
+        elbowR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.5;
+
+        // Left arm pumps with stride
+        shoulderL.rotation.x = stride * 0.5;
+        shoulderL.rotation.z = -0.3; // slightly out
+        elbowL.rotation.x = -0.6;
+        break;
+      }
+
+      case 'jump-block': {
+        bodyPivot.scale.set(1, 1, 1);
+        this.jumpTimer -= dt;
+        const jumpDuration = 0.6;
+        const progress = 1 - (this.jumpTimer / jumpDuration);
+
+        this.jumpHeight = Math.sin(progress * Math.PI) * 1.5;
+        this.group.position.y = this.jumpHeight;
+
+        if (progress < 0.15) {
+          // Crouch
+          const crouch = progress / 0.15;
+          bodyPivot.rotation.x = 0.2 * crouch;
+          kneeL.rotation.x = 0.7 * crouch;
+          kneeR.rotation.x = 0.7 * crouch;
+          hipL.rotation.x = 0.1 * crouch;
+          hipR.rotation.x = 0.1 * crouch;
+          shoulderL.rotation.x = 0.2 * crouch;
+          shoulderR.rotation.x = 0.2 * crouch;
+          elbowL.rotation.x = -0.3 * crouch;
+          elbowR.rotation.x = -0.3 * crouch;
+        } else if (progress < 0.3) {
+          // Launch — BOTH arms shoot up
+          const launch = (progress - 0.15) / 0.15;
+          bodyPivot.rotation.x = 0.2 - launch * 0.25;
+          kneeL.rotation.x = 0.7 * (1 - launch);
+          kneeR.rotation.x = 0.7 * (1 - launch);
+          hipL.rotation.x = 0.1 * (1 - launch);
+          hipR.rotation.x = 0.1 * (1 - launch);
+          shoulderL.rotation.x = 0.2 - launch * 2.9; // both arms straight up (-2.7)
+          shoulderR.rotation.x = 0.2 - launch * 2.9;
+          shoulderL.rotation.z = -launch * 0.3; // spread wide
+          shoulderR.rotation.z = launch * 0.3;
+          elbowL.rotation.x = -0.3 + launch * 0.2;
+          elbowR.rotation.x = -0.3 + launch * 0.2;
+        } else if (progress < 0.7) {
+          // Hang time — both arms up, wide spread like a wall
+          bodyPivot.rotation.x = -0.05;
+          kneeL.rotation.x = 0.1;
+          kneeR.rotation.x = 0.1;
+          hipL.rotation.x = 0;
+          hipR.rotation.x = 0;
+          shoulderL.rotation.x = -2.7;
+          shoulderR.rotation.x = -2.7;
+          shoulderL.rotation.z = -0.4;
+          shoulderR.rotation.z = 0.4;
+          elbowL.rotation.x = -0.1;
+          elbowR.rotation.x = -0.1;
+        } else {
+          // Land
+          const land = (progress - 0.7) / 0.3;
+          bodyPivot.rotation.x = -0.05 + land * 0.15;
+          kneeL.rotation.x = 0.1 + land * 0.5;
+          kneeR.rotation.x = 0.1 + land * 0.5;
+          shoulderL.rotation.x = -2.7 + land * 2.6;
+          shoulderR.rotation.x = -2.7 + land * 2.6;
+          shoulderL.rotation.z = -0.4 + land * 0.4;
+          shoulderR.rotation.z = 0.4 - land * 0.4;
+          elbowL.rotation.x = -0.1;
+          elbowR.rotation.x = -0.1;
+        }
+
+        if (this.jumpTimer <= 0) {
+          this.isJumping = false;
+          this.jumpTimer = 0;
+          this.group.position.y = 0;
+        }
+        break;
+      }
+
+      case 'fall': {
+        bodyPivot.scale.set(1, 1, 1);
+        const fallDuration = 0.8;
+        const progress = 1 - (this.fallTimer / fallDuration);
+
+        if (progress < 0.4) {
+          // Stagger back
+          const stagger = progress / 0.4;
+          bodyPivot.rotation.x = -0.3 * stagger; // lean back
+          bodyPivot.rotation.z = 0.2 * stagger; // tilt sideways
+          this.group.position.y = 0;
+          // Arms flail
+          shoulderL.rotation.x = -0.5 * stagger;
+          shoulderL.rotation.z = -0.6 * stagger;
+          shoulderR.rotation.x = -0.8 * stagger;
+          shoulderR.rotation.z = 0.4 * stagger;
+          elbowL.rotation.x = -0.3;
+          elbowR.rotation.x = -0.5;
+          // Legs buckle
+          kneeL.rotation.x = 0.3 * stagger;
+          kneeR.rotation.x = 0.5 * stagger;
+          hipL.rotation.x = 0.1 * stagger;
+          hipR.rotation.x = -0.1 * stagger;
+        } else if (progress < 0.7) {
+          // Hit the ground
+          const ground = (progress - 0.4) / 0.3;
+          bodyPivot.rotation.x = -0.3 - ground * 1.0; // falls flat back
+          bodyPivot.rotation.z = 0.2;
+          this.group.position.y = -ground * 0.3; // drops down
+          shoulderL.rotation.x = -0.5 - ground * 0.5;
+          shoulderL.rotation.z = -0.6 - ground * 0.4;
+          shoulderR.rotation.x = -0.8;
+          shoulderR.rotation.z = 0.4 + ground * 0.3;
+          elbowL.rotation.x = -0.3;
+          elbowR.rotation.x = -0.5;
+          kneeL.rotation.x = 0.3 + ground * 0.3;
+          kneeR.rotation.x = 0.5;
+        } else {
+          // Lying on ground
+          bodyPivot.rotation.x = -1.3;
+          bodyPivot.rotation.z = 0.2;
+          this.group.position.y = -0.3;
+          shoulderL.rotation.x = -1.0;
+          shoulderL.rotation.z = -1.0;
+          shoulderR.rotation.x = -0.8;
+          shoulderR.rotation.z = 0.7;
+          elbowL.rotation.x = -0.3;
+          elbowR.rotation.x = -0.5;
+          kneeL.rotation.x = 0.6;
+          kneeR.rotation.x = 0.5;
+        }
+
+        if (this.fallTimer <= 0) {
+          this.fallTimer = 0;
+          this.group.position.y = 0;
+        }
+        break;
+      }
+
+      case 'dunk': {
+        bodyPivot.scale.set(1, 1, 1);
+        const dunkDuration = 0.7;
+        const progress = 1 - (this.dunkTimer / dunkDuration);
+
+        // Height: jump higher than normal
+        this.group.position.y = Math.sin(progress * Math.PI) * 2.2;
+
+        if (progress < 0.2) {
+          // Gather: crouch and pull ball back
+          const gather = progress / 0.2;
+          bodyPivot.rotation.x = 0.2 * gather;
+          kneeL.rotation.x = 0.6 * gather;
+          kneeR.rotation.x = 0.6 * gather;
+          hipL.rotation.x = -0.1 * gather;
+          hipR.rotation.x = 0.1;
+          shoulderR.rotation.x = 0.3 * gather; // ball arm pulls back
+          elbowR.rotation.x = -0.5 * gather;
+          shoulderL.rotation.x = 0;
+          elbowL.rotation.x = -0.1;
+        } else if (progress < 0.5) {
+          // Rise: ball arm sweeps up and forward
+          const rise = (progress - 0.2) / 0.3;
+          bodyPivot.rotation.x = 0.2 - rise * 0.3; // lean back slightly
+          kneeL.rotation.x = 0.6 * (1 - rise);
+          kneeR.rotation.x = 0.6 * (1 - rise);
+          hipL.rotation.x = -0.1 - rise * 0.1;
+          hipR.rotation.x = 0.1;
+          // Ball arm (right) sweeps from back to fully extended overhead
+          shoulderR.rotation.x = 0.3 - rise * 3.3; // goes to -3.0 (past vertical)
+          elbowR.rotation.x = -0.5 + rise * 0.4; // straightens
+          shoulderL.rotation.x = -rise * 0.5; // balance arm
+          shoulderL.rotation.z = -rise * 0.3;
+          elbowL.rotation.x = -0.2;
+        } else if (progress < 0.65) {
+          // SLAM: arm comes down hard, body snaps forward
+          const slam = (progress - 0.5) / 0.15;
+          bodyPivot.rotation.x = -0.1 + slam * 0.3; // snaps forward
+          shoulderR.rotation.x = -3.0 + slam * 2.0; // arm slams down to -1.0
+          elbowR.rotation.x = -0.1 - slam * 0.3;
+          shoulderL.rotation.x = -0.5 + slam * 0.3;
+          shoulderL.rotation.z = -0.3 + slam * 0.3;
+          elbowL.rotation.x = -0.2;
+          kneeL.rotation.x = 0.2;
+          kneeR.rotation.x = 0.2;
+        } else {
+          // Hang on rim / land
+          const land = (progress - 0.65) / 0.35;
+          bodyPivot.rotation.x = 0.2 * (1 - land);
+          shoulderR.rotation.x = -1.0 + land * 0.9;
+          elbowR.rotation.x = -0.4 + land * 0.3;
+          shoulderL.rotation.x = -0.2 + land * 0.2;
+          elbowL.rotation.x = -0.1;
+          kneeL.rotation.x = 0.2 + land * 0.3;
+          kneeR.rotation.x = 0.2 + land * 0.3;
+          shoulderL.rotation.z = 0;
+        }
+
+        if (this.dunkTimer <= 0) {
+          this.dunkTimer = 0;
+          this.group.position.y = 0;
+        }
+        break;
+      }
     }
 
     // Hide block screen when not guarding
@@ -818,8 +1095,8 @@ export class GamePlayer {
       if (screen) screen.visible = false;
     }
 
-    // Reset shoulder Z rotation if not in dribble/guard/steal/jump
-    if (this.animState !== 'dribble' && this.animState !== 'guard' && this.animState !== 'steal' && this.animState !== 'jump') {
+    // Reset shoulder Z rotation if not in dribble/guard/steal/jump/jump-block/dunk/dribble-sprint/fall
+    if (this.animState !== 'dribble' && this.animState !== 'guard' && this.animState !== 'steal' && this.animState !== 'jump' && this.animState !== 'jump-block' && this.animState !== 'dunk' && this.animState !== 'dribble-sprint' && this.animState !== 'fall') {
       shoulderL.rotation.z = 0;
       shoulderR.rotation.z = 0;
     }
@@ -827,6 +1104,11 @@ export class GamePlayer {
     // Reset body twist if not stealing
     if (this.animState !== 'steal') {
       bodyPivot.rotation.y = 0;
+    }
+
+    // Reset body tilt if not falling
+    if (this.animState !== 'fall') {
+      bodyPivot.rotation.z = 0;
     }
 
     // Reset forearm scale if not stealing
@@ -869,7 +1151,7 @@ export class GamePlayer {
 
   private forcedAnimState: string | null = null;
 
-  forceAnimState(state: 'idle' | 'walk' | 'dribble' | 'guard' | 'steal' | 'shoot' | 'jump' | null): void {
+  forceAnimState(state: 'idle' | 'walk' | 'sprint' | 'dribble' | 'dribble-sprint' | 'guard' | 'steal' | 'shoot' | 'jump' | 'jump-block' | 'fall' | 'dunk' | null): void {
     this.forcedAnimState = state;
   }
 
@@ -879,6 +1161,14 @@ export class GamePlayer {
 
   triggerShoot(): void {
     this.shootTimer = 0.4;
+  }
+
+  triggerFall(): void {
+    this.fallTimer = 0.8;
+  }
+
+  triggerDunk(): void {
+    this.dunkTimer = 0.7;
   }
 
   jump(): void {
@@ -937,7 +1227,8 @@ export class GamePlayer {
       return;
     }
     const direction = new THREE.Vector3(inputX, 0, inputZ).normalize();
-    const step = this.moveSpeed * dt;
+    const speed = this.isSprinting ? this.moveSpeed * 1.6 : this.moveSpeed;
+    const step = speed * dt;
     this.velocity.copy(direction).multiplyScalar(step / dt);
     this.group.position.addScaledVector(direction, step);
 
