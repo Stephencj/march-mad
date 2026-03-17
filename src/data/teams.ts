@@ -1,4 +1,5 @@
-import type { TeamData, TeamArchetype, PlayerData, PlayerStats } from '@/core/types';
+import type { TeamData, TeamArchetype, PlayerData, PlayerStats, Position } from '@/core/types';
+import { POSITION_STATS } from '@/core/types';
 
 // --- Name generation pools ---
 
@@ -193,7 +194,7 @@ export function generatePlayerForArchetype(archetype: TeamArchetype, seed: numbe
 
 // --- Main generator ---
 
-export function generateTeams(): TeamData[] {
+export function generateTeams(playerCount: number = 3): TeamData[] {
   const teams: TeamData[] = [];
   const usedNames = new Set<string>();
 
@@ -223,9 +224,22 @@ export function generateTeams(): TeamData[] {
     const { seed } = assignedPositions[i];
     const archetype = partial.archetype ?? 'Balanced';
 
+    const positions: Position[] = ['PG', 'SG', 'SF', 'PF', 'C'];
     const players: PlayerData[] = [];
-    for (let p = 0; p < 3; p++) {
-      players.push(generatePlayerForArchetype(archetype, seed + p * 100 + i * 7));
+    for (let p = 0; p < playerCount; p++) {
+      const player = generatePlayerForArchetype(archetype, seed + p * 100 + i * 7);
+      if (playerCount === 5 && p < positions.length) {
+        player.position = positions[p];
+        const posStats = POSITION_STATS[positions[p]];
+        player.stats = {
+          speed: Math.round((player.stats.speed + posStats.speed) / 2),
+          shooting: Math.round((player.stats.shooting + posStats.shooting) / 2),
+          defense: Math.round((player.stats.defense + posStats.defense) / 2),
+          passing: Math.round((player.stats.passing + posStats.passing) / 2),
+          dunkPower: Math.round((player.stats.dunkPower + posStats.dunkPower) / 2),
+        };
+      }
+      players.push(player);
     }
 
     const team: TeamData = {
@@ -288,11 +302,22 @@ export function generateTeams(): TeamData[] {
 
       const archetype = ARCHETYPES[generatedCounter % ARCHETYPES.length];
 
+      const positions: Position[] = ['PG', 'SG', 'SF', 'PF', 'C'];
       const players: PlayerData[] = [];
-      for (let p = 0; p < 3; p++) {
-        players.push(
-          generatePlayerForArchetype(archetype, seed + p * 100 + generatedCounter * 13),
-        );
+      for (let p = 0; p < playerCount; p++) {
+        const player = generatePlayerForArchetype(archetype, seed + p * 100 + generatedCounter * 13);
+        if (playerCount === 5 && p < positions.length) {
+          player.position = positions[p];
+          const posStats = POSITION_STATS[positions[p]];
+          player.stats = {
+            speed: Math.round((player.stats.speed + posStats.speed) / 2),
+            shooting: Math.round((player.stats.shooting + posStats.shooting) / 2),
+            defense: Math.round((player.stats.defense + posStats.defense) / 2),
+            passing: Math.round((player.stats.passing + posStats.passing) / 2),
+            dunkPower: Math.round((player.stats.dunkPower + posStats.dunkPower) / 2),
+          };
+        }
+        players.push(player);
       }
 
       const team: TeamData = {

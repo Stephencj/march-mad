@@ -131,6 +131,9 @@ export const TOURNAMENT_CONFIGS: Record<TournamentTier, TournamentConfig> = {
   season: { tier: 'season', teamCount: 64, rounds: 6 },
 };
 
+// --- Game Mode ---
+export type GameMode = '3v3' | '5v5';
+
 // --- Game State Machine ---
 export type AppState =
   | 'MainMenu' | 'PlayerCreation' | 'TournamentSelect' | 'DraftPhase'

@@ -44,4 +44,12 @@ describe('team data generation', () => {
       expect(count).toBe(4);
     }
   });
+
+  it('generates 5-player teams with positions when playerCount is 5', () => {
+    const teams = generateTeams(5);
+    expect(teams[0].players).toHaveLength(5);
+    const positions = teams[0].players.map(p => p.position);
+    expect(positions).toContain('PG');
+    expect(positions).toContain('C');
+  });
 });
