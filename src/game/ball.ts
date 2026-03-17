@@ -72,6 +72,7 @@ export class Ball {
   // Dribble bounce state
   private dribbleBouncing = false;
   private dribbleBounceVel = 0;
+  private dribbleBounceTimer = 0;
   private lastHandY = 0;
   private handWasDescending = false;
 
@@ -113,30 +114,42 @@ export class Ball {
       // Release when hand changes from descending to ascending (bottom of pump)
       if (handAscending && this.handWasDescending) {
         this.dribbleBouncing = true;
-        this.dribbleBounceVel = -8; // fast downward
+        this.dribbleBounceVel = -6;
+        this.dribbleBounceTimer = 0;
       }
     } else {
-      // Ball is bouncing independently
+      // Ball is bouncing — timed bounce cycle
       const dt = 1 / 60;
-      this.dribbleBounceVel -= 30 * dt; // gravity
-      this.mesh.position.y += this.dribbleBounceVel * dt;
+      this.dribbleBounceTimer += dt;
 
-      // Track x/z with hand so ball stays under player
+      // Simple parametric bounce: drop, hit floor, come back up
+      // Total bounce takes ~0.25 seconds
+      const bounceDuration = 0.25;
+      const t = Math.min(this.dribbleBounceTimer / bounceDuration, 1);
+
+      // Parabolic arc: starts at hand height, goes to floor, comes back
+      const startY = handWorld.y;
+      const floorY = this.radius;
+      const bounceHeight = startY - floorY;
+
+      if (t < 0.5) {
+        // Dropping to floor
+        const dropT = t / 0.5;
+        this.mesh.position.y = startY - bounceHeight * dropT;
+      } else {
+        // Rising back to hand
+        const riseT = (t - 0.5) / 0.5;
+        this.mesh.position.y = floorY + bounceHeight * riseT;
+      }
+
+      // Track x/z with hand
       this.mesh.position.x = handWorld.x;
       this.mesh.position.z = handWorld.z;
 
-      // Floor bounce
-      if (this.mesh.position.y < this.radius) {
-        this.mesh.position.y = this.radius;
-        this.dribbleBounceVel = Math.abs(this.dribbleBounceVel) * 0.8;
-      }
-
-      // Reconnect when ball rises back to hand height AND hand is descending
-      // (hand coming down to meet the ball = natural catch point)
-      if (this.mesh.position.y >= handWorld.y - 0.15 && this.dribbleBounceVel > 0 && handDescending) {
+      // Reconnect after bounce completes
+      if (t >= 1) {
         this.dribbleBouncing = false;
         this.mesh.position.copy(handWorld);
-        // Force handWasDescending so the NEXT inflection triggers correctly
         this.handWasDescending = true;
         this.lastHandY = handWorld.y;
         return;

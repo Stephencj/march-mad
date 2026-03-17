@@ -187,13 +187,11 @@ function animate() {
   if (currentAnim === 'dribble' || currentAnim === 'dribble-walk' || currentAnim === 'dribble-sprint') {
     ball.mesh.visible = true;
     ball.pickup('viewer');
-    ball.followHolder(player.group, true); // isDribbling = true for bounce
-  } else if (currentAnim === 'shoot') {
-    ball.mesh.visible = false;
-  } else if (currentAnim === 'dunk') {
+    ball.followHolder(player.group, true);
+  } else if (currentAnim === 'shoot' || currentAnim === 'dunk') {
     ball.mesh.visible = true;
     ball.pickup('viewer');
-    ball.followHolder(player.group, false); // not dribbling during dunk, glued to hand
+    ball.followHolder(player.group, false); // glued to hand
   } else {
     ball.mesh.visible = false;
   }

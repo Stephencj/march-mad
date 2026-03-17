@@ -1029,6 +1029,7 @@ export class GamePlayer {
       }
 
       case 'dunk': {
+        // TWO-HANDED DUNK: both hands together on ball, raise up, slam down into hoop
         bodyPivot.scale.set(1, 1, 1);
         const dunkDuration = 0.7;
         const progress = 1 - (this.dunkTimer / dunkDuration);
@@ -1037,72 +1038,61 @@ export class GamePlayer {
         this.group.position.y = Math.sin(progress * Math.PI) * 2.2;
 
         if (progress < 0.2) {
-          // Gather (0-20%): crouch, both hands on ball at chest level
+          // Gather: crouch, both hands together at waist with ball
           const gather = progress / 0.2;
           bodyPivot.rotation.x = 0.2 * gather;
           kneeL.rotation.x = 0.6 * gather;
           kneeR.rotation.x = 0.6 * gather;
-          hipL.rotation.x = -0.1 * gather;
-          hipR.rotation.x = 0.1;
-          // Both arms hold ball at chest
-          shoulderR.rotation.x = -0.5 * gather;
-          elbowR.rotation.x = -0.8 * gather;
-          shoulderL.rotation.x = -0.5 * gather;
-          elbowL.rotation.x = -0.8 * gather;
-        } else if (progress < 0.45) {
-          // Rise (20-45%): ball arm sweeps from chest to overhead, left peels away
-          const rise = (progress - 0.2) / 0.25;
+          hipL.rotation.x = 0.1 * gather;
+          hipR.rotation.x = 0.1 * gather;
+          // Both arms together in front, holding ball at waist
+          shoulderR.rotation.x = -0.4 * gather;
+          shoulderR.rotation.z = 0; // arms come inward
+          shoulderL.rotation.x = -0.4 * gather;
+          shoulderL.rotation.z = 0;
+          elbowR.rotation.x = -0.6 * gather;
+          elbowL.rotation.x = -0.6 * gather;
+        } else if (progress < 0.5) {
+          // Rise: both arms together sweep ball from waist to overhead
+          const rise = (progress - 0.2) / 0.3;
           bodyPivot.rotation.x = 0.2 - rise * 0.3;
           kneeL.rotation.x = 0.6 * (1 - rise);
           kneeR.rotation.x = 0.6 * (1 - rise);
-          hipL.rotation.x = -0.1 - rise * 0.1;
-          hipR.rotation.x = 0.1;
-          // Ball arm (right) sweeps from chest to overhead
-          shoulderR.rotation.x = -0.5 - rise * 2.3; // -0.5 to -2.8
-          elbowR.rotation.x = -0.8 + rise * 0.7; // -0.8 to -0.1 (straightens)
-          // Left arm peels away for balance
-          shoulderL.rotation.x = -0.5 + rise * 0.3; // opens out
-          shoulderL.rotation.z = -rise * 0.4;
-          elbowL.rotation.x = -0.8 + rise * 0.6;
-        } else if (progress < 0.55) {
-          // Cock back (45-55%): ball arm pulls back behind head
-          const cock = (progress - 0.45) / 0.1;
-          bodyPivot.rotation.x = -0.1;
-          kneeL.rotation.x = 0.1;
-          kneeR.rotation.x = 0.1;
-          hipL.rotation.x = -0.2;
-          hipR.rotation.x = 0.1;
-          // Ball arm cocks back
-          shoulderR.rotation.x = -2.8 + cock * 0.3; // -2.8 to -2.5
-          elbowR.rotation.x = -0.1 - cock * 0.4; // -0.1 to -0.5 (bends)
-          // Balance arm stays out
-          shoulderL.rotation.x = -0.2;
-          shoulderL.rotation.z = -0.4;
-          elbowL.rotation.x = -0.2;
-        } else if (progress < 0.7) {
-          // SLAM (55-70%): explosive forward swing, arm comes DOWN
-          const slam = (progress - 0.55) / 0.15;
-          bodyPivot.rotation.x = -0.1 + slam * 0.35; // body curls forward with slam
-          kneeL.rotation.x = 0.1 + slam * 0.1;
-          kneeR.rotation.x = 0.1 + slam * 0.1;
-          // Ball arm slams forward-down
-          shoulderR.rotation.x = -2.5 + slam * 1.5; // -2.5 to -1.0
-          elbowR.rotation.x = -0.5 + slam * 0.4; // -0.5 to -0.1 (straightens)
-          // Balance arm
-          shoulderL.rotation.x = -0.2 + slam * 0.1;
-          shoulderL.rotation.z = -0.4 + slam * 0.4;
-          elbowL.rotation.x = -0.2;
-        } else {
-          // Hang/Land (70-100%): arms come down, land
-          const land = (progress - 0.7) / 0.3;
-          bodyPivot.rotation.x = 0.25 * (1 - land);
-          shoulderR.rotation.x = -1.0 + land * 0.9; // back to ~-0.1
-          elbowR.rotation.x = -0.1;
-          shoulderL.rotation.x = -0.1 + land * 0.1;
+          hipL.rotation.x = 0.1 * (1 - rise);
+          hipR.rotation.x = 0.1 * (1 - rise);
+          // BOTH arms sweep up together (ball stays between hands)
+          shoulderR.rotation.x = -0.4 - rise * 2.2; // -0.4 to -2.6
+          shoulderL.rotation.x = -0.4 - rise * 2.2; // same — arms together
+          elbowR.rotation.x = -0.6 + rise * 0.5; // straightens
+          elbowL.rotation.x = -0.6 + rise * 0.5;
+          // Arms stay close together (no spread)
+          shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
-          elbowL.rotation.x = -0.1;
-          kneeL.rotation.x = 0.2 + land * 0.3;
-          kneeR.rotation.x = 0.2 + land * 0.3;
+        } else if (progress < 0.65) {
+          // SLAM: both arms drive ball DOWN into the hoop
+          const slam = (progress - 0.5) / 0.15;
+          bodyPivot.rotation.x = -0.1 + slam * 0.4; // body curls forward hard
+          // Both arms slam down together
+          shoulderR.rotation.x = -2.6 + slam * 1.8; // -2.6 to -0.8
+          shoulderL.rotation.x = -2.6 + slam * 1.8;
+          elbowR.rotation.x = -0.1 - slam * 0.2;
+          elbowL.rotation.x = -0.1 - slam * 0.2;
+          shoulderR.rotation.z = 0;
+          shoulderL.rotation.z = 0;
+          kneeL.rotation.x = 0.1 + slam * 0.2;
+          kneeR.rotation.x = 0.1 + slam * 0.2;
+        } else {
+          // Hang/Land: arms come down to sides
+          const land = (progress - 0.65) / 0.35;
+          bodyPivot.rotation.x = 0.3 * (1 - land);
+          shoulderR.rotation.x = -0.8 + land * 0.7;
+          shoulderL.rotation.x = -0.8 + land * 0.7;
+          elbowR.rotation.x = -0.3 + land * 0.2;
+          elbowL.rotation.x = -0.3 + land * 0.2;
+          shoulderR.rotation.z = 0;
+          shoulderL.rotation.z = 0;
+          kneeL.rotation.x = 0.3 + land * 0.3;
+          kneeR.rotation.x = 0.3 + land * 0.3;
         }
 
         if (this.dunkTimer <= 0) {
