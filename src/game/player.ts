@@ -139,7 +139,8 @@ export class GamePlayer {
 
     // ========== HAIR (added to neckGroup) ==========
     const hairStyles: HairStyle[] = ['flat-top', 'afro', 'mohawk', 'headband'];
-    const style = hairStyles[h % hairStyles.length];
+    const hairIndex = (data as any).hairOverride ?? (h % hairStyles.length);
+    const style = hairStyles[hairIndex % hairStyles.length];
     const hair = this.createHair(style, hairColor);
     hair.name = 'hair';
     neckGroup.add(hair);

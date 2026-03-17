@@ -71,7 +71,8 @@ function createPlayer(teamColor: number, hairId: number, position?: Position) {
     personality: 'Team Player',
     isCustom: false,
     position,
-  }, new THREE.Vector3(0, 0, 0), teamColor);
+    hairOverride: hairId,
+  } as any, new THREE.Vector3(0, 0, 0), teamColor);
 
   player.isHumanControlled = true; // show the indicator
   scene.add(player.group);
