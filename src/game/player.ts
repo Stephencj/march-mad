@@ -215,6 +215,13 @@ export class GamePlayer {
     forearmRight.name = 'forearm-right';
     elbowRight.add(forearmRight);
 
+    // ========== HIP/GROIN (bridges torso bottom to leg tops) ==========
+    const hipGeo = new THREE.BoxGeometry(0.28, 0.1, 0.15); // wider than torso bottom, short
+    const hipMesh = new THREE.Mesh(hipGeo, jerseyMat); // same color as jersey
+    hipMesh.position.set(0, -0.05, 0); // just below body-pivot origin (which is at hip height)
+    hipMesh.name = 'hip-mesh';
+    bodyPivot.add(hipMesh);
+
     // ========== HIPS (groups at hip joints, relative to body-pivot at y=0) ==========
     const hipLeft = new THREE.Group();
     hipLeft.position.set(-0.08, 0, 0);
@@ -525,6 +532,15 @@ export class GamePlayer {
         shoulderR.rotation.x = -stride * 0.5;
         elbowL.rotation.x = -0.3 - Math.max(0, stride) * 0.3;  // NEGATIVE = natural bend
         elbowR.rotation.x = -0.3 - Math.max(0, -stride) * 0.3; // NEGATIVE
+
+        // Torso/hip counter-rotation for natural walk
+        const torso = this.group.getObjectByName('torso');
+        const hipMeshNode = this.group.getObjectByName('hip-mesh');
+        if (torso && hipMeshNode) {
+          // Hips twist WITH the leading leg, torso twists OPPOSITE
+          hipMeshNode.rotation.y = stride * 0.15; // subtle hip twist
+          torso.rotation.y = -stride * 0.1; // torso counter-twists
+        }
         break;
       }
 
@@ -580,6 +596,14 @@ export class GamePlayer {
           // Dribble arm (right): phase-based
           shoulderR.rotation.x = -0.3;
           elbowR.rotation.x = elbowBend;
+
+          // Torso/hip counter-rotation for natural walk
+          const torso = this.group.getObjectByName('torso');
+          const hipMeshNode = this.group.getObjectByName('hip-mesh');
+          if (torso && hipMeshNode) {
+            hipMeshNode.rotation.y = stride * 0.15;
+            torso.rotation.y = -stride * 0.1;
+          }
         } else {
           // Stationary dribble
           this.group.position.y = Math.sin(this.animTime * 1.5) * 0.03;
@@ -929,6 +953,13 @@ export class GamePlayer {
         shoulderR.rotation.x = -stride * 0.7;
         elbowL.rotation.x = -0.8; // tight elbow bend throughout
         elbowR.rotation.x = -0.8;
+
+        const torso = this.group.getObjectByName('torso');
+        const hipMeshNode = this.group.getObjectByName('hip-mesh');
+        if (torso && hipMeshNode) {
+          hipMeshNode.rotation.y = stride * 0.2; // more twist when sprinting
+          torso.rotation.y = -stride * 0.15;
+        }
         break;
       }
 
@@ -982,6 +1013,13 @@ export class GamePlayer {
         shoulderL.rotation.x = stride * 0.5;
         shoulderL.rotation.z = -0.3; // slightly out
         elbowL.rotation.x = -0.6;
+
+        const torso = this.group.getObjectByName('torso');
+        const hipMeshNode = this.group.getObjectByName('hip-mesh');
+        if (torso && hipMeshNode) {
+          hipMeshNode.rotation.y = stride * 0.2;
+          torso.rotation.y = -stride * 0.15;
+        }
         break;
       }
 
@@ -1224,6 +1262,14 @@ export class GamePlayer {
     if (this.animState !== 'steal') {
       const forearmR = this.group.getObjectByName('forearm-right');
       if (forearmR) forearmR.scale.set(1, 1, 1);
+    }
+
+    // Reset torso/hip twist for non-locomotion states
+    if (this.animState !== 'walk' && this.animState !== 'sprint' && this.animState !== 'dribble' && this.animState !== 'dribble-sprint') {
+      const torsoNode = this.group.getObjectByName('torso');
+      const hipMeshNode = this.group.getObjectByName('hip-mesh');
+      if (torsoNode) torsoNode.rotation.y = 0;
+      if (hipMeshNode) hipMeshNode.rotation.y = 0;
     }
 
     // State transition blending (anticipation + follow-through)
