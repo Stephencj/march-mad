@@ -203,7 +203,7 @@ describe('GamePlayer - new animation triggers', () => {
     // Animate should pick up steal state
     player.animate(1 / 60);
     // After one frame the steal timer should still be active (0.3 - 1/60 > 0)
-    expect(player.group.getObjectByName('body-pivot')!.rotation.x).toBeGreaterThan(0);
+    expect(player.group.getObjectByName('body-pivot')!.rotation.x).toBeLessThan(0); // leans back during wind-up
   });
 
   it('triggerShoot sets shoot timer', () => {

@@ -627,8 +627,19 @@ export class GamePlayer {
           forearmScale = 1.8 - swipeDown * 0.8; // shrinks back
         }
 
-        // Slight lean only, not dramatic lunge
-        bodyPivot.rotation.x = 0.1;
+        // Phase-dependent body lean: back on wind-up, forward on swipe
+        if (progress < 0.1) {
+          // Snap up: lean BACK
+          const snap = progress / 0.1;
+          bodyPivot.rotation.x = -0.2 * snap; // negative = lean back
+        } else if (progress < 0.35) {
+          // Hold at crest: held back
+          bodyPivot.rotation.x = -0.2;
+        } else {
+          // Swipe down: lunge FORWARD
+          const swipeDown = (progress - 0.35) / 0.65;
+          bodyPivot.rotation.x = -0.2 + swipeDown * 0.5; // goes from -0.2 to +0.3 (forward lean)
+        }
 
         shoulderR.rotation.x = shoulderAngle;
         shoulderR.rotation.z = -0.2;
@@ -714,50 +725,83 @@ export class GamePlayer {
       }
 
       case 'jump': {
-        // Jump animation
         bodyPivot.scale.set(1, 1, 1);
         this.jumpTimer -= dt;
         const jumpDuration = 0.6;
         const progress = 1 - (this.jumpTimer / jumpDuration);
 
         // Parabolic height
-        this.jumpHeight = Math.sin(progress * Math.PI) * 1.5;
+        this.jumpHeight = Math.sin(progress * Math.PI) * 1.8; // higher than before
         this.group.position.y = this.jumpHeight;
 
-        if (progress < 0.3) {
-          // Crouch at takeoff
-          bodyPivot.rotation.x = 0.2;
-          kneeL.rotation.x = 0.6 * (1 - progress / 0.3);
-          kneeR.rotation.x = 0.6 * (1 - progress / 0.3);
-          hipL.rotation.x = 0.1;
-          hipR.rotation.x = 0.1;
-          shoulderL.rotation.x = 0;
-          shoulderR.rotation.x = 0;
-          elbowL.rotation.x = -0.1;
-          elbowR.rotation.x = -0.1;
+        if (progress < 0.15) {
+          // WIND-UP: deep crouch, arms pull down gathering energy
+          const crouch = progress / 0.15;
+          bodyPivot.rotation.x = 0.25 * crouch; // lean forward into crouch
+          kneeL.rotation.x = 0.8 * crouch; // deep knee bend
+          kneeR.rotation.x = 0.8 * crouch;
+          hipL.rotation.x = 0.15 * crouch;
+          hipR.rotation.x = 0.15 * crouch;
+          // Arms pull down and back
+          shoulderL.rotation.x = 0.3 * crouch; // arms go back
+          shoulderR.rotation.x = 0.3 * crouch;
+          elbowL.rotation.x = -0.4 * crouch;
+          elbowR.rotation.x = -0.4 * crouch;
+        } else if (progress < 0.3) {
+          // LAUNCH: explosive extension
+          const launch = (progress - 0.15) / 0.15;
+          bodyPivot.rotation.x = 0.25 - launch * 0.35; // snaps to slight back lean (-0.1)
+          kneeL.rotation.x = 0.8 * (1 - launch); // legs straighten
+          kneeR.rotation.x = 0.8 * (1 - launch);
+          hipL.rotation.x = 0.15 * (1 - launch);
+          hipR.rotation.x = 0.15 * (1 - launch);
+          // Right arm reaches UP (dominant hand for layup/rebound)
+          shoulderR.rotation.x = 0.3 - launch * 3.0; // goes from 0.3 to -2.7 (straight up)
+          elbowR.rotation.x = -0.4 + launch * 0.3; // straightens to -0.1
+          // Left arm out for balance
+          shoulderL.rotation.x = 0.3 - launch * 0.8; // goes to -0.5
+          shoulderL.rotation.z = -launch * 0.3; // out to side
+          elbowL.rotation.x = -0.4 + launch * 0.2;
         } else if (progress < 0.7) {
-          // Extended in air
+          // HANG TIME: peak — iconic basketball pose
           bodyPivot.rotation.x = -0.1;
-          kneeL.rotation.x = 0.05;
-          kneeR.rotation.x = 0.05;
-          hipL.rotation.x = -0.1;
+          kneeL.rotation.x = 0.15; // slight natural bend
+          kneeR.rotation.x = 0.2;
+          hipL.rotation.x = -0.1; // slight split
           hipR.rotation.x = 0.1;
-          // Arms up
-          shoulderL.rotation.x = -1.2;
-          shoulderR.rotation.x = -1.2;
-          elbowL.rotation.x = -0.1;
+          // Right arm fully extended UP (reaching for rim)
+          shoulderR.rotation.x = -2.7;
           elbowR.rotation.x = -0.1;
+          // Left arm out for balance
+          shoulderL.rotation.x = -0.5;
+          shoulderL.rotation.z = -0.3;
+          elbowL.rotation.x = -0.2;
+        } else if (progress < 0.85) {
+          // DESCENT: start tucking
+          const tuck = (progress - 0.7) / 0.15;
+          bodyPivot.rotation.x = -0.1 + tuck * 0.15;
+          shoulderR.rotation.x = -2.7 + tuck * 1.5; // arm comes down to -1.2
+          elbowR.rotation.x = -0.1 - tuck * 0.2;
+          shoulderL.rotation.x = -0.5 + tuck * 0.3;
+          shoulderL.rotation.z = -0.3 + tuck * 0.3;
+          elbowL.rotation.x = -0.2;
+          kneeL.rotation.x = 0.15 + tuck * 0.2;
+          kneeR.rotation.x = 0.2 + tuck * 0.2;
+          hipL.rotation.x = -0.1 + tuck * 0.1;
+          hipR.rotation.x = 0.1 - tuck * 0.1;
         } else {
-          // Landing
-          bodyPivot.rotation.x = 0.15;
-          kneeL.rotation.x = 0.4 * ((progress - 0.7) / 0.3);
-          kneeR.rotation.x = 0.4 * ((progress - 0.7) / 0.3);
-          hipL.rotation.x = 0;
-          hipR.rotation.x = 0;
-          shoulderL.rotation.x = 0;
-          shoulderR.rotation.x = 0;
-          elbowL.rotation.x = -0.1;
-          elbowR.rotation.x = -0.1;
+          // LAND: deep absorb
+          const land = (progress - 0.85) / 0.15;
+          bodyPivot.rotation.x = 0.05 + land * 0.15; // lean forward on impact
+          kneeL.rotation.x = 0.35 + land * 0.4; // deep bend absorb
+          kneeR.rotation.x = 0.4 + land * 0.4;
+          hipL.rotation.x = 0.05;
+          hipR.rotation.x = 0.05;
+          shoulderR.rotation.x = -1.2 + land * 1.1; // arms come down to ~-0.1
+          shoulderL.rotation.x = -0.2 + land * 0.1;
+          elbowR.rotation.x = -0.3 + land * 0.2;
+          elbowL.rotation.x = -0.2 + land * 0.1;
+          shoulderL.rotation.z = 0;
         }
 
         if (this.jumpTimer <= 0) {
@@ -775,8 +819,8 @@ export class GamePlayer {
       if (screen) screen.visible = false;
     }
 
-    // Reset shoulder Z rotation if not in dribble/guard/steal
-    if (this.animState !== 'dribble' && this.animState !== 'guard' && this.animState !== 'steal') {
+    // Reset shoulder Z rotation if not in dribble/guard/steal/jump
+    if (this.animState !== 'dribble' && this.animState !== 'guard' && this.animState !== 'steal' && this.animState !== 'jump') {
       shoulderL.rotation.z = 0;
       shoulderR.rotation.z = 0;
     }
