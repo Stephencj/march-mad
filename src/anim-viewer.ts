@@ -67,6 +67,7 @@ let camDist = 4;
 let shootReleased = false;
 let dunkReleased = false;
 let shootResetDelay = 0;
+let shootBallFalling = false;
 
 let player: GamePlayer;
 
@@ -207,6 +208,7 @@ function animate() {
       player.hasBall = false;
       ball.release();
       ball.shootAt(new THREE.Vector3(0, 3.05, 4), 0.8);
+      shootBallFalling = false;
     }
 
     // Keep ball updating if in flight
@@ -214,17 +216,39 @@ function animate() {
       ball.update(dt);
     }
 
+    // When arc finishes, release the ball so it falls with gravity
+    if (shootReleased && !ball.isInFlight && ball.heldBy !== null) {
+      ball.release();
+    }
+
+    // When arc just finished, give it downward velocity to fall through net
+    if (shootReleased && !ball.isInFlight && !shootBallFalling && ball.heldBy === null) {
+      ball.velocity.set(0, -3, 0); // gentle drop through net
+      shootBallFalling = true;
+    }
+
+    // Ball falling after arc — update physics
+    if (shootReleased && !ball.isInFlight && ball.heldBy === null) {
+      ball.update(dt);
+    }
+
+    // Keep player NOT dribbling after shot
+    if (shootReleased) {
+      player.hasBall = false;
+    }
+
     // After ball lands and shoot is done, wait then reset
     if (shootReleased && !ball.isInFlight && shootTimer <= 0) {
       shootResetDelay += dt;
-      if (shootResetDelay > 0.8) {
-        // Reset for next loop
+      if (shootResetDelay > 1.5) {
+        // Full reset
         ball.pickup('viewer');
         ball.isInFlight = false;
         player.hasBall = true;
         player.triggerShoot();
         shootReleased = false;
         shootResetDelay = 0;
+        shootBallFalling = false;
       }
     }
 
@@ -333,6 +357,7 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
     shootReleased = false;
     dunkReleased = false;
     shootResetDelay = 0;
+    shootBallFalling = false;
     // Reset player position (dunk moves them forward)
     player.group.position.set(0, 0, 0);
     // Clear forced state — only re-force if selecting guard/fall/dunk

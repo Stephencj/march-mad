@@ -551,23 +551,23 @@ export class GamePlayer {
         const dribbleSpeed = 2.5; // Hz — cycles per second
         this.dribblePhase = (this.animTime * dribbleSpeed) % 1;
 
-        // Map phase to arm position
+        // Arm synced with ball phase
+        const armPhase = (this.dribblePhase + 0.25) % 1;
         let elbowBend: number;
-        if (this.dribblePhase < 0.3) {
-          // Rising — arm coming up
-          const pt = this.dribblePhase / 0.3;
-          elbowBend = -0.5 - 0.5 * (1 - pt); // -1.0 to -0.5
-        } else if (this.dribblePhase < 0.5) {
-          // Pause at top — hand high
-          elbowBend = -0.5; // least bent (hand highest)
-        } else if (this.dribblePhase < 0.8) {
-          // Pushing down
-          const pt = (this.dribblePhase - 0.5) / 0.3;
-          elbowBend = -0.5 - pt * 0.6; // -0.5 to -1.1 (most bent = hand lowest)
+        if (armPhase < 0.45) {
+          // Arm up — ball in hand
+          elbowBend = -0.5;
+        } else if (armPhase < 0.6) {
+          // Arm pushes down — ball releasing
+          const t = (armPhase - 0.45) / 0.15;
+          elbowBend = -0.5 - t * 0.6; // -0.5 to -1.1
+        } else if (armPhase < 0.8) {
+          // Arm at bottom — ball at floor
+          elbowBend = -1.1;
         } else {
-          // Returning up from bottom
-          const pt = (this.dribblePhase - 0.8) / 0.2;
-          elbowBend = -1.1 + pt * 0.6; // -1.1 to -0.5
+          // Arm returns up — ball rising
+          const t = (armPhase - 0.8) / 0.2;
+          elbowBend = -1.1 + t * 0.6; // -1.1 to -0.5
         }
 
         if (this.velocity.lengthSq() > 0.01) {
@@ -1067,19 +1067,23 @@ export class GamePlayer {
         const dribbleSpeed = 2.5; // Hz — cycles per second
         this.dribblePhase = (this.animTime * dribbleSpeed) % 1;
 
-        // Map phase to arm position (same logic as dribble case)
+        // Arm synced with ball phase
+        const armPhase = (this.dribblePhase + 0.25) % 1;
         let elbowBend: number;
-        if (this.dribblePhase < 0.3) {
-          const pt = this.dribblePhase / 0.3;
-          elbowBend = -0.5 - 0.5 * (1 - pt);
-        } else if (this.dribblePhase < 0.5) {
+        if (armPhase < 0.45) {
+          // Arm up — ball in hand
           elbowBend = -0.5;
-        } else if (this.dribblePhase < 0.8) {
-          const pt = (this.dribblePhase - 0.5) / 0.3;
-          elbowBend = -0.5 - pt * 0.6;
+        } else if (armPhase < 0.6) {
+          // Arm pushes down — ball releasing
+          const t = (armPhase - 0.45) / 0.15;
+          elbowBend = -0.5 - t * 0.6; // -0.5 to -1.1
+        } else if (armPhase < 0.8) {
+          // Arm at bottom — ball at floor
+          elbowBend = -1.1;
         } else {
-          const pt = (this.dribblePhase - 0.8) / 0.2;
-          elbowBend = -1.1 + pt * 0.6;
+          // Arm returns up — ball rising
+          const t = (armPhase - 0.8) / 0.2;
+          elbowBend = -1.1 + t * 0.6; // -1.1 to -0.5
         }
 
         // Right arm dribbles — phase-based
