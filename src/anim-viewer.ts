@@ -209,7 +209,7 @@ function animate() {
       shootReleased = true;
       player.hasBall = false;
       ball.release();
-      ball.shootAt(new THREE.Vector3(0, 3.05, 4), 0.7); // toward the hoop
+      ball.shootAt(new THREE.Vector3(0, 3.05, 4), 0.8); // toward the hoop
     }
 
     if (ball.isInFlight || (!ball.heldBy && !shootReleased)) {
@@ -224,11 +224,12 @@ function animate() {
   if (currentAnim === 'dunk') {
     const dunkTimer = (player as unknown as { dunkTimer: number }).dunkTimer;
     if (!dunkReleased && dunkTimer > 0 && dunkTimer < 0.25) {
-      // Slam release — ball drops from rim height
+      // Slam release — ball drops through the rim
       dunkReleased = true;
       player.hasBall = false;
       ball.release();
-      // Ball just drops from current position
+      // Position ball at the rim and let it fall through the net
+      ball.mesh.position.set(0, 3.05, 4);
       ball.velocity.set(0, -5, 0);
     }
 
@@ -252,8 +253,21 @@ function animate() {
   // shoot and dunk handled separately above
 
   // Keep player on platform (don't let bouncing move them off)
-  player.group.position.x = 0;
-  player.group.position.z = 0;
+  // BUT during dunk, let them move toward the hoop
+  if (currentAnim !== 'dunk') {
+    player.group.position.x = 0;
+    player.group.position.z = 0;
+  } else {
+    // During dunk, move player toward hoop
+    const dunkTimer = (player as unknown as { dunkTimer: number }).dunkTimer;
+    const dunkDuration = 0.7;
+    const dunkProgress = 1 - (dunkTimer / dunkDuration);
+    if (dunkProgress > 0 && dunkProgress < 0.75) {
+      // Move toward hoop during rise and slam phases
+      player.group.position.z = dunkProgress * 3.5; // move toward hoop at z=4
+      player.group.position.x = 0;
+    }
+  }
 
   // Camera orbit
   if (autoRotate) {
@@ -298,6 +312,8 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
     player.isSprinting = false;
     shootReleased = false;
     dunkReleased = false;
+    // Reset player position (dunk moves them forward)
+    player.group.position.set(0, 0, 0);
     // Clear forced state — only re-force if selecting guard/fall/dunk
     if (currentAnim === 'guard') {
       player.forceAnimState('guard');

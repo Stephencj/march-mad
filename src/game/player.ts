@@ -834,6 +834,28 @@ export class GamePlayer {
         }
         hipL.rotation.x = 0;
         hipR.rotation.x = 0;
+
+        // Torso/hip twist during shot
+        const torsoNode = this.group.getObjectByName('torso');
+        const hipMeshNode = this.group.getObjectByName('hip-mesh');
+        if (torsoNode && hipMeshNode) {
+          if (progress < 0.15) {
+            // Wind up — slight twist away
+            const snap = progress / 0.15;
+            hipMeshNode.rotation.y = 0.1 * snap;
+            torsoNode.rotation.y = -0.08 * snap;
+          } else if (progress < 0.4) {
+            // Release — twist toward the shot
+            const release = (progress - 0.15) / 0.25;
+            hipMeshNode.rotation.y = 0.1 - release * 0.2; // twist through
+            torsoNode.rotation.y = -0.08 + release * 0.16;
+          } else {
+            // Recover — untwist
+            const recover = (progress - 0.4) / 0.6;
+            hipMeshNode.rotation.y = -0.1 * (1 - recover);
+            torsoNode.rotation.y = 0.08 * (1 - recover);
+          }
+        }
         break;
       }
 
@@ -915,6 +937,29 @@ export class GamePlayer {
           elbowR.rotation.x = -0.3 + land * 0.2;
           elbowL.rotation.x = -0.2 + land * 0.1;
           shoulderL.rotation.z = 0;
+        }
+
+        // Torso/hip twist during jump
+        {
+          const torsoNode = this.group.getObjectByName('torso');
+          const hipMeshNode = this.group.getObjectByName('hip-mesh');
+          if (torsoNode && hipMeshNode) {
+            if (progress < 0.3) {
+              // Launch — twist from crouch
+              const launch = progress / 0.3;
+              hipMeshNode.rotation.y = 0.15 * launch;
+              torsoNode.rotation.y = -0.1 * launch;
+            } else if (progress < 0.7) {
+              // Hang — slight twist held
+              hipMeshNode.rotation.y = 0.15;
+              torsoNode.rotation.y = -0.1;
+            } else {
+              // Land — untwist
+              const land = (progress - 0.7) / 0.3;
+              hipMeshNode.rotation.y = 0.15 * (1 - land);
+              torsoNode.rotation.y = -0.1 * (1 - land);
+            }
+          }
         }
 
         if (this.jumpTimer <= 0) {
@@ -1085,6 +1130,26 @@ export class GamePlayer {
           elbowR.rotation.x = -0.1;
         }
 
+        // Torso/hip twist during jump-block (same as jump)
+        {
+          const torsoNode = this.group.getObjectByName('torso');
+          const hipMeshNode = this.group.getObjectByName('hip-mesh');
+          if (torsoNode && hipMeshNode) {
+            if (progress < 0.3) {
+              const launch = progress / 0.3;
+              hipMeshNode.rotation.y = 0.15 * launch;
+              torsoNode.rotation.y = -0.1 * launch;
+            } else if (progress < 0.7) {
+              hipMeshNode.rotation.y = 0.15;
+              torsoNode.rotation.y = -0.1;
+            } else {
+              const land = (progress - 0.7) / 0.3;
+              hipMeshNode.rotation.y = 0.15 * (1 - land);
+              torsoNode.rotation.y = -0.1 * (1 - land);
+            }
+          }
+        }
+
         if (this.jumpTimer <= 0) {
           this.isJumping = false;
           this.jumpTimer = 0;
@@ -1228,6 +1293,34 @@ export class GamePlayer {
           kneeR.rotation.x = 0.4 + land * 0.3;
         }
 
+        // Torso/hip twist during dunk — bigger twist for drama
+        {
+          const torsoNode = this.group.getObjectByName('torso');
+          const hipMeshNode = this.group.getObjectByName('hip-mesh');
+          if (torsoNode && hipMeshNode) {
+            if (progress < 0.25) {
+              // Rise — twist as gathering
+              const rise = progress / 0.25;
+              hipMeshNode.rotation.y = 0.2 * rise;
+              torsoNode.rotation.y = -0.15 * rise;
+            } else if (progress < 0.55) {
+              // Hang — hold twist
+              hipMeshNode.rotation.y = 0.2;
+              torsoNode.rotation.y = -0.15;
+            } else if (progress < 0.75) {
+              // Slam — TWIST THROUGH for power (like swinging)
+              const slam = (progress - 0.55) / 0.2;
+              hipMeshNode.rotation.y = 0.2 - slam * 0.5; // twist from 0.2 to -0.3
+              torsoNode.rotation.y = -0.15 + slam * 0.35; // counter-twist
+            } else {
+              // Land — return to neutral
+              const land = (progress - 0.75) / 0.25;
+              hipMeshNode.rotation.y = -0.3 * (1 - land);
+              torsoNode.rotation.y = 0.2 * (1 - land);
+            }
+          }
+        }
+
         if (this.dunkTimer <= 0) {
           this.dunkTimer = 0;
           this.group.position.y = 0;
@@ -1264,8 +1357,8 @@ export class GamePlayer {
       if (forearmR) forearmR.scale.set(1, 1, 1);
     }
 
-    // Reset torso/hip twist for non-locomotion states
-    if (this.animState !== 'walk' && this.animState !== 'sprint' && this.animState !== 'dribble' && this.animState !== 'dribble-sprint') {
+    // Reset torso/hip twist for non-locomotion states (exclude states that handle their own twist)
+    if (this.animState !== 'walk' && this.animState !== 'sprint' && this.animState !== 'dribble' && this.animState !== 'dribble-sprint' && this.animState !== 'shoot' && this.animState !== 'jump' && this.animState !== 'jump-block' && this.animState !== 'dunk') {
       const torsoNode = this.group.getObjectByName('torso');
       const hipMeshNode = this.group.getObjectByName('hip-mesh');
       if (torsoNode) torsoNode.rotation.y = 0;
