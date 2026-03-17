@@ -87,44 +87,50 @@ export class Ball {
 
     if (!isDribbling) {
       this.mesh.position.copy(handWorld);
+      this.mesh.scale.set(1, 1, 1); // reset squash/stretch
       return;
     }
 
     // Offset ball phase so ball is at floor when hand is lowest
     const ballPhase = (dribblePhase + 0.25) % 1;
-
-    // Ball uses hand X/Z always (but smoothed), only Y changes for bounce
-    // Capture release X/Z when ball leaves hand, use it for the entire floor phase
     const floorY = this.radius;
 
+    // Stable X/Z: use player root + facing offset (no arm jitter)
+    const dribbleX = playerGroup.position.x + Math.sin(playerGroup.rotation.y) * 0.25;
+    const dribbleZ = playerGroup.position.z + Math.cos(playerGroup.rotation.y) * 0.25;
+
     if (ballPhase < 0.5) {
-      // Ball in hand — track hand position (use hand Y, stable X/Z from player)
-      // Stabilize X/Z to prevent arm-rotation jitter
-      this.dribbleReleaseX = handWorld.x;
-      this.dribbleReleaseZ = handWorld.z;
-      this.mesh.position.set(handWorld.x, handWorld.y, handWorld.z);
+      // Ball in hand — stable X/Z, hand Y
+      this.mesh.position.set(dribbleX, handWorld.y, dribbleZ);
+      // Normal ball shape in hand
+      this.mesh.scale.set(1, 1, 1);
     } else if (ballPhase < 0.6) {
-      // Releasing — drop straight down from last hand position
+      // Releasing — drop straight down, stretch vertically (falling fast)
       const t = (ballPhase - 0.5) / 0.1;
       const releaseY = handWorld.y;
-      this.mesh.position.set(
-        this.dribbleReleaseX,
-        releaseY - (releaseY - floorY) * t,
-        this.dribbleReleaseZ
-      );
+      this.mesh.position.set(dribbleX, releaseY - (releaseY - floorY) * t, dribbleZ);
+      // Stretch tall when falling
+      this.mesh.scale.set(0.85, 1.3, 0.85);
     } else if (ballPhase < 0.8) {
-      // At floor — stay at release X/Z, tiny bounce
+      // At floor — squash flat on impact, then return to normal
       const t = (ballPhase - 0.6) / 0.2;
-      const bounceUp = Math.sin(t * Math.PI) * 0.1;
-      this.mesh.position.set(this.dribbleReleaseX, floorY + bounceUp, this.dribbleReleaseZ);
+      const bounceUp = Math.sin(t * Math.PI) * 0.08;
+      this.mesh.position.set(dribbleX, floorY + bounceUp, dribbleZ);
+      // Squash at impact (t=0), return to normal (t=1)
+      const squash = 1 - Math.sin(t * Math.PI) * 0.3; // Y scale: 0.7 at peak squash
+      const spread = 1 + Math.sin(t * Math.PI) * 0.2;  // X/Z scale: 1.2 at peak
+      this.mesh.scale.set(spread, squash, spread);
     } else {
-      // Rising — go from release position back to current hand position
+      // Rising — back to hand, stretch slightly
       const t = (ballPhase - 0.8) / 0.2;
       this.mesh.position.set(
-        this.dribbleReleaseX + (handWorld.x - this.dribbleReleaseX) * t,
+        dribbleX + (handWorld.x - dribbleX) * t * 0.5, // ease back toward hand
         floorY + (handWorld.y - floorY) * t,
-        this.dribbleReleaseZ + (handWorld.z - this.dribbleReleaseZ) * t
+        dribbleZ + (handWorld.z - dribbleZ) * t * 0.5
       );
+      // Slight stretch when rising, normalize at top
+      const stretch = 1 + (1 - t) * 0.15;
+      this.mesh.scale.set(1 / stretch, stretch, 1 / stretch);
     }
   }
 
