@@ -45,9 +45,12 @@ export class Ball {
   }
 
   pickup(playerId: string): void {
+    // Only reset dribble timer when picking up fresh (not already held by this player)
+    if (this.heldBy !== playerId) {
+      this.dribbleTimer = 0;
+    }
     this.heldBy = playerId;
     this.velocity.set(0, 0, 0);
-    this.dribbleTimer = 0;
   }
 
   release(): void {
