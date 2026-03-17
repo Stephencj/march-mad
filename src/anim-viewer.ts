@@ -1,0 +1,229 @@
+import * as THREE from 'three';
+import { GamePlayer } from './game/player';
+import { createDefaultPlayerStats } from './core/types';
+import type { Position } from './core/types';
+
+// --- Renderer ---
+const canvas = document.getElementById('viewer-canvas') as HTMLCanvasElement;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 50);
+camera.position.set(0, 1.5, 4);
+camera.lookAt(0, 0.8, 0);
+
+function resize() {
+  const wrap = document.getElementById('canvas-wrap')!;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// --- Lighting ---
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(3, 8, 5);
+scene.add(dirLight);
+
+// --- Ground platform ---
+const platformGeo = new THREE.CylinderGeometry(1.5, 1.5, 0.05, 24);
+const platformMat = new THREE.MeshStandardMaterial({ color: 0x333355 });
+const platform = new THREE.Mesh(platformGeo, platformMat);
+platform.position.y = -0.025;
+scene.add(platform);
+
+// Grid lines on platform for reference
+const gridGeo = new THREE.RingGeometry(0.5, 0.52, 24);
+const gridMat = new THREE.MeshBasicMaterial({ color: 0x555577, side: THREE.DoubleSide });
+const grid1 = new THREE.Mesh(gridGeo, gridMat);
+grid1.rotation.x = -Math.PI / 2;
+grid1.position.y = 0.01;
+scene.add(grid1);
+const grid2 = grid1.clone();
+grid2.scale.set(2, 2, 2);
+scene.add(grid2);
+
+// --- Player ---
+let currentAnim = 'idle';
+let animSpeed = 1;
+let autoRotate = true;
+let camAngle = 0;
+let camHeight = 1.5;
+let camDist = 4;
+
+let player: GamePlayer;
+
+function createPlayer(teamColor: number, hairId: number, position?: Position) {
+  if (player) {
+    scene.remove(player.group);
+  }
+  const stats = createDefaultPlayerStats();
+  player = new GamePlayer({
+    id: `viewer-${hairId}`,
+    name: 'Viewer Player',
+    stats,
+    personality: 'Team Player',
+    isCustom: false,
+    position,
+  }, new THREE.Vector3(0, 0, 0), teamColor);
+
+  player.isHumanControlled = true; // show the indicator
+  scene.add(player.group);
+}
+
+createPlayer(0xe94560, 0);
+
+// --- Animation Loop ---
+let lastTime = performance.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const rawDt = (now - lastTime) / 1000;
+  lastTime = now;
+  const dt = rawDt * animSpeed;
+
+  // Drive the animation state
+  switch (currentAnim) {
+    case 'idle':
+      player.hasBall = false;
+      player.velocity.set(0, 0, 0);
+      break;
+    case 'walk':
+      player.hasBall = false;
+      // Simulate movement velocity without actually moving
+      player.velocity.set(0, 0, 2);
+      break;
+    case 'dribble':
+      player.hasBall = true;
+      player.velocity.set(0, 0, 0); // stationary dribble
+      break;
+    case 'dribble-walk':
+      player.hasBall = true;
+      player.velocity.set(0, 0, 2); // moving dribble
+      break;
+    case 'guard':
+      player.hasBall = false;
+      player.velocity.set(0, 0, 0);
+      break;
+    case 'steal':
+      player.hasBall = false;
+      player.velocity.set(0, 0, 0);
+      if ((player as unknown as { stealTimer: number }).stealTimer <= 0) {
+        player.triggerSteal();
+      }
+      break;
+    case 'shoot':
+      player.hasBall = false;
+      player.velocity.set(0, 0, 0);
+      if ((player as unknown as { shootTimer: number }).shootTimer <= 0) {
+        player.triggerShoot();
+      }
+      break;
+    case 'jump':
+      player.hasBall = false;
+      player.velocity.set(0, 0, 0);
+      if (!player.isJumping) {
+        player.jump();
+      }
+      break;
+  }
+
+  player.animate(dt);
+
+  // For 'guard' animation, force the state after animate() since
+  // the normal state machine never reaches 'guard' on its own
+  if (currentAnim === 'guard') {
+    player.forceAnimState('guard');
+    // Re-run animate with a tiny dt to apply the guard pose
+    player.animate(0);
+  }
+
+  // Keep player on platform (don't let bouncing move them off)
+  player.group.position.x = 0;
+  player.group.position.z = 0;
+
+  // Camera orbit
+  if (autoRotate) {
+    camAngle += rawDt * 0.5;
+  }
+  camera.position.set(
+    Math.sin(camAngle) * camDist,
+    camHeight,
+    Math.cos(camAngle) * camDist
+  );
+  camera.lookAt(0, 0.8, 0);
+
+  renderer.render(scene, camera);
+}
+animate();
+
+// --- UI Wiring ---
+// Animation buttons
+document.querySelectorAll('[data-anim]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentAnim = (btn as HTMLElement).dataset.anim!;
+    document.querySelectorAll('[data-anim]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('state-label')!.textContent = currentAnim;
+    // Reset timers so the new animation can start fresh
+    (player as unknown as { stealTimer: number }).stealTimer = 0;
+    (player as unknown as { shootTimer: number }).shootTimer = 0;
+    player.isJumping = false;
+  });
+});
+
+// Speed slider
+const speedSlider = document.getElementById('speed') as HTMLInputElement;
+speedSlider.addEventListener('input', () => {
+  animSpeed = parseFloat(speedSlider.value);
+  document.getElementById('speed-val')!.textContent = animSpeed.toFixed(1) + 'x';
+});
+
+// Position selector
+const posSelect = document.getElementById('position') as HTMLSelectElement;
+posSelect.addEventListener('change', () => {
+  const pos = posSelect.value as Position | '';
+  const colorInput = document.getElementById('team-color') as HTMLInputElement;
+  const hairSelect = document.getElementById('hair-style') as HTMLSelectElement;
+  const color = parseInt(colorInput.value.replace('#', ''), 16);
+  createPlayer(color, parseInt(hairSelect.value), pos || undefined);
+});
+
+// Camera controls
+const autoRotateCheck = document.getElementById('auto-rotate') as HTMLInputElement;
+autoRotateCheck.addEventListener('change', () => { autoRotate = autoRotateCheck.checked; });
+
+const camHeightSlider = document.getElementById('cam-height') as HTMLInputElement;
+camHeightSlider.addEventListener('input', () => {
+  camHeight = parseFloat(camHeightSlider.value);
+  document.getElementById('cam-height-val')!.textContent = camHeight.toFixed(1);
+});
+
+const camDistSlider = document.getElementById('cam-dist') as HTMLInputElement;
+camDistSlider.addEventListener('input', () => {
+  camDist = parseFloat(camDistSlider.value);
+  document.getElementById('cam-dist-val')!.textContent = camDist.toFixed(1);
+});
+
+// Appearance
+const hairSelect = document.getElementById('hair-style') as HTMLSelectElement;
+hairSelect.addEventListener('change', () => {
+  const colorInput = document.getElementById('team-color') as HTMLInputElement;
+  const color = parseInt(colorInput.value.replace('#', ''), 16);
+  const pos = (document.getElementById('position') as HTMLSelectElement).value as Position | '';
+  createPlayer(color, parseInt(hairSelect.value), pos || undefined);
+});
+
+const colorInput = document.getElementById('team-color') as HTMLInputElement;
+colorInput.addEventListener('input', () => {
+  const color = parseInt(colorInput.value.replace('#', ''), 16);
+  const pos = (document.getElementById('position') as HTMLSelectElement).value as Position | '';
+  createPlayer(color, parseInt(hairSelect.value), pos || undefined);
+});

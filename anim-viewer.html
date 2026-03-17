@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Animation Viewer — March Madness 3v3</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: sans-serif; color: white; }
+    #container { display: flex; width: 100%; height: 100%; }
+    #canvas-wrap { flex: 1; position: relative; }
+    canvas { width: 100%; height: 100%; display: block; }
+    #panel { width: 240px; background: #16213e; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+    #panel h2 { color: #e94560; font-size: 18px; margin-bottom: 4px; }
+    #panel h3 { color: #aaa; font-size: 13px; text-transform: uppercase; margin-top: 8px; }
+    .btn { padding: 10px; background: #2a2a4e; border: 2px solid #444; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; text-align: center; }
+    .btn:hover { background: #3a3a5e; }
+    .btn.active { border-color: #e94560; background: #e94560; }
+    .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    label { font-size: 13px; color: #ccc; }
+    input[type=range] { width: 100%; }
+    select { width: 100%; padding: 6px; background: #2a2a4e; color: white; border: 1px solid #444; border-radius: 4px; }
+    #state-label { text-align: center; font-size: 16px; color: #ffd700; padding: 8px; background: #1a1a2e; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="canvas-wrap">
+      <canvas id="viewer-canvas"></canvas>
+    </div>
+    <div id="panel">
+      <h2>Animation Viewer</h2>
+      <div id="state-label">idle</div>
+
+      <h3>Animation</h3>
+      <div class="btn-grid">
+        <div class="btn active" data-anim="idle">Idle</div>
+        <div class="btn" data-anim="walk">Walk</div>
+        <div class="btn" data-anim="dribble">Dribble</div>
+        <div class="btn" data-anim="guard">Guard</div>
+        <div class="btn" data-anim="steal">Steal</div>
+        <div class="btn" data-anim="shoot">Shoot</div>
+        <div class="btn" data-anim="jump">Jump</div>
+        <div class="btn" data-anim="dribble-walk">Dribble+Walk</div>
+      </div>
+
+      <h3>Speed</h3>
+      <input type="range" id="speed" min="0.1" max="2" step="0.1" value="1" />
+      <label>Speed: <span id="speed-val">1.0x</span></label>
+
+      <h3>Position / Size</h3>
+      <select id="position">
+        <option value="">Default</option>
+        <option value="PG">PG (Point Guard)</option>
+        <option value="SG">SG (Shooting Guard)</option>
+        <option value="SF">SF (Small Forward)</option>
+        <option value="PF">PF (Power Forward)</option>
+        <option value="C">C (Center)</option>
+      </select>
+
+      <h3>Camera</h3>
+      <label><input type="checkbox" id="auto-rotate" checked /> Auto-rotate</label>
+      <input type="range" id="cam-height" min="0" max="4" step="0.1" value="1.5" />
+      <label>Camera Height: <span id="cam-height-val">1.5</span></label>
+      <input type="range" id="cam-dist" min="2" max="8" step="0.1" value="4" />
+      <label>Camera Distance: <span id="cam-dist-val">4.0</span></label>
+
+      <h3>Appearance</h3>
+      <select id="hair-style">
+        <option value="0">Flat Top</option>
+        <option value="1">Afro</option>
+        <option value="2">Mohawk</option>
+        <option value="3">Headband</option>
+      </select>
+      <input type="color" id="team-color" value="#e94560" />
+      <label>Team Color</label>
+    </div>
+  </div>
+  <script type="module" src="/src/anim-viewer.ts"></script>
+</body>
+</html>

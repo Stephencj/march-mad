@@ -709,6 +709,10 @@ export class GamePlayer {
     this.lastMoving = isMoving;
   }
 
+  forceAnimState(state: 'idle' | 'walk' | 'dribble' | 'guard' | 'steal' | 'shoot' | 'jump'): void {
+    this.animState = state;
+  }
+
   triggerSteal(): void {
     this.stealTimer = 0.3;
   }
