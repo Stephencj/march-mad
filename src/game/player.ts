@@ -554,20 +554,25 @@ export class GamePlayer {
         // Arm synced with ball phase
         const armPhase = (this.dribblePhase + 0.75) % 1;
         let elbowBend: number;
+        let shoulderPump: number;
         if (armPhase < 0.45) {
           // Arm up — ball in hand
           elbowBend = -0.5;
+          shoulderPump = -0.2; // shoulder back (arm up/back)
         } else if (armPhase < 0.6) {
           // Arm pushes down — ball releasing
           const t = (armPhase - 0.45) / 0.15;
           elbowBend = -0.5 - t * 0.6; // -0.5 to -1.1
+          shoulderPump = -0.2 - t * 0.4; // -0.2 to -0.6
         } else if (armPhase < 0.8) {
           // Arm at bottom — ball at floor
           elbowBend = -1.1;
+          shoulderPump = -0.6; // shoulder most forward (arm reaching down)
         } else {
           // Arm returns up — ball rising
           const t = (armPhase - 0.8) / 0.2;
           elbowBend = -1.1 + t * 0.6; // -1.1 to -0.5
+          shoulderPump = -0.6 + t * 0.4; // -0.6 to -0.2
         }
 
         if (this.velocity.lengthSq() > 0.01) {
@@ -593,8 +598,8 @@ export class GamePlayer {
           kneeL.rotation.x = 0.2 + Math.max(0, stride) * 0.5;
           kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.5;
 
-          // Dribble arm (right): phase-based
-          shoulderR.rotation.x = -0.3;
+          // Dribble arm (right): phase-based with shoulder pump
+          shoulderR.rotation.x = shoulderPump;
           elbowR.rotation.x = elbowBend;
 
           // Torso/hip counter-rotation for natural walk
@@ -614,8 +619,8 @@ export class GamePlayer {
           kneeL.rotation.x = 0.15;
           kneeR.rotation.x = 0.15;
 
-          // Dribble arm (right): phase-based
-          shoulderR.rotation.x = -0.3;
+          // Dribble arm (right): phase-based with shoulder pump
+          shoulderR.rotation.x = shoulderPump;
           elbowR.rotation.x = elbowBend;
         }
 
@@ -1070,24 +1075,29 @@ export class GamePlayer {
         // Arm synced with ball phase
         const armPhase = (this.dribblePhase + 0.75) % 1;
         let elbowBend: number;
+        let shoulderPump: number;
         if (armPhase < 0.45) {
           // Arm up — ball in hand
           elbowBend = -0.5;
+          shoulderPump = -0.2; // shoulder back (arm up/back)
         } else if (armPhase < 0.6) {
           // Arm pushes down — ball releasing
           const t = (armPhase - 0.45) / 0.15;
           elbowBend = -0.5 - t * 0.6; // -0.5 to -1.1
+          shoulderPump = -0.2 - t * 0.4; // -0.2 to -0.6
         } else if (armPhase < 0.8) {
           // Arm at bottom — ball at floor
           elbowBend = -1.1;
+          shoulderPump = -0.6; // shoulder most forward (arm reaching down)
         } else {
           // Arm returns up — ball rising
           const t = (armPhase - 0.8) / 0.2;
           elbowBend = -1.1 + t * 0.6; // -1.1 to -0.5
+          shoulderPump = -0.6 + t * 0.4; // -0.6 to -0.2
         }
 
-        // Right arm dribbles — phase-based
-        shoulderR.rotation.x = -0.3;
+        // Right arm dribbles — phase-based with shoulder pump
+        shoulderR.rotation.x = shoulderPump;
         elbowR.rotation.x = elbowBend;
 
         // Left arm pumps with stride

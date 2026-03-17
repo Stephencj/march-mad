@@ -308,9 +308,10 @@ function animate() {
       // Arc phase: jump TO the hoop in a parabola
       const arcT = dunkProgress / 0.35; // 0 to 1
       player.group.position.z = arcT * hoopZ; // linear z toward hoop
-      // Override Y with parabolic arc (peaks at 3.0, lands at rim height 2.5)
-      const peakY = 3.0;
-      player.group.position.y = Math.sin(arcT * Math.PI) * peakY;
+      // Arc from ground (0) to rim height (2.5), peaking above rim
+      const endY = 2.5; // rim height — must match hang phase
+      const overshoot = 1.5; // peak 1.5 above linear interp at midpoint
+      player.group.position.y = endY * arcT + overshoot * Math.sin(arcT * Math.PI);
     } else if (dunkProgress < 0.65) {
       // At the hoop: rim hang phase — stay at hoop position, at rim height
       player.group.position.z = hoopZ;
