@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createHoop } from './hoop';
 
 export const COURT_DIMENSIONS = {
   width: 15,
@@ -36,22 +37,10 @@ export function createCourt(): THREE.Group {
   arc.name = 'three-point-arc';
   group.add(arc);
 
-  // Backboard
-  const backboardGeo = new THREE.BoxGeometry(1.8, 1.05, 0.05);
-  const backboardMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
-  const backboard = new THREE.Mesh(backboardGeo, backboardMat);
-  backboard.position.set(COURT_DIMENSIONS.hoopPosition.x, COURT_DIMENSIONS.hoopPosition.y + 0.3, COURT_DIMENSIONS.hoopPosition.z - 0.15);
-  backboard.name = 'backboard';
-  group.add(backboard);
-
-  // Hoop
-  const hoopGeo = new THREE.TorusGeometry(0.23, 0.02, 8, 16);
-  const hoopMat = new THREE.MeshStandardMaterial({ color: 0xff4500 });
-  const hoop = new THREE.Mesh(hoopGeo, hoopMat);
-  hoop.rotation.x = -Math.PI / 2;
-  hoop.position.copy(COURT_DIMENSIONS.hoopPosition);
-  hoop.name = 'hoop';
-  group.add(hoop);
+  // Hoop assembly (backboard, rim, net, pole)
+  const hoopGroup = createHoop(COURT_DIMENSIONS.hoopPosition, 0xe94560);
+  hoopGroup.name = 'hoop-group';
+  group.add(hoopGroup);
 
   // Lighting
   const ambient = new THREE.AmbientLight(0xffffff, 0.6);

@@ -13,16 +13,15 @@ describe('Court', () => {
   it('creates a group with floor, lines, hoop, and backboard', () => {
     const court = createCourt();
     expect(court).toBeInstanceOf(THREE.Group);
-    const names = court.children.map((c) => c.name);
-    expect(names).toContain('floor');
-    expect(names).toContain('three-point-arc');
-    expect(names).toContain('hoop');
-    expect(names).toContain('backboard');
+    expect(court.getObjectByName('floor')).toBeTruthy();
+    expect(court.getObjectByName('three-point-arc')).toBeTruthy();
+    expect(court.getObjectByName('rim')).toBeTruthy();
+    expect(court.getObjectByName('backboard')).toBeTruthy();
   });
 
   it('positions hoop at correct height', () => {
     const court = createCourt();
-    const hoop = court.getObjectByName('hoop')!;
-    expect(hoop.position.y).toBeCloseTo(3.05, 1);
+    const rim = court.getObjectByName('rim')!;
+    expect(rim.position.y).toBeCloseTo(3.05, 1);
   });
 });
