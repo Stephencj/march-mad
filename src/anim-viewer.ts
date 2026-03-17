@@ -242,7 +242,7 @@ function animate() {
   if (currentAnim === 'dribble' || currentAnim === 'dribble-walk' || currentAnim === 'dribble-sprint') {
     ball.mesh.visible = true;
     ball.pickup('viewer');
-    ball.followHolder(player.group, true);
+    ball.followHolder(player.group, true, player.dribblePhase);
   } else if (currentAnim !== 'shoot' && currentAnim !== 'dunk') {
     // Non-ball animations
     ball.mesh.visible = false;

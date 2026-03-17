@@ -27,8 +27,8 @@ describe('Dribble bounce verification', () => {
       player.velocity.set(0, 0, 0); // stationary dribble
       player.animate(1/60);
 
-      // Call followHolder with isDribbling=true
-      ball.followHolder(player.group, true);
+      // Call followHolder with isDribbling=true and player's dribblePhase
+      ball.followHolder(player.group, true, player.dribblePhase);
 
       yPositions.push(ball.mesh.position.y);
     }
@@ -37,7 +37,7 @@ describe('Dribble bounce verification', () => {
     const minY = Math.min(...yPositions);
     const maxY = Math.max(...yPositions);
     console.log(`Ball Y range: min=${minY.toFixed(3)}, max=${maxY.toFixed(3)}, range=${(maxY-minY).toFixed(3)}`);
-    console.log(`First 20 Y positions: ${yPositions.slice(0, 20).map(y => y.toFixed(3)).join(', ')}`);
+    console.log(`First 30 Y positions: ${yPositions.slice(0, 30).map(y => y.toFixed(3)).join(', ')}`);
 
     // Ball MUST reach near the floor (below 0.5) at some point
     expect(minY).toBeLessThan(0.5);
@@ -68,11 +68,11 @@ describe('Dribble bounce verification', () => {
 
       // Ball A: pickup called every frame (like the viewer)
       ballA.pickup('test');
-      ballA.followHolder(player.group, true);
+      ballA.followHolder(player.group, true, player.dribblePhase);
       yA.push(ballA.mesh.position.y);
 
       // Ball B: pickup called once (like the game)
-      ballB.followHolder(player.group, true);
+      ballB.followHolder(player.group, true, player.dribblePhase);
       yB.push(ballB.mesh.position.y);
     }
 
@@ -100,7 +100,7 @@ describe('Dribble bounce verification', () => {
       player.animate(1/60);
 
       ball.pickup('test'); // called every frame, like the viewer does
-      ball.followHolder(player.group, true);
+      ball.followHolder(player.group, true, player.dribblePhase);
 
       yPositions.push(ball.mesh.position.y);
     }
@@ -108,7 +108,7 @@ describe('Dribble bounce verification', () => {
     const minY = Math.min(...yPositions);
     const maxY = Math.max(...yPositions);
     console.log(`Viewer pattern Y range: min=${minY.toFixed(3)}, max=${maxY.toFixed(3)}, range=${(maxY-minY).toFixed(3)}`);
-    console.log(`First 20 Y: ${yPositions.slice(0, 20).map(y => y.toFixed(3)).join(', ')}`);
+    console.log(`First 30 Y: ${yPositions.slice(0, 30).map(y => y.toFixed(3)).join(', ')}`);
 
     // Same criteria as the main test
     expect(minY).toBeLessThan(0.5);

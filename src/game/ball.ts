@@ -45,10 +45,6 @@ export class Ball {
   }
 
   pickup(playerId: string): void {
-    // Only reset dribble timer when picking up fresh (not already held by this player)
-    if (this.heldBy !== playerId) {
-      this.dribbleTimer = 0;
-    }
     this.heldBy = playerId;
     this.velocity.set(0, 0, 0);
   }
@@ -73,11 +69,7 @@ export class Ball {
     return points;
   }
 
-  // Time-based dribble bounce — runs on its own clock, synced to arm frequency
-  private dribbleTimer = 0;
-  private readonly DRIBBLE_FREQ = 2; // Hz — one bounce every 0.5 seconds
-
-  followHolder(playerGroup: THREE.Group, isDribbling = false): void {
+  followHolder(playerGroup: THREE.Group, isDribbling = false, dribblePhase = 0): void {
     if (this.heldBy === null) return;
 
     const forearmRight = playerGroup.getObjectByName('forearm-right');
@@ -95,26 +87,39 @@ export class Ball {
       return;
     }
 
-    // Tick dribble timer every frame followHolder is called
-    this.dribbleTimer += 1 / 60; // fixed timestep
+    // Ball position driven by player's dribblePhase (0-1)
+    // 0.0-0.5: ball IN HAND (tracks hand position)
+    // 0.5-0.6: ball RELEASING (drops from hand toward floor)
+    // 0.6-0.8: ball AT FLOOR (bouncing)
+    // 0.8-1.0: ball RISING back to hand
 
-    // TIME-BASED DRIBBLE BOUNCE (NBA 2K approach)
-    // Ball runs on its own sine-wave cycle, independent of hand tracking.
-    // Upper part of cycle = ball in hand. Lower part = ball at floor.
-    const wave = Math.sin(this.dribbleTimer * this.DRIBBLE_FREQ * Math.PI * 2);
-    const phase = (wave + 1) / 2; // 0 to 1 (0 = bottom, 1 = top)
-
-    if (phase > 0.35) {
-      // Ball in hand (upper 65% of cycle)
+    if (dribblePhase < 0.5) {
+      // Ball in hand
       this.mesh.position.copy(handWorld);
-    } else {
-      // Ball bouncing to floor (lower 35% of cycle)
-      // Map phase 0.35→0→0.35 to a V-shaped floor bounce
-      const bounceProgress = 1 - (phase / 0.35); // 0 at release, 1 at floor
-      const vShape = Math.abs(bounceProgress * 2 - 1); // V: 0→1→0 (1 = at floor)
+    } else if (dribblePhase < 0.6) {
+      // Releasing — lerp from hand to floor
+      const t = (dribblePhase - 0.5) / 0.1;
       const floorY = this.radius;
-      const ballY = handWorld.y - (handWorld.y - floorY) * (1 - vShape);
-      this.mesh.position.set(handWorld.x, ballY, handWorld.z);
+      this.mesh.position.set(
+        handWorld.x,
+        handWorld.y - (handWorld.y - floorY) * t,
+        handWorld.z
+      );
+    } else if (dribblePhase < 0.8) {
+      // At/near floor — slight bounce
+      const t = (dribblePhase - 0.6) / 0.2;
+      const floorY = this.radius;
+      const bounceUp = Math.sin(t * Math.PI) * 0.15; // tiny bounce at floor
+      this.mesh.position.set(handWorld.x, floorY + bounceUp, handWorld.z);
+    } else {
+      // Rising back to hand
+      const t = (dribblePhase - 0.8) / 0.2;
+      const floorY = this.radius;
+      this.mesh.position.set(
+        handWorld.x,
+        floorY + (handWorld.y - floorY) * t,
+        handWorld.z
+      );
     }
   }
 

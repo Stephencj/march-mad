@@ -72,6 +72,7 @@ export class GamePlayer {
   isSprinting = false;
   private fallTimer = 0;
   private dunkTimer = 0;
+  dribblePhase = 0; // 0-1, exposed for ball sync
 
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
@@ -530,8 +531,31 @@ export class GamePlayer {
       case 'dribble': {
         const t = this.animTime * 5; // match walk speed
 
+        // Compute dribble phase (0-1 cycle) — same speed for all modes
+        const dribbleSpeed = 2.5; // Hz — cycles per second
+        this.dribblePhase = (this.animTime * dribbleSpeed) % 1;
+
+        // Map phase to arm position
+        let elbowBend: number;
+        if (this.dribblePhase < 0.3) {
+          // Rising — arm coming up
+          const pt = this.dribblePhase / 0.3;
+          elbowBend = -0.5 - 0.5 * (1 - pt); // -1.0 to -0.5
+        } else if (this.dribblePhase < 0.5) {
+          // Pause at top — hand high
+          elbowBend = -0.5; // least bent (hand highest)
+        } else if (this.dribblePhase < 0.8) {
+          // Pushing down
+          const pt = (this.dribblePhase - 0.5) / 0.3;
+          elbowBend = -0.5 - pt * 0.6; // -0.5 to -1.1 (most bent = hand lowest)
+        } else {
+          // Returning up from bottom
+          const pt = (this.dribblePhase - 0.8) / 0.2;
+          elbowBend = -1.1 + pt * 0.6; // -1.1 to -0.5
+        }
+
         if (this.velocity.lengthSq() > 0.01) {
-          // Moving with ball — walk + dribble arm
+          // Moving with ball — walk legs + phase-based dribble arm
           const bounceT = this.animTime * 10; // match walk double-bounce
           const bouncePhase = (Math.sin(bounceT) + 1) / 2;
           this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.12; // subtler than walk
@@ -553,10 +577,9 @@ export class GamePlayer {
           kneeL.rotation.x = 0.2 + Math.max(0, stride) * 0.5;
           kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.5;
 
-          // Dribble arm (right): faster when walking
-          const dribbleT = this.animTime * 6;
+          // Dribble arm (right): phase-based
           shoulderR.rotation.x = -0.3;
-          elbowR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.6;
+          elbowR.rotation.x = elbowBend;
         } else {
           // Stationary dribble
           this.group.position.y = Math.sin(this.animTime * 1.5) * 0.03;
@@ -567,10 +590,9 @@ export class GamePlayer {
           kneeL.rotation.x = 0.15;
           kneeR.rotation.x = 0.15;
 
-          // Dribble arm (right): relaxed stationary pace
-          const dribbleT = this.animTime * 4;
+          // Dribble arm (right): phase-based
           shoulderR.rotation.x = -0.3;
-          elbowR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.6;
+          elbowR.rotation.x = elbowBend;
         }
 
         // Balance arm (left): OUT to the side, not tucked in
@@ -887,10 +909,28 @@ export class GamePlayer {
         kneeL.rotation.x = 0.2 + Math.max(0, stride) * 0.6;
         kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.6;
 
-        // Right arm dribbles (fastest when sprinting)
-        const dribbleT = this.animTime * 8;
+        // Compute dribble phase (0-1 cycle) — same speed as all dribble modes
+        const dribbleSpeed = 2.5; // Hz — cycles per second
+        this.dribblePhase = (this.animTime * dribbleSpeed) % 1;
+
+        // Map phase to arm position (same logic as dribble case)
+        let elbowBend: number;
+        if (this.dribblePhase < 0.3) {
+          const pt = this.dribblePhase / 0.3;
+          elbowBend = -0.5 - 0.5 * (1 - pt);
+        } else if (this.dribblePhase < 0.5) {
+          elbowBend = -0.5;
+        } else if (this.dribblePhase < 0.8) {
+          const pt = (this.dribblePhase - 0.5) / 0.3;
+          elbowBend = -0.5 - pt * 0.6;
+        } else {
+          const pt = (this.dribblePhase - 0.8) / 0.2;
+          elbowBend = -1.1 + pt * 0.6;
+        }
+
+        // Right arm dribbles — phase-based
         shoulderR.rotation.x = -0.3;
-        elbowR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.5;
+        elbowR.rotation.x = elbowBend;
 
         // Left arm pumps with stride
         shoulderL.rotation.x = stride * 0.5;
