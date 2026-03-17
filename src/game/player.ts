@@ -41,6 +41,8 @@ function smoothstep(t: number): number {
 }
 
 export class GamePlayer {
+  static courtBoundsZ: [number, number] = [-6.5, 6.5]; // default half court
+
   group: THREE.Group;
   data: PlayerData;
   hasBall = false;
@@ -771,7 +773,11 @@ export class GamePlayer {
 
     // Clamp to court bounds
     this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -7, 7);
-    this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -6.5, 6.5);
+    this.group.position.z = THREE.MathUtils.clamp(
+      this.group.position.z,
+      GamePlayer.courtBoundsZ[0],
+      GamePlayer.courtBoundsZ[1]
+    );
 
     // Face movement direction
     const angle = Math.atan2(direction.x, direction.z);

@@ -3,7 +3,9 @@ import { GameLoop } from './core/game-loop';
 import { gameEvents } from './core/events';
 import { GameStateMachine, type StateTransition } from './core/state-machine';
 import { createCourt } from './game/court';
+import { createFullCourt, FULL_COURT_DIMENSIONS } from './game/full-court';
 import { GameSession } from './game/game-session';
+import { GamePlayer } from './game/player';
 import type { ControlInput } from './game/controls';
 import { CameraSystem } from './game/camera';
 import { TouchControls } from './game/controls';
@@ -69,6 +71,7 @@ export const stateMachine = new GameStateMachine(transitions);
 // --- Scene Objects ---
 const court = createCourt();
 scene.add(court);
+let currentCourt: THREE.Group = court;
 
 let session: GameSession | null = null;
 
@@ -126,6 +129,13 @@ function startQuickGame(): void {
   if (session) {
     session.removeFromScene(scene);
   }
+  // Ensure half court is active
+  scene.remove(currentCourt);
+  const halfCourt = createCourt();
+  scene.add(halfCourt);
+  currentCourt = halfCourt;
+  GamePlayer.courtBoundsZ = [-6.5, 6.5];
+
   const teams = generateTeams();
   session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id);
   session.addToScene(scene);
@@ -136,8 +146,31 @@ function startQuickGame(): void {
   hud.updateClock(180);
 }
 
+function startMainGame(): void {
+  if (session) {
+    session.removeFromScene(scene);
+  }
+  // Swap to full court
+  scene.remove(currentCourt);
+  const fullCourt = createFullCourt(0xe94560, 0x3498db);
+  scene.add(fullCourt);
+  currentCourt = fullCourt;
+  GamePlayer.courtBoundsZ = [-13.5, 13.5];
+
+  // For now, use 3v3 session on full court as stepping stone
+  const teams = generateTeams();
+  session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id);
+  session.addToScene(scene);
+  session.setCameraRef(camera);
+  session.start();
+  stateMachine.transition('YourGame');
+  hud.updateScore(0, 0);
+  hud.updateClock(300); // 5 minutes for main game
+}
+
 function handleMenuAction(action: string, _data?: unknown) {
-  if (action === 'play') startQuickGame();
+  if (action === 'play' || action === 'quick-play') startQuickGame();
+  if (action === 'main-game') startMainGame();
   if (action === 'select-tier') stateMachine.transition('DraftPhase');
   if (action === 'back') stateMachine.transition('MainMenu');
   if (action === 'settings') { /* settings handled inline */ }
@@ -224,5 +257,6 @@ void PlayerCreatorUI;
 void DraftUI;
 void progressionSystem;
 void saveSystem;
+void FULL_COURT_DIMENSIONS;
 
 console.log('March Madness 3v3 initialized — all systems wired');
