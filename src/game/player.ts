@@ -374,8 +374,13 @@ export class GamePlayer {
     this.animTime += dt;
     const isMoving = this.velocity.lengthSq() > 0.01;
 
-    // Determine animation state
-    if (this.isJumping) {
+    // Determine animation state (forced state overrides auto-detection)
+    if (this.forcedAnimState) {
+      this.animState = this.forcedAnimState as typeof this.animState;
+      // Still tick timers even when forced
+      if (this.stealTimer > 0) this.stealTimer -= dt;
+      if (this.shootTimer > 0) this.shootTimer -= dt;
+    } else if (this.isJumping) {
       this.animState = 'jump';
     } else if (this.stealTimer > 0) {
       this.animState = 'steal';
@@ -528,10 +533,11 @@ export class GamePlayer {
         shoulderR.rotation.x = -0.3;
         elbowR.rotation.x = -0.5 - Math.abs(Math.sin(dribbleT)) * 0.6;
 
-        // Balance arm (left): OUT to the side and slightly forward, NOT tucked in
-        shoulderL.rotation.x = -0.1; // barely forward
-        shoulderL.rotation.z = 0.8; // OUT wide to the side (big z = more outward)
-        elbowL.rotation.x = -0.3; // gentle natural bend
+        // Balance arm (left): OUT to the side, not tucked in
+        // LEFT shoulder: NEGATIVE rotation.z = arm goes OUTWARD (away from body)
+        shoulderL.rotation.x = -0.1;
+        shoulderL.rotation.z = -0.8; // NEGATIVE for left arm = outward
+        elbowL.rotation.x = -0.3;
         break;
       }
 
@@ -545,10 +551,10 @@ export class GamePlayer {
         kneeR.rotation.x = 0.4;
 
         // Arms STRAIGHT UP to block — maximum reach
-        shoulderL.rotation.x = -2.8; // nearly vertical (PI/2 = 1.57, go past it)
-        shoulderL.rotation.z = 0.3; // spread slightly
+        shoulderL.rotation.x = -2.8;
+        shoulderL.rotation.z = -0.4; // NEGATIVE = left arm spreads outward
         shoulderR.rotation.x = -2.8;
-        shoulderR.rotation.z = -0.3;
+        shoulderR.rotation.z = 0.4; // POSITIVE = right arm spreads outward
         elbowL.rotation.x = -0.1; // nearly straight
         elbowR.rotation.x = -0.1;
 
@@ -582,27 +588,27 @@ export class GamePlayer {
         const stealDuration = 0.5;
         const progress = 1 - (this.stealTimer / stealDuration); // 0 to 1
 
-        // Phase 1 (0-0.4): Wind up — arm goes HIGH
-        // Phase 2 (0.4-0.6): Pause at crest — arm big, dramatic hold
-        // Phase 3 (0.6-1.0): Swipe DOWN fast
+        // Phase 1 (0-0.1): SNAP up to peak — near instant
+        // Phase 2 (0.1-0.35): Hold at crest — arm big, dramatic pause
+        // Phase 3 (0.35-1.0): Swipe DOWN
         let shoulderAngle: number;
         let elbowAngle: number;
         let forearmScale: number;
 
-        if (progress < 0.4) {
-          // Wind up: arm raises high
-          const windUp = progress / 0.4; // 0 to 1
-          shoulderAngle = -0.3 - windUp * 2.2; // goes from -0.3 to -2.5 (high up)
+        if (progress < 0.1) {
+          // Snap up: arm raises high almost instantly
+          const windUp = progress / 0.1; // 0 to 1 very fast
+          shoulderAngle = -0.3 - windUp * 2.2;
           elbowAngle = -0.1;
-          forearmScale = 1 + windUp * 0.6; // starts growing
-        } else if (progress < 0.6) {
+          forearmScale = 1 + windUp * 0.8;
+        } else if (progress < 0.35) {
           // Crest pause: hold high, arm at maximum size
-          shoulderAngle = -2.5; // held high
+          shoulderAngle = -2.5;
           elbowAngle = -0.1;
-          forearmScale = 1.8; // maximum size
+          forearmScale = 1.8;
         } else {
-          // Swipe down: fast downward slash
-          const swipeDown = (progress - 0.6) / 0.4; // 0 to 1
+          // Swipe down
+          const swipeDown = (progress - 0.35) / 0.65; // 0 to 1
           shoulderAngle = -2.5 + swipeDown * 3.0; // swings from -2.5 to +0.5 (down past neutral)
           elbowAngle = -0.3 * (1 - swipeDown); // extends
           forearmScale = 1.8 - swipeDown * 0.8; // shrinks back
@@ -760,8 +766,10 @@ export class GamePlayer {
     this.lastMoving = isMoving;
   }
 
-  forceAnimState(state: 'idle' | 'walk' | 'dribble' | 'guard' | 'steal' | 'shoot' | 'jump'): void {
-    this.animState = state;
+  private forcedAnimState: string | null = null;
+
+  forceAnimState(state: 'idle' | 'walk' | 'dribble' | 'guard' | 'steal' | 'shoot' | 'jump' | null): void {
+    this.forcedAnimState = state;
   }
 
   triggerSteal(): void {
