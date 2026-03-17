@@ -135,6 +135,7 @@ function startQuickGame(): void {
   scene.add(halfCourt);
   currentCourt = halfCourt;
   GamePlayer.courtBoundsZ = [-6.5, 6.5];
+  cameraSystem.fullCourt = false;
 
   const teams = generateTeams();
   session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id);
@@ -156,10 +157,10 @@ function startMainGame(): void {
   scene.add(fullCourt);
   currentCourt = fullCourt;
   GamePlayer.courtBoundsZ = [-13.5, 13.5];
+  cameraSystem.fullCourt = true;
 
-  // For now, use 3v3 session on full court as stepping stone
-  const teams = generateTeams();
-  session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id);
+  const teams = generateTeams(5);
+  session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id, '5v5');
   session.addToScene(scene);
   session.setCameraRef(camera);
   session.start();
