@@ -599,76 +599,68 @@ export class GamePlayer {
       }
 
       case 'steal': {
-        // SWORD SWING style: wind up HIGH, pause at crest, swipe DOWN
+        // SIDE SWIPE: arm pulls back to side, pauses, quick sweep across
         bodyPivot.scale.set(1, 1, 1);
         const stealDuration = 0.5;
-        const progress = 1 - (this.stealTimer / stealDuration); // 0 to 1
+        const progress = 1 - (this.stealTimer / stealDuration);
 
-        // Phase 1 (0-0.1): SNAP up to peak — near instant
-        // Phase 2 (0.1-0.35): Hold at crest — arm big, dramatic pause
-        // Phase 3 (0.35-1.0): Swipe DOWN
-        let shoulderAngle: number;
-        let elbowAngle: number;
-        let forearmScale: number;
+        // Phase 1 (0-0.15): Wind back — arm pulls to the right side
+        // Phase 2 (0.15-0.5): Pause — held back, arm grows, anticipation
+        // Phase 3 (0.5-0.85): Quick swipe — arm sweeps across low
+        // Phase 4 (0.85-1.0): Recovery
 
-        if (progress < 0.1) {
-          // Snap up: arm raises high almost instantly
-          const windUp = progress / 0.1; // 0 to 1 very fast
-          shoulderAngle = -0.3 - windUp * 2.2;
-          elbowAngle = -0.1;
-          forearmScale = 1 + windUp * 0.8;
-        } else if (progress < 0.35) {
-          // Crest pause: hold high, arm at maximum size
-          shoulderAngle = -2.5;
-          elbowAngle = -0.1;
-          forearmScale = 1.8;
-        } else {
-          // Swipe down
-          const swipeDown = (progress - 0.35) / 0.65; // 0 to 1
-          shoulderAngle = -2.5 + swipeDown * 3.0; // swings from -2.5 to +0.5 (down past neutral)
-          elbowAngle = -0.3 * (1 - swipeDown); // extends
-          forearmScale = 1.8 - swipeDown * 0.8; // shrinks back
-        }
-
-        // Torso TWIST — wind up away, then twist toward the swipe
-        // rotation.y = twist around vertical axis, rotation.x = slight lean only
-        bodyPivot.rotation.x = 0.1; // slight constant forward lean
-        if (progress < 0.1) {
-          // Snap up: twist AWAY (wind up)
-          const snap = progress / 0.1;
-          bodyPivot.rotation.y = 0.4 * snap; // twist right (away from swipe)
-        } else if (progress < 0.35) {
-          // Hold at crest: held twisted away
-          bodyPivot.rotation.y = 0.4;
-        } else {
-          // Swipe: twist TOWARD target
-          const swipeDown = (progress - 0.35) / 0.65;
-          bodyPivot.rotation.y = 0.4 - swipeDown * 0.8; // goes from 0.4 to -0.4
-        }
-
-        shoulderR.rotation.x = shoulderAngle;
-        shoulderR.rotation.z = -0.2;
-        elbowR.rotation.x = elbowAngle;
-
-        // Forearm scales
         const forearmR = this.group.getObjectByName('forearm-right');
+        let forearmScale = 1;
+
+        bodyPivot.rotation.x = 0.05;
+        if (progress < 0.15) {
+          const wind = progress / 0.15;
+          // Arm pulls to the right side
+          shoulderR.rotation.x = -0.3 * wind;
+          shoulderR.rotation.z = 0.8 * wind; // out to right
+          elbowR.rotation.x = -0.3 * wind;
+          forearmScale = 1 + wind * 0.4;
+          // Torso twists away
+          bodyPivot.rotation.y = 0.3 * wind;
+        } else if (progress < 0.5) {
+          // HOLD: cocked back, big forearm, dramatic pause
+          shoulderR.rotation.x = -0.3;
+          shoulderR.rotation.z = 0.8;
+          elbowR.rotation.x = -0.3;
+          forearmScale = 1.6;
+          bodyPivot.rotation.y = 0.3;
+        } else if (progress < 0.85) {
+          // SWIPE: quick sweep from right to left, low
+          const swipe = (progress - 0.5) / 0.35;
+          shoulderR.rotation.x = -0.3 - swipe * 0.3;
+          shoulderR.rotation.z = 0.8 - swipe * 1.6; // right to left
+          elbowR.rotation.x = -0.3 + swipe * 0.1;
+          forearmScale = 1.6 - swipe * 0.4;
+          bodyPivot.rotation.y = 0.3 - swipe * 0.6;
+        } else {
+          // Recovery
+          const recover = (progress - 0.85) / 0.15;
+          shoulderR.rotation.x = -0.6 + recover * 0.6;
+          shoulderR.rotation.z = -0.8 + recover * 0.8;
+          elbowR.rotation.x = -0.2 + recover * 0.1;
+          forearmScale = 1.2 - recover * 0.2;
+          bodyPivot.rotation.y = -0.3 + recover * 0.3;
+        }
+
         if (forearmR) {
           forearmR.scale.set(forearmScale, forearmScale, forearmScale);
+          if (this.stealTimer <= 0) forearmR.scale.set(1, 1, 1);
         }
 
-        // Left arm: relaxed at side (NOT up their butt)
-        shoulderL.rotation.x = 0; // neutral, hanging
-        elbowL.rotation.x = -0.1; // slight natural bend
+        // Left arm relaxed at side
+        shoulderL.rotation.x = 0;
+        elbowL.rotation.x = -0.1;
 
-        // Slight step forward, not a lunge
-        hipL.rotation.x = -0.1;
-        hipR.rotation.x = 0.1;
-        kneeL.rotation.x = 0.15;
-        kneeR.rotation.x = 0.15;
-
-        if (this.stealTimer <= 0 && forearmR) {
-          forearmR.scale.set(1, 1, 1);
-        }
+        // Stable stance
+        hipL.rotation.x = -0.05;
+        hipR.rotation.x = 0.05;
+        kneeL.rotation.x = 0.2;
+        kneeR.rotation.x = 0.2;
         break;
       }
 
