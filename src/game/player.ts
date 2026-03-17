@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { PlayerData } from '@/core/types';
+import { POSITION_SCALES } from '@/core/types';
 
 /**
  * Hair style types for Bobblehead Ballers.
@@ -63,6 +64,13 @@ export class GamePlayer {
     this.group.position.copy(position);
     this.prevPosition.copy(position);
     this.group.name = `player-${data.id}`;
+
+    if (data.position) {
+      const scales = POSITION_SCALES[data.position];
+      this.group.scale.set(scales.body, scales.height, scales.body);
+      const head = this.group.getObjectByName('head');
+      if (head) head.scale.multiplyScalar(scales.head);
+    }
   }
 
   private createMesh(color: number): THREE.Group {

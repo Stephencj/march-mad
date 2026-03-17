@@ -169,6 +169,16 @@ describe('GamePlayer - animation & indicators', () => {
   });
 });
 
+describe('GamePlayer - position scaling', () => {
+  it('applies position scaling for Center', () => {
+    const player = new GamePlayer({
+      id: 'c1', name: 'Big Man', stats: createDefaultPlayerStats(),
+      personality: 'Lockdown', isCustom: false, position: 'C',
+    }, new THREE.Vector3(0, 0, 0), 0xff0000);
+    expect(player.group.scale.y).toBeCloseTo(1.2, 1);
+  });
+});
+
 describe('GamePlayer - new animation triggers', () => {
   it('jump sets isJumping to true', () => {
     const player = makePlayer();
