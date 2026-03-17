@@ -13,12 +13,32 @@ export function createDefaultPlayerStats(): PlayerStats {
 
 export type PersonalityTrait = 'Clutch' | 'Ball Hog' | 'Lockdown' | 'Spark Plug' | 'Team Player';
 
+// --- Position ---
+export type Position = 'PG' | 'SG' | 'SF' | 'PF' | 'C';
+
+export const POSITION_STATS: Record<Position, PlayerStats> = {
+  PG: { speed: 9, shooting: 7, defense: 5, passing: 8, dunkPower: 4 },
+  SG: { speed: 7, shooting: 9, defense: 5, passing: 6, dunkPower: 5 },
+  SF: { speed: 7, shooting: 7, defense: 7, passing: 6, dunkPower: 7 },
+  PF: { speed: 5, shooting: 5, defense: 8, passing: 5, dunkPower: 8 },
+  C:  { speed: 3, shooting: 3, defense: 9, passing: 4, dunkPower: 9 },
+};
+
+export const POSITION_SCALES: Record<Position, { height: number; body: number; head: number }> = {
+  PG: { height: 0.85, body: 0.85, head: 1.0 },
+  SG: { height: 0.95, body: 0.90, head: 1.0 },
+  SF: { height: 1.0,  body: 1.0,  head: 1.05 },
+  PF: { height: 1.1,  body: 1.15, head: 1.08 },
+  C:  { height: 1.2,  body: 1.3,  head: 1.12 },
+};
+
 export interface PlayerData {
   id: string;
   name: string;
   stats: PlayerStats;
   personality: PersonalityTrait;
   isCustom: boolean;
+  position?: Position;
 }
 
 export interface CustomPlayerData extends PlayerData {

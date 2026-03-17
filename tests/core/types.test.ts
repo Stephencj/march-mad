@@ -3,7 +3,7 @@ import {
   type PlayerStats, type TeamData, type MatchState, type PowerupType,
   type CrowdLevel, type GamePhase, type BetData, type PersonalityTrait,
   type TeamArchetype, type TournamentTier,
-  createDefaultPlayerStats, CROWD_LEVELS, POWERUP_TIERS,
+  createDefaultPlayerStats, CROWD_LEVELS, POWERUP_TIERS, POSITION_SCALES,
 } from '@/core/types';
 
 describe('types', () => {
@@ -28,5 +28,10 @@ describe('types', () => {
     expect(POWERUP_TIERS[2].maxDeficit).toBe(9);
     expect(POWERUP_TIERS[3].minDeficit).toBe(10);
     expect(POWERUP_TIERS[3].maxDeficit).toBe(Infinity);
+  });
+
+  it('has position scales for all 5 positions', () => {
+    expect(Object.keys(POSITION_SCALES)).toHaveLength(5);
+    expect(POSITION_SCALES['C'].height).toBeGreaterThan(POSITION_SCALES['PG'].height);
   });
 });
