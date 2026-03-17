@@ -552,7 +552,7 @@ export class GamePlayer {
         this.dribblePhase = (this.animTime * dribbleSpeed) % 1;
 
         // Arm synced with ball phase
-        const armPhase = (this.dribblePhase + 0.25) % 1;
+        const armPhase = (this.dribblePhase + 0.75) % 1;
         let elbowBend: number;
         if (armPhase < 0.45) {
           // Arm up — ball in hand
@@ -1068,7 +1068,7 @@ export class GamePlayer {
         this.dribblePhase = (this.animTime * dribbleSpeed) % 1;
 
         // Arm synced with ball phase
-        const armPhase = (this.dribblePhase + 0.25) % 1;
+        const armPhase = (this.dribblePhase + 0.75) % 1;
         let elbowBend: number;
         if (armPhase < 0.45) {
           // Arm up — ball in hand
