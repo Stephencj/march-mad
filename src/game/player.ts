@@ -35,6 +35,11 @@ function hairColorFromHash(h: number): number {
   return colors[h % colors.length];
 }
 
+function smoothstep(t: number): number {
+  const c = Math.max(0, Math.min(1, t));
+  return c * c * (3 - 2 * c);
+}
+
 export class GamePlayer {
   group: THREE.Group;
   data: PlayerData;
@@ -51,6 +56,11 @@ export class GamePlayer {
   velocity = new THREE.Vector3();
   private prevPosition = new THREE.Vector3();
   private animState: 'idle' | 'walk' | 'dribble' | 'guard' | 'steal' | 'shoot' | 'jump' = 'idle';
+  private prevAnimState: string = 'idle';
+  private stateTransitionTimer = 0;
+  private readonly STATE_BLEND_DURATION = 0.12;
+  private lastShoulderL = 0;
+  private lastShoulderR = 0;
   private stealTimer = 0;
   private shootTimer = 0;
   private jumpTimer = 0;
@@ -389,6 +399,17 @@ export class GamePlayer {
     const elbowL = this.group.getObjectByName('elbow-left')!;
     const elbowR = this.group.getObjectByName('elbow-right')!;
 
+    // Detect state changes for transition blending
+    if (this.animState !== this.prevAnimState) {
+      this.lastShoulderL = shoulderL.rotation.x;
+      this.lastShoulderR = shoulderR.rotation.x;
+      this.stateTransitionTimer = this.STATE_BLEND_DURATION;
+      this.prevAnimState = this.animState;
+    }
+    if (this.stateTransitionTimer > 0) {
+      this.stateTransitionTimer -= dt;
+    }
+
     // Possession ring pulse
     const ring = this.group.getObjectByName('possession-ring');
     if (ring) {
@@ -412,6 +433,7 @@ export class GamePlayer {
       case 'idle': {
         // Gentle breathing/sway
         bodyPivot.rotation.x = 0;
+        bodyPivot.scale.set(1, 1, 1);
         hipL.rotation.x = 0;
         hipR.rotation.x = 0;
         kneeL.rotation.x = 0.05; // very slight natural bend
@@ -430,6 +452,14 @@ export class GamePlayer {
         const t = this.animTime * 4;
         const bouncePhase = (Math.sin(t) + 1) / 2;
         this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.25;
+
+        // Squash-stretch on body pivot
+        const squashStretch = bouncePhase; // 0 = ground contact, 1 = peak
+        bodyPivot.scale.set(
+          1 + (1 - squashStretch) * 0.08,   // wider at ground
+          1 - (1 - squashStretch) * 0.08 + squashStretch * 0.08, // shorter at ground, taller at peak
+          1 + (1 - squashStretch) * 0.08    // wider at ground
+        );
 
         // Forward lean
         bodyPivot.rotation.x = 0.12;
@@ -462,6 +492,15 @@ export class GamePlayer {
           // Moving with ball — walk + dribble arm
           const bouncePhase = (Math.sin(t) + 1) / 2;
           this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.2;
+
+          // Squash-stretch on body pivot
+          const squashStretch = bouncePhase; // 0 = ground contact, 1 = peak
+          bodyPivot.scale.set(
+            1 + (1 - squashStretch) * 0.08,   // wider at ground
+            1 - (1 - squashStretch) * 0.08 + squashStretch * 0.08, // shorter at ground, taller at peak
+            1 + (1 - squashStretch) * 0.08    // wider at ground
+          );
+
           bodyPivot.rotation.x = 0.15; // slight crouch
 
           const strideRaw = Math.sin(t);
@@ -473,6 +512,7 @@ export class GamePlayer {
         } else {
           // Stationary dribble
           this.group.position.y = Math.sin(this.animTime * 1.5) * 0.03;
+          bodyPivot.scale.set(1, 1, 1);
           bodyPivot.rotation.x = 0.1;
           hipL.rotation.x = 0;
           hipR.rotation.x = 0;
@@ -494,6 +534,7 @@ export class GamePlayer {
 
       case 'guard': {
         // Low defensive stance
+        bodyPivot.scale.set(1, 1, 1);
         bodyPivot.rotation.x = 0.2;
         hipL.rotation.x = 0.1;
         hipR.rotation.x = -0.1;
@@ -512,6 +553,7 @@ export class GamePlayer {
 
       case 'steal': {
         // DRAMATIC swipe — arm lunges forward and scales up
+        bodyPivot.scale.set(1, 1, 1);
         const progress = 1 - (this.stealTimer / 0.3); // 0 to 1 over 0.3s
         const swipeArc = Math.sin(progress * Math.PI); // peaks at 0.5
 
@@ -549,6 +591,7 @@ export class GamePlayer {
 
       case 'shoot': {
         // Shooting motion — arms push up, body extends
+        bodyPivot.scale.set(1, 1, 1);
         const progress = 1 - (this.shootTimer / 0.4); // 0 to 1 over 0.4s
         bodyPivot.rotation.x = -0.1 * (1 - progress); // lean back then straighten
         // Both arms push up
@@ -566,6 +609,7 @@ export class GamePlayer {
 
       case 'jump': {
         // Jump animation
+        bodyPivot.scale.set(1, 1, 1);
         this.jumpTimer -= dt;
         const jumpDuration = 0.6;
         const progress = 1 - (this.jumpTimer / jumpDuration);
@@ -629,6 +673,29 @@ export class GamePlayer {
     if (this.animState !== 'steal') {
       const forearmR = this.group.getObjectByName('forearm-right');
       if (forearmR) forearmR.scale.set(1, 1, 1);
+    }
+
+    // State transition blending (anticipation + follow-through)
+    if (this.stateTransitionTimer > 0) {
+      const blend = smoothstep(1 - this.stateTransitionTimer / this.STATE_BLEND_DURATION);
+      shoulderL.rotation.x = this.lastShoulderL + (shoulderL.rotation.x - this.lastShoulderL) * blend;
+      shoulderR.rotation.x = this.lastShoulderR + (shoulderR.rotation.x - this.lastShoulderR) * blend;
+    }
+
+    // Secondary motion: head counter-rotates slightly against body lean
+    const neckGroup = this.group.getObjectByName('neck-group');
+    if (neckGroup) {
+      if (isMoving) {
+        neckGroup.rotation.x = -bodyPivot.rotation.x * 0.3;
+      } else {
+        neckGroup.rotation.x = 0;
+      }
+    }
+
+    // Hair bounce with slight delay from body
+    const hair = this.group.getObjectByName('hair');
+    if (hair && isMoving) {
+      hair.position.y += Math.sin(this.animTime * 4 - 0.3) * 0.04;
     }
 
     this.lastMoving = isMoving;
