@@ -96,33 +96,33 @@ export class Ball {
     // 0.6-0.8: ball AT FLOOR (bouncing)
     // 0.8-1.0: ball RISING back to hand
 
+    // Use player root position for stable X/Z when ball is off the hand
+    const stableX = playerGroup.position.x + Math.sin(playerGroup.rotation.y) * 0.3;
+    const stableZ = playerGroup.position.z + Math.cos(playerGroup.rotation.y) * 0.3;
+
     if (ballPhase < 0.5) {
-      // Ball in hand
+      // Ball in hand — track hand exactly
       this.mesh.position.copy(handWorld);
     } else if (ballPhase < 0.6) {
-      // Releasing — lerp from hand to floor
+      // Releasing — lerp from hand to floor, start transitioning to stable X/Z
       const t = (ballPhase - 0.5) / 0.1;
       const floorY = this.radius;
-      this.mesh.position.set(
-        handWorld.x,
-        handWorld.y - (handWorld.y - floorY) * t,
-        handWorld.z
-      );
+      const lx = handWorld.x + (stableX - handWorld.x) * t;
+      const lz = handWorld.z + (stableZ - handWorld.z) * t;
+      this.mesh.position.set(lx, handWorld.y - (handWorld.y - floorY) * t, lz);
     } else if (ballPhase < 0.8) {
-      // At/near floor — slight bounce
+      // At floor — use stable position, no jitter
       const t = (ballPhase - 0.6) / 0.2;
       const floorY = this.radius;
-      const bounceUp = Math.sin(t * Math.PI) * 0.15; // tiny bounce at floor
-      this.mesh.position.set(handWorld.x, floorY + bounceUp, handWorld.z);
+      const bounceUp = Math.sin(t * Math.PI) * 0.12;
+      this.mesh.position.set(stableX, floorY + bounceUp, stableZ);
     } else {
-      // Rising back to hand
+      // Rising back to hand — transition from stable back to hand position
       const t = (ballPhase - 0.8) / 0.2;
       const floorY = this.radius;
-      this.mesh.position.set(
-        handWorld.x,
-        floorY + (handWorld.y - floorY) * t,
-        handWorld.z
-      );
+      const lx = stableX + (handWorld.x - stableX) * t;
+      const lz = stableZ + (handWorld.z - stableZ) * t;
+      this.mesh.position.set(lx, floorY + (handWorld.y - floorY) * t, lz);
     }
   }
 

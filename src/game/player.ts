@@ -107,7 +107,7 @@ export class GamePlayer {
     group.add(bodyPivot);
 
     // ========== TORSO (relative to body-pivot) ==========
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.4, 6), jerseyMat);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.4, 0.16), jerseyMat);
     torso.position.set(0, 0.2, 0);
     torso.name = 'torso';
     bodyPivot.add(torso);
