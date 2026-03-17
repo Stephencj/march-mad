@@ -135,15 +135,12 @@ function animate() {
       break;
   }
 
-  player.animate(dt);
-
-  // For 'guard' animation, force the state after animate() since
-  // the normal state machine never reaches 'guard' on its own
+  // Set forced state for guard (forceAnimState is checked inside animate)
   if (currentAnim === 'guard') {
     player.forceAnimState('guard');
-    // Re-run animate with a tiny dt to apply the guard pose
-    player.animate(0);
   }
+
+  player.animate(dt);
 
   // Keep player on platform (don't let bouncing move them off)
   player.group.position.x = 0;
@@ -172,10 +169,12 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
     document.querySelectorAll('[data-anim]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('state-label')!.textContent = currentAnim;
-    // Reset timers so the new animation can start fresh
+    // Reset timers and forced state so the new animation can start fresh
     (player as unknown as { stealTimer: number }).stealTimer = 0;
     (player as unknown as { shootTimer: number }).shootTimer = 0;
     player.isJumping = false;
+    // Clear forced state — only re-force if selecting guard
+    player.forceAnimState(currentAnim === 'guard' ? 'guard' : null);
   });
 });
 

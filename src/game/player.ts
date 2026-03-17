@@ -144,14 +144,34 @@ export class GamePlayer {
     hair.name = 'hair';
     neckGroup.add(hair);
 
-    // ========== SHOULDERS (groups at shoulder joints) ==========
+    // ========== BROAD SHOULDERS (connecting torso to arms) ==========
+    // Shoulder cap meshes to bridge torso to arm joints
+    const shoulderCapGeo = new THREE.SphereGeometry(0.08, 6, 4);
+    const shoulderCapLeft = new THREE.Mesh(shoulderCapGeo, jerseyMat);
+    shoulderCapLeft.position.set(-0.16, 0.35, 0);
+    shoulderCapLeft.name = 'shoulder-cap-left';
+    bodyPivot.add(shoulderCapLeft);
+
+    const shoulderCapRight = new THREE.Mesh(shoulderCapGeo, jerseyMat);
+    shoulderCapRight.position.set(0.16, 0.35, 0);
+    shoulderCapRight.name = 'shoulder-cap-right';
+    bodyPivot.add(shoulderCapRight);
+
+    // Shoulder bar connecting across the top of the torso
+    const shoulderBarGeo = new THREE.BoxGeometry(0.42, 0.06, 0.12);
+    const shoulderBar = new THREE.Mesh(shoulderBarGeo, jerseyMat);
+    shoulderBar.position.set(0, 0.37, 0);
+    shoulderBar.name = 'shoulder-bar';
+    bodyPivot.add(shoulderBar);
+
+    // Shoulder joint groups
     const shoulderLeft = new THREE.Group();
-    shoulderLeft.position.set(-0.18, 0.35, 0);
+    shoulderLeft.position.set(-0.2, 0.35, 0); // slightly wider to sit on caps
     shoulderLeft.name = 'shoulder-left';
     bodyPivot.add(shoulderLeft);
 
     const shoulderRight = new THREE.Group();
-    shoulderRight.position.set(0.18, 0.35, 0);
+    shoulderRight.position.set(0.2, 0.35, 0);
     shoulderRight.name = 'shoulder-right';
     bodyPivot.add(shoulderRight);
 
@@ -291,44 +311,37 @@ export class GamePlayer {
   private createHair(style: HairStyle, hairColor: number): THREE.Object3D {
     const hairMat = new THREE.MeshStandardMaterial({ color: hairColor });
 
-    // Hair positions are relative to neckGroup (which is at body-pivot y=0.4)
-    // Head center is at 0.35 relative to neckGroup, head top at ~0.63
+    // Hair positions relative to neckGroup.
+    // Head center at y=0.35, head top at ~0.63, eyes at y=0.39 z=0.24 (front).
+    // Hair should sit ON TOP and BEHIND the head, never covering the eyes.
     switch (style) {
       case 'flat-top': {
-        // Box sitting on top of head — classic flat-top look
-        const geo = new THREE.BoxGeometry(0.36, 0.16, 0.36);
+        const geo = new THREE.BoxGeometry(0.36, 0.16, 0.30);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.71, 0); // just above head top
+        mesh.position.set(0, 0.71, -0.04); // on top, slightly back from face
         return mesh;
       }
 
       case 'afro': {
-        // Larger sphere on top of head, slightly transparent for volume feel
-        const geo = new THREE.SphereGeometry(0.34, 8, 6);
-        const mat = new THREE.MeshStandardMaterial({
-          color: hairColor,
-          transparent: true,
-          opacity: 0.85,
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, 0.55, 0); // around head center-top
+        // Solid (NOT transparent), sits on top/back of head
+        const geo = new THREE.SphereGeometry(0.32, 8, 6);
+        const mesh = new THREE.Mesh(geo, hairMat); // solid, no transparency
+        mesh.position.set(0, 0.58, -0.06); // higher and behind eyes
         return mesh;
       }
 
       case 'mohawk': {
-        // Thin tall box running along the center of the head
-        const geo = new THREE.BoxGeometry(0.06, 0.3, 0.32);
+        const geo = new THREE.BoxGeometry(0.06, 0.3, 0.28);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.78, 0); // above head top
+        mesh.position.set(0, 0.78, -0.04); // on top, slightly back
         return mesh;
       }
 
       case 'headband': {
-        // Torus around the head at forehead height
         const geo = new THREE.TorusGeometry(0.29, 0.03, 6, 16);
-        const mat = new THREE.MeshStandardMaterial({ color: 0xff2222 }); // bright red headband
+        const mat = new THREE.MeshStandardMaterial({ color: 0xff2222 });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, 0.43, 0); // at forehead level
+        mesh.position.set(0, 0.45, 0); // at forehead, above eyes (y=0.39)
         return mesh;
       }
     }
