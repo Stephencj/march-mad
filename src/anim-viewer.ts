@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GamePlayer } from './game/player';
 import { Ball } from './game/ball';
+import { createHoop } from './game/hoop';
 import { createDefaultPlayerStats } from './core/types';
 import type { Position } from './core/types';
 
@@ -39,6 +40,10 @@ const platform = new THREE.Mesh(platformGeo, platformMat);
 platform.position.y = -0.025;
 scene.add(platform);
 
+// --- Hoop ---
+const hoop = createHoop(new THREE.Vector3(0, 3.05, -3), 0xe94560);
+scene.add(hoop);
+
 // Grid lines on platform for reference
 const gridGeo = new THREE.RingGeometry(0.5, 0.52, 24);
 const gridMat = new THREE.MeshBasicMaterial({ color: 0x555577, side: THREE.DoubleSide });
@@ -57,6 +62,8 @@ let autoRotate = true;
 let camAngle = 0;
 let camHeight = 1.5;
 let camDist = 4;
+let shootReleased = false;
+let dunkReleased = false;
 
 let player: GamePlayer;
 
@@ -129,7 +136,12 @@ function animate() {
       player.hasBall = false;
       player.velocity.set(0, 0, 0);
       if ((player as unknown as { shootTimer: number }).shootTimer <= 0) {
+        // Reset: put ball back in hand and retrigger
+        ball.pickup('viewer');
+        ball.isInFlight = false;
         player.triggerShoot();
+        player.hasBall = true; // temporarily has ball for the wind-up
+        shootReleased = false;
       }
       break;
     case 'jump':
@@ -161,6 +173,13 @@ function animate() {
     case 'dunk':
       player.hasBall = true;
       player.velocity.set(0, 0, 0);
+      if ((player as unknown as { dunkTimer: number }).dunkTimer <= 0) {
+        // Reset
+        ball.pickup('viewer');
+        ball.isInFlight = false;
+        player.triggerDunk();
+        dunkReleased = false;
+      }
       break;
   }
 
@@ -176,25 +195,59 @@ function animate() {
   }
   if (currentAnim === 'dunk') {
     player.forceAnimState('dunk');
-    if ((player as unknown as { dunkTimer: number }).dunkTimer <= 0) {
-      player.triggerDunk();
-    }
   }
 
   player.animate(dt);
 
-  // Ball visibility and position for dribble/shoot/dunk animations
+  // Handle shoot ball release
+  if (currentAnim === 'shoot') {
+    const shootTimer = (player as unknown as { shootTimer: number }).shootTimer;
+    if (!shootReleased && shootTimer > 0 && shootTimer < 0.2) {
+      // Release point — ball leaves hand toward hoop
+      shootReleased = true;
+      player.hasBall = false;
+      ball.release();
+      ball.shootAt(new THREE.Vector3(0, 3.05, -3), 0.7); // toward the hoop
+    }
+
+    if (ball.isInFlight || (!ball.heldBy && !shootReleased)) {
+      ball.update(dt);
+    } else if (ball.heldBy) {
+      ball.followHolder(player.group, false);
+    }
+    ball.mesh.visible = true;
+  }
+
+  // Handle dunk ball release
+  if (currentAnim === 'dunk') {
+    const dunkTimer = (player as unknown as { dunkTimer: number }).dunkTimer;
+    if (!dunkReleased && dunkTimer > 0 && dunkTimer < 0.25) {
+      // Slam release — ball drops from rim height
+      dunkReleased = true;
+      player.hasBall = false;
+      ball.release();
+      // Ball just drops from current position
+      ball.velocity.set(0, -5, 0);
+    }
+
+    if (!ball.heldBy && dunkReleased) {
+      ball.update(dt);
+    } else if (ball.heldBy) {
+      ball.followHolder(player.group, false);
+    }
+    ball.mesh.visible = true;
+  }
+
+  // Ball visibility and position for dribble animations
   if (currentAnim === 'dribble' || currentAnim === 'dribble-walk' || currentAnim === 'dribble-sprint') {
     ball.mesh.visible = true;
     ball.pickup('viewer');
     ball.followHolder(player.group, true);
-  } else if (currentAnim === 'shoot' || currentAnim === 'dunk') {
-    ball.mesh.visible = true;
-    ball.pickup('viewer');
-    ball.followHolder(player.group, false); // glued to hand
-  } else {
+  } else if (currentAnim !== 'shoot' && currentAnim !== 'dunk') {
+    // Non-ball animations
     ball.mesh.visible = false;
   }
+  // shoot and dunk handled separately above
 
   // Keep player on platform (don't let bouncing move them off)
   player.group.position.x = 0;
@@ -216,7 +269,11 @@ function animate() {
     viewCamHeight,
     Math.cos(camAngle) * viewCamDist
   );
-  camera.lookAt(0, 0.8, 0);
+  if (currentAnim === 'shoot' || currentAnim === 'dunk') {
+    camera.lookAt(0, 1.5, -1.5); // between player and hoop
+  } else {
+    camera.lookAt(0, 0.8, 0);
+  }
 
   renderer.render(scene, camera);
 }
@@ -237,6 +294,8 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
     (player as unknown as { dunkTimer: number }).dunkTimer = 0;
     player.isJumping = false;
     player.isSprinting = false;
+    shootReleased = false;
+    dunkReleased = false;
     // Clear forced state — only re-force if selecting guard/fall/dunk
     if (currentAnim === 'guard') {
       player.forceAnimState('guard');
