@@ -13,10 +13,12 @@ describe('Cartoon Hoop', () => {
     expect(names).toContain('net');
   });
 
-  it('positions rim at correct height', () => {
+  it('positions group at correct height (rim at local origin)', () => {
     const hoop = createHoop(new THREE.Vector3(0, 3.05, -13), 0xff0000);
+    // Group position is the hoop position, rim is at local (0,0,0)
+    expect(hoop.position.y).toBeCloseTo(3.05, 1);
     const rim = hoop.getObjectByName('rim')!;
-    expect(rim.position.y).toBeCloseTo(3.05, 1);
+    expect(rim.position.y).toBeCloseTo(0, 1);
   });
 
   it('has oversized rim radius', () => {

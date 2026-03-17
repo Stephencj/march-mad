@@ -21,7 +21,8 @@ describe('Court', () => {
 
   it('positions hoop at correct height', () => {
     const court = createCourt();
-    const rim = court.getObjectByName('rim')!;
-    expect(rim.position.y).toBeCloseTo(3.05, 1);
+    // Hoop group is positioned at rim height, rim is at local (0,0,0)
+    const hoopGroup = court.getObjectByName('hoop-group')!;
+    expect(hoopGroup.position.y).toBeCloseTo(3.05, 1);
   });
 });
