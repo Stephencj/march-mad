@@ -317,10 +317,10 @@ export class GamePlayer {
     // Hair should sit ON TOP and BEHIND the head, never covering the eyes.
     switch (style) {
       case 'flat-top': {
-        // Sits flush on head top (head top = 0.63)
-        const geo = new THREE.BoxGeometry(0.36, 0.14, 0.30);
+        // Sinks INTO the head slightly so edges don't float
+        const geo = new THREE.BoxGeometry(0.34, 0.12, 0.28);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.63 + 0.07, -0.04); // bottom of box at head top
+        mesh.position.set(0, 0.60, -0.03); // overlaps into head sphere
         return mesh;
       }
 
@@ -328,23 +328,24 @@ export class GamePlayer {
         // Solid, envelops top/back of head
         const geo = new THREE.SphereGeometry(0.32, 8, 6);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.50, -0.06); // overlaps head, centered above eyes
+        mesh.position.set(0, 0.50, -0.06);
         return mesh;
       }
 
       case 'mohawk': {
-        // Thin strip flush on head top
-        const geo = new THREE.BoxGeometry(0.06, 0.22, 0.28);
+        // Sinks into head so it looks planted
+        const geo = new THREE.BoxGeometry(0.06, 0.20, 0.26);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.63 + 0.11, -0.04); // bottom at head top
+        mesh.position.set(0, 0.60, -0.03); // overlaps into head
         return mesh;
       }
 
       case 'headband': {
-        const geo = new THREE.TorusGeometry(0.29, 0.03, 6, 16);
+        // Sits snug on the head sphere surface
+        const geo = new THREE.TorusGeometry(0.28, 0.03, 6, 16);
         const mat = new THREE.MeshStandardMaterial({ color: 0xff2222 });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, 0.45, 0);
+        mesh.position.set(0, 0.42, 0); // snug on forehead
         return mesh;
       }
     }
@@ -853,10 +854,10 @@ export class GamePlayer {
     // Hair bounce with slight delay from body (use stored rest position, never accumulate)
     const hair = this.group.getObjectByName('hair');
     if (hair) {
-      if (this.hairRestY === undefined) this.hairRestY = hair.position.y; // capture once
+      if (this.hairRestY === undefined) this.hairRestY = hair.position.y;
       if (isMoving) {
-        // Match the walk/dribble bounce frequency (10) with slight phase delay
-        hair.position.y = this.hairRestY + Math.sin(this.animTime * 10 - 0.4) * 0.03;
+        // Tiny bounce synced with walk — hair is attached to the head, minimal independent motion
+        hair.position.y = this.hairRestY + Math.sin(this.animTime * 10 - 0.4) * 0.008;
       } else {
         hair.position.y = this.hairRestY;
       }
