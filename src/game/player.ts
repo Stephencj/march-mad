@@ -719,6 +719,28 @@ export class GamePlayer {
         const shootDuration = 0.4;
         const progress = 1 - (this.shootTimer / shootDuration); // 0 to 1
 
+        // Slight hop during shot — quick up, brief hang, land
+        let shootHeight: number;
+        if (progress < 0.15) {
+          // Crouch before jump
+          shootHeight = 0;
+        } else if (progress < 0.25) {
+          // Quick rise
+          const rise = (progress - 0.15) / 0.1;
+          shootHeight = rise * 0.6;
+        } else if (progress < 0.4) {
+          // Hang time — release point
+          shootHeight = 0.6;
+        } else if (progress < 0.55) {
+          // Coming down
+          const descend = (progress - 0.4) / 0.15;
+          shootHeight = 0.6 * (1 - descend);
+        } else {
+          // On ground, recovering
+          shootHeight = 0;
+        }
+        this.group.position.y = shootHeight;
+
         if (progress < 0.15) {
           // SNAP: hands come up together to shooting position
           const snap = progress / 0.15; // 0 to 1 fast
@@ -732,25 +754,49 @@ export class GamePlayer {
           elbowL.rotation.x = -0.8 * snap; // bent, hand on side of ball
           // Slight crouch
           bodyPivot.rotation.x = 0.05;
-          kneeL.rotation.x = 0.2 * snap;
-          kneeR.rotation.x = 0.2 * snap;
-        } else if (progress < 0.4) {
-          // RELEASE: right arm extends up, left peels away
-          const release = (progress - 0.15) / 0.25; // 0 to 1
-          // Right arm extends fully upward (shooting follow-through)
-          shoulderR.rotation.x = -1.8 - release * 0.8; // goes higher (-2.6)
+          kneeL.rotation.x = 0.3 * (progress / 0.15); // bend knees for crouch
+          kneeR.rotation.x = 0.3 * (progress / 0.15);
+        } else if (progress < 0.25) {
+          // RISE: arms continue, legs extend
+          const rise = (progress - 0.15) / 0.1;
+          // Arm positions interpolate from snap-end to release-start
+          const subRelease = (progress - 0.15) / 0.25; // partial into release phase
+          shoulderR.rotation.x = -1.8 - subRelease * 0.8;
           shoulderR.rotation.z = 0.1;
-          elbowR.rotation.x = -1.2 + release * 1.0; // straightens out (-0.2)
-          // Left arm peels away to the side
-          shoulderL.rotation.x = -1.6 + release * 1.0; // drops to -0.6
-          shoulderL.rotation.z = -0.3 - release * 0.3; // opens outward more
-          elbowL.rotation.x = -0.8 + release * 0.5; // relaxes
-          // Body extends, legs straighten
-          bodyPivot.rotation.x = 0.05 - release * 0.15; // slight lean back
-          kneeL.rotation.x = 0.2 * (1 - release);
-          kneeR.rotation.x = 0.2 * (1 - release);
+          elbowR.rotation.x = -1.2 + subRelease * 1.0;
+          shoulderL.rotation.x = -1.6 + subRelease * 1.0;
+          shoulderL.rotation.z = -0.3 - subRelease * 0.3;
+          elbowL.rotation.x = -0.8 + subRelease * 0.5;
+          bodyPivot.rotation.x = 0.05 - subRelease * 0.15;
+          kneeL.rotation.x = 0.3 * (1 - rise); // legs extend
+          kneeR.rotation.x = 0.3 * (1 - rise);
+        } else if (progress < 0.4) {
+          // HANG TIME + RELEASE: right arm extends up, left peels away
+          const subRelease = (progress - 0.15) / 0.25; // 0 to 1
+          shoulderR.rotation.x = -1.8 - subRelease * 0.8; // goes higher (-2.6)
+          shoulderR.rotation.z = 0.1;
+          elbowR.rotation.x = -1.2 + subRelease * 1.0; // straightens out (-0.2)
+          shoulderL.rotation.x = -1.6 + subRelease * 1.0; // drops to -0.6
+          shoulderL.rotation.z = -0.3 - subRelease * 0.3; // opens outward more
+          elbowL.rotation.x = -0.8 + subRelease * 0.5; // relaxes
+          bodyPivot.rotation.x = 0.05 - subRelease * 0.15;
+          kneeL.rotation.x = 0.05; // slight bend in air
+          kneeR.rotation.x = 0.05;
+        } else if (progress < 0.55) {
+          // COMING DOWN: start recovery
+          const descend = (progress - 0.4) / 0.15;
+          const recover = (progress - 0.4) / 0.6; // partial into recover
+          shoulderR.rotation.x = -2.6 + recover * 2.6;
+          shoulderR.rotation.z = 0.1 * (1 - recover);
+          elbowR.rotation.x = -0.2 + recover * 0.1;
+          shoulderL.rotation.x = -0.6 + recover * 0.6;
+          shoulderL.rotation.z = -0.6 + recover * 0.6;
+          elbowL.rotation.x = -0.3 + recover * 0.2;
+          bodyPivot.rotation.x = -0.1 + recover * 0.1;
+          kneeL.rotation.x = descend * 0.2; // absorb landing
+          kneeR.rotation.x = descend * 0.2;
         } else {
-          // RECOVER: arms come back down to sides
+          // RECOVER: on ground, arms come back down to sides
           const recover = (progress - 0.4) / 0.6; // 0 to 1
           shoulderR.rotation.x = -2.6 + recover * 2.6; // back to 0
           shoulderR.rotation.z = 0.1 * (1 - recover);

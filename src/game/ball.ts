@@ -5,7 +5,7 @@ export class Ball {
   heldBy: string | null = null;
   velocity = new THREE.Vector3();
   isInFlight = false;
-  readonly radius = 0.22;
+  readonly radius = 0.16;
   private arc: THREE.Vector3[] = [];
   private arcIndex = 0;
   private arcSpeed = 60;
@@ -19,7 +19,7 @@ export class Ball {
   private trailTimer = 0;
 
   constructor(position = new THREE.Vector3(0, 1, 0)) {
-    const geometry = new THREE.SphereGeometry(0.22, 12, 8);
+    const geometry = new THREE.SphereGeometry(0.16, 12, 8);
     const material = new THREE.MeshStandardMaterial({ color: 0xff6600, roughness: 0.6 });
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.position.copy(position);
@@ -87,33 +87,36 @@ export class Ball {
       return;
     }
 
-    // Ball position driven by player's dribblePhase (0-1)
+    // Offset ball phase so ball is at floor when hand is lowest
+    const ballPhase = (dribblePhase + 0.25) % 1;
+
+    // Ball position driven by ballPhase (0-1)
     // 0.0-0.5: ball IN HAND (tracks hand position)
     // 0.5-0.6: ball RELEASING (drops from hand toward floor)
     // 0.6-0.8: ball AT FLOOR (bouncing)
     // 0.8-1.0: ball RISING back to hand
 
-    if (dribblePhase < 0.5) {
+    if (ballPhase < 0.5) {
       // Ball in hand
       this.mesh.position.copy(handWorld);
-    } else if (dribblePhase < 0.6) {
+    } else if (ballPhase < 0.6) {
       // Releasing — lerp from hand to floor
-      const t = (dribblePhase - 0.5) / 0.1;
+      const t = (ballPhase - 0.5) / 0.1;
       const floorY = this.radius;
       this.mesh.position.set(
         handWorld.x,
         handWorld.y - (handWorld.y - floorY) * t,
         handWorld.z
       );
-    } else if (dribblePhase < 0.8) {
+    } else if (ballPhase < 0.8) {
       // At/near floor — slight bounce
-      const t = (dribblePhase - 0.6) / 0.2;
+      const t = (ballPhase - 0.6) / 0.2;
       const floorY = this.radius;
       const bounceUp = Math.sin(t * Math.PI) * 0.15; // tiny bounce at floor
       this.mesh.position.set(handWorld.x, floorY + bounceUp, handWorld.z);
     } else {
       // Rising back to hand
-      const t = (dribblePhase - 0.8) / 0.2;
+      const t = (ballPhase - 0.8) / 0.2;
       const floorY = this.radius;
       this.mesh.position.set(
         handWorld.x,
@@ -185,8 +188,8 @@ export class Ball {
     // State 4: normal gravity + bounce physics (existing)
     this.velocity.y -= 9.81 * dt;
     this.mesh.position.addScaledVector(this.velocity, dt);
-    if (this.mesh.position.y < 0.22) {
-      this.mesh.position.y = 0.22;
+    if (this.mesh.position.y < this.radius) {
+      this.mesh.position.y = this.radius;
       this.velocity.y = -this.velocity.y * 0.6;
     }
     this.updateTrail(dt);
