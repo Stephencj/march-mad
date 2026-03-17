@@ -54,4 +54,36 @@ describe('ShotDetector', () => {
     const r2 = d.check(new THREE.Vector3(hoopPos.x, hoopPos.y + 0.1, hoopPos.z), new THREE.Vector3(0, -2, 0), true);
     expect(r2.made).toBe(false);
   });
+
+  it('detects made shot at custom hoop position', () => {
+    const customHoop = new THREE.Vector3(0, 3.05, 13);
+    const detector = new ShotDetector(customHoop);
+    const result = detector.check(
+      new THREE.Vector3(0, 3.15, 13),
+      new THREE.Vector3(0, -2, 0), true
+    );
+    expect(result.made).toBe(true);
+  });
+
+  it('does not detect at default hoop when custom hoop is set', () => {
+    const customHoop = new THREE.Vector3(0, 3.05, 13);
+    const detector = new ShotDetector(customHoop);
+    // Try at default hoop position — should miss
+    const result = detector.check(
+      new THREE.Vector3(hoopPos.x, hoopPos.y + 0.1, hoopPos.z),
+      new THREE.Vector3(0, -2, 0), true
+    );
+    expect(result.made).toBe(false);
+  });
+
+  it('setHoopPosition updates the target hoop', () => {
+    const detector = new ShotDetector();
+    const newHoop = new THREE.Vector3(0, 3.05, 13);
+    detector.setHoopPosition(newHoop);
+    const result = detector.check(
+      new THREE.Vector3(0, 3.15, 13),
+      new THREE.Vector3(0, -2, 0), true
+    );
+    expect(result.made).toBe(true);
+  });
 });

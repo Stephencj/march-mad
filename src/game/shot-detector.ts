@@ -9,6 +9,15 @@ export interface ShotCheckResult {
 
 export class ShotDetector {
   private cooldown = 0;
+  private hoopPosition: THREE.Vector3;
+
+  constructor(hoopPosition?: THREE.Vector3) {
+    this.hoopPosition = hoopPosition ?? COURT_DIMENSIONS.hoopPosition;
+  }
+
+  setHoopPosition(pos: THREE.Vector3): void {
+    this.hoopPosition = pos;
+  }
 
   check(ballPosition: THREE.Vector3, ballVelocity: THREE.Vector3, inFlight: boolean): ShotCheckResult {
     if (!inFlight) {
@@ -19,7 +28,7 @@ export class ShotDetector {
       return { made: false };
     }
 
-    const hoop = COURT_DIMENSIONS.hoopPosition;
+    const hoop = this.hoopPosition;
 
     // Horizontal distance from hoop center
     const dx = ballPosition.x - hoop.x;
@@ -44,7 +53,7 @@ export class ShotDetector {
       return 'dunk';
     }
 
-    const hoop = COURT_DIMENSIONS.hoopPosition;
+    const hoop = this.hoopPosition;
     const dx = shooterPosition.x - hoop.x;
     const dz = shooterPosition.z - hoop.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
