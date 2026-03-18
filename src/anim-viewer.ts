@@ -291,12 +291,13 @@ function animate() {
   // Handle dunk ball release
   if (currentAnim === 'dunk') {
     const dunkTimer = (player as unknown as { dunkTimer: number }).dunkTimer;
-    if (!dunkReleased && dunkTimer > 0 && dunkTimer < 0.25) {
-      // Slam release — ball drops through the rim
+    // Release ball at SLAM point (progress ~0.4, dunkTimer ~0.72)
+    // Dunk duration is 1.2s, slam phase is progress 0.35-0.45 = timer 0.78-0.66
+    if (!dunkReleased && dunkTimer > 0 && dunkTimer < 0.72) {
       dunkReleased = true;
       player.hasBall = false;
       ball.release();
-      // Position ball at the rim and let it fall through the net
+      // Ball goes through the hoop — position at rim and drop
       ball.mesh.position.set(0, 3.05, 2.5);
       ball.velocity.set(0, -5, 0);
     }

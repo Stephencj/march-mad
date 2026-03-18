@@ -98,12 +98,12 @@ export class Ball {
     // FIXED dribble spot: right side of player, slightly forward
     // Uses ONLY player position + rotation — NO hand world position (eliminates all jitter)
     const facing = playerGroup.rotation.y;
-    // Forward offset (in front of player)
-    const fwdX = Math.sin(facing) * 0.2;
-    const fwdZ = Math.cos(facing) * 0.2;
-    // Right-side offset (perpendicular to facing, toward right arm)
-    const rightX = Math.cos(facing) * 0.2;
-    const rightZ = -Math.sin(facing) * 0.2;
+    // Forward offset (more in front of player)
+    const fwdX = Math.sin(facing) * 0.35;
+    const fwdZ = Math.cos(facing) * 0.35;
+    // Right-side offset (perpendicular to facing, toward right arm — more outward)
+    const rightX = Math.cos(facing) * 0.3;
+    const rightZ = -Math.sin(facing) * 0.3;
     const dribbleX = playerGroup.position.x + fwdX + rightX;
     const dribbleZ = playerGroup.position.z + fwdZ + rightZ;
 
