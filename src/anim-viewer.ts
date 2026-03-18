@@ -143,9 +143,12 @@ function animate() {
       if (shootInIdle) {
         // Idle pause between shots
         player.hasBall = false;
+      } else if (shootReleased) {
+        // Ball has been released — NEVER set hasBall true again
+        player.hasBall = false;
       } else {
-        player.hasBall = true; // start with ball
-        if ((player as unknown as { shootTimer: number }).shootTimer <= 0 && !shootReleased && shootResetDelay <= 0) {
+        player.hasBall = true; // start with ball (only before release)
+        if ((player as unknown as { shootTimer: number }).shootTimer <= 0 && shootResetDelay <= 0) {
           player.triggerShoot();
         }
       }
@@ -211,6 +214,12 @@ function animate() {
   }
 
   player.animate(dt);
+
+  // CRITICAL: Force hasBall=false after animate() when ball has been released
+  // This prevents player.animate() from auto-detecting 'dribble' state
+  if (currentAnim === 'shoot' && shootReleased) {
+    player.hasBall = false;
+  }
 
   // Handle shoot ball release
   if (currentAnim === 'shoot') {
@@ -343,7 +352,7 @@ function animate() {
       player.group.position.z = arcT * hoopZ; // linear z toward hoop
       // Feet at 1.2 means hand reaches ~3.2 (rim height)
       const endY = 1.2;
-      const overshoot = 0.5; // slight arc above, not massive
+      const overshoot = 1.0; // peak at ~1.6 above ground at midpoint, clearly above 1.2 end height
       player.group.position.y = endY * arcT + overshoot * Math.sin(arcT * Math.PI);
     } else if (dunkProgress < 0.65) {
       // At the hoop: rim hang phase — stay at hoop position

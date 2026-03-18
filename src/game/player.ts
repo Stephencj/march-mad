@@ -1289,6 +1289,16 @@ export class GamePlayer {
         }
         this.group.position.y = height;
 
+        // Reset arm scale for non-rim-hang phases
+        {
+          const upperArmR = this.group.getObjectByName('upper-arm-right');
+          const forearmR = this.group.getObjectByName('forearm-right');
+          if (progress < 0.45 || progress >= 0.65) {
+            if (upperArmR) upperArmR.scale.set(1, 1, 1);
+            if (forearmR) forearmR.scale.set(1, 1, 1);
+          }
+        }
+
         if (progress < 0.15) {
           // RISE: crouch extends, legs start spreading, arms bring ball up
           const rise = progress / 0.15;
@@ -1341,7 +1351,7 @@ export class GamePlayer {
         } else if (progress < 0.65) {
           // RIM HANG: one arm up (hanging on rim), legs dangle, slight sway
           shoulderR.rotation.x = -2.8; // right arm up (hanging on rim)
-          elbowR.rotation.x = -0.6; // bent gripping
+          elbowR.rotation.x = -0.2; // slight bend like gripping
           shoulderL.rotation.x = -0.3; // left arm relaxed
           elbowL.rotation.x = -0.2;
           shoulderR.rotation.z = 0;
@@ -1356,6 +1366,12 @@ export class GamePlayer {
           // Slight sway
           const sway = (progress - 0.45) / 0.2;
           bodyPivot.rotation.z = Math.sin(sway * Math.PI * 2) * 0.05;
+
+          // Stretch the arm to reach the rim — scale up upper arm and forearm
+          const upperArmR = this.group.getObjectByName('upper-arm-right');
+          const forearmR = this.group.getObjectByName('forearm-right');
+          if (upperArmR) upperArmR.scale.set(1.2, 1.3, 1.2); // thicker, longer
+          if (forearmR) forearmR.scale.set(1.3, 1.4, 1.3); // even bigger at the hand end
         } else if (progress < 0.85) {
           // DROP FROM RIM: fall to ground
           const drop = (progress - 0.65) / 0.2;
@@ -1500,10 +1516,16 @@ export class GamePlayer {
       bodyPivot.rotation.z = 0;
     }
 
-    // Reset forearm scale if not stealing
-    if (this.animState !== 'steal') {
+    // Reset forearm scale if not stealing and not dunking
+    if (this.animState !== 'steal' && this.animState !== 'dunk') {
       const forearmR = this.group.getObjectByName('forearm-right');
       if (forearmR) forearmR.scale.set(1, 1, 1);
+    }
+
+    // Reset upper arm scale if not dunking
+    if (this.animState !== 'dunk') {
+      const upperArmR = this.group.getObjectByName('upper-arm-right');
+      if (upperArmR) upperArmR.scale.set(1, 1, 1);
     }
 
     // Reset hip Z spread if not dunking
