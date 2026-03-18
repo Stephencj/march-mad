@@ -390,14 +390,14 @@ function animate() {
 
       // Player position computed from pendulum pivot at rim
       player.group.position.y = rimY - Math.cos(angle) * pendulumLen;
-      player.group.position.z = hoopZ + Math.sin(angle) * pendulumLen;
+      player.group.position.z = hoopZ - Math.sin(angle) * pendulumLen;
       player.group.rotation.x = angle; // body tilts with the swing
     } else if (dunkProgress < 0.85) {
       // Drop from rim
       const dropT = (dunkProgress - 0.65) / 0.2;
       // Start from where pendulum ended (angle = -0.1)
       const startY = rimY - Math.cos(-0.1) * pendulumLen;
-      const startZ = hoopZ + Math.sin(-0.1) * pendulumLen;
+      const startZ = hoopZ - Math.sin(-0.1) * pendulumLen;
       player.group.position.z = startZ + (hoopZ - startZ) * dropT;
       player.group.position.y = startY * (1 - dropT);
       player.group.rotation.x = -0.1 * (1 - dropT); // straighten during drop
