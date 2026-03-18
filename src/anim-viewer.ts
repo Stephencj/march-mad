@@ -368,8 +368,8 @@ function animate() {
       const overshoot = 1.0; // peak above endY at midpoint
       player.group.position.y = endY * arcT + overshoot * Math.sin(arcT * Math.PI);
     } else if (dunkProgress < 0.45) {
-      // Slam phase — at hoop, straight hang
-      player.group.position.z = hoopZ;
+      // Slam phase — at front of rim, straight hang
+      player.group.position.z = hoopZ - 0.4; // front side of rim
       player.group.position.y = rimY - pendulumLen;
       player.group.rotation.x = 0;
     } else if (dunkProgress < 0.65) {
@@ -388,16 +388,18 @@ function animate() {
         angle = 0.25 - outT * 0.35; // 0.25 to -0.1 (swings past center)
       }
 
-      // Player position computed from pendulum pivot at rim
+      // Player position computed from pendulum pivot at FRONT of rim
+      const rimFrontZ = hoopZ - 0.4; // front edge of rim
       player.group.position.y = rimY - Math.cos(angle) * pendulumLen;
-      player.group.position.z = hoopZ - Math.sin(angle) * pendulumLen;
+      player.group.position.z = rimFrontZ - Math.sin(angle) * pendulumLen;
       player.group.rotation.x = angle; // body tilts with the swing
     } else if (dunkProgress < 0.85) {
       // Drop from rim
       const dropT = (dunkProgress - 0.65) / 0.2;
       // Start from where pendulum ended (angle = -0.1)
       const startY = rimY - Math.cos(-0.1) * pendulumLen;
-      const startZ = hoopZ - Math.sin(-0.1) * pendulumLen;
+      const rimFrontZ2 = hoopZ - 0.4;
+      const startZ = rimFrontZ2 - Math.sin(-0.1) * pendulumLen;
       player.group.position.z = startZ + (hoopZ - startZ) * dropT;
       player.group.position.y = startY * (1 - dropT);
       player.group.rotation.x = -0.1 * (1 - dropT); // straighten during drop
