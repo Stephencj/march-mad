@@ -40,33 +40,19 @@ export class MenuUI {
     title.textContent = 'MARCH MADNESS';
     wrapper.appendChild(title);
 
-    // Quick Play button — secondary style, 3v3 half court
-    const quickPlayBtn = document.createElement('button');
-    quickPlayBtn.classList.add('menu__btn', 'menu__btn--secondary');
-    quickPlayBtn.addEventListener('click', () => this.onAction('quick-play'));
-    const quickPlayLabel = document.createElement('span');
-    quickPlayLabel.classList.add('menu__btn-label');
-    quickPlayLabel.textContent = 'QUICK PLAY';
-    quickPlayBtn.appendChild(quickPlayLabel);
-    const quickPlaySub = document.createElement('span');
-    quickPlaySub.classList.add('menu__btn-subtitle');
-    quickPlaySub.textContent = '3v3 Half Court';
-    quickPlayBtn.appendChild(quickPlaySub);
-    wrapper.appendChild(quickPlayBtn);
-
-    // Main Game button — primary style, 5v5 full court
-    const mainGameBtn = document.createElement('button');
-    mainGameBtn.classList.add('menu__btn', 'menu__btn--primary');
-    mainGameBtn.addEventListener('click', () => this.onAction('main-game'));
-    const mainGameLabel = document.createElement('span');
-    mainGameLabel.classList.add('menu__btn-label');
-    mainGameLabel.textContent = 'MAIN GAME';
-    mainGameBtn.appendChild(mainGameLabel);
-    const mainGameSub = document.createElement('span');
-    mainGameSub.classList.add('menu__btn-subtitle');
-    mainGameSub.textContent = '5v5 Full Court';
-    mainGameBtn.appendChild(mainGameSub);
-    wrapper.appendChild(mainGameBtn);
+    // Play button — single option, 5v5 full court
+    const playBtn = document.createElement('button');
+    playBtn.classList.add('menu__btn', 'menu__btn--primary');
+    playBtn.addEventListener('click', () => this.onAction('play'));
+    const playLabel = document.createElement('span');
+    playLabel.classList.add('menu__btn-label');
+    playLabel.textContent = 'PLAY';
+    playBtn.appendChild(playLabel);
+    const playSub = document.createElement('span');
+    playSub.classList.add('menu__btn-subtitle');
+    playSub.textContent = '5v5 Full Court';
+    playBtn.appendChild(playSub);
+    wrapper.appendChild(playBtn);
 
     // Settings button
     const settingsBtn = document.createElement('button');
