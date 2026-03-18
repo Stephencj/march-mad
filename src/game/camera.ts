@@ -79,10 +79,10 @@ export class CameraSystem {
       const clampedZ = THREE.MathUtils.clamp(trackPosition.z, -courtZ, courtZ);
 
       // Dynamic zoom based on player spread
-      const spreadFactor = Math.max(this.playerSpreadZ / 28, this.playerSpreadX / 15);
-      const minDist = 10; // closest zoom
-      const maxDist = 18; // furthest zoom
-      const dynamicDist = minDist + (maxDist - minDist) * Math.max(0.2, Math.min(1, spreadFactor));
+      const spreadFactor = Math.max(this.playerSpreadZ / 20, this.playerSpreadX / 12);
+      const minDist = 8;  // closest zoom (tight on action)
+      const maxDist = 16; // furthest zoom (full court spread)
+      const dynamicDist = minDist + (maxDist - minDist) * Math.max(0.05, Math.min(1, spreadFactor));
       const dynamicHeight = dynamicDist * 0.6; // proportional height
 
       this.targetPosition.set(dynamicDist, dynamicHeight, clampedZ);
