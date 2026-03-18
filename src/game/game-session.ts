@@ -56,6 +56,7 @@ export class GameSession {
   private inboundTimer = 0;
   private inbounderId: string | null = null;
   private inboundTargetId: string | null = null;
+  private passProtectionTimer = 0;
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
     this.events = events;
@@ -65,9 +66,9 @@ export class GameSession {
     this.matchEngine = new MatchEngine(events, homeTeam, awayTeam);
     this.powerupSystem = new PowerupSystem(events);
 
-    this.events.on('shot-clock-violation', () => {
+    this.events.on('shot-clock-violation', (data: { violatingTeam: string }) => {
       // Proper turnover — inbound to the other team
-      const receivingTeam = this.matchEngine.state.possession;
+      const receivingTeam: 'home' | 'away' = data.violatingTeam === 'home' ? 'away' : 'home';
       this.enterDeadBall(receivingTeam);
       this.events.emit('splash', { text: 'SHOT CLOCK!', color: '#ff6600' });
     });
@@ -181,7 +182,7 @@ export class GameSession {
     // Give ball to first home player
     this.setBallHolder(this.homePlayers[0].data.id);
     this.matchEngine.state.phase = 'playing';
-    this.matchEngine.state.possession = 'home';
+    this.changePossession('home', 'game start');
   }
 
   update(dt: number): void {
@@ -198,6 +199,19 @@ export class GameSession {
         }
         this.inbounderId = null;
         this.inboundTargetId = null;
+      }
+    }
+
+    // Pass protection timer
+    if (this.passProtectionTimer > 0) {
+      this.passProtectionTimer -= dt;
+    }
+
+    // GLOBAL DESYNC CHECK: runs every frame, not just during runAI
+    if (this.ball.heldBy) {
+      const holderTeam = this.getPlayerTeam(this.ball.heldBy);
+      if (this.matchEngine.state.possession !== holderTeam) {
+        this.changePossession(holderTeam, `desync fix — ${this.ball.heldBy} holds ball`);
       }
     }
 
@@ -331,7 +345,7 @@ export class GameSession {
           if (d < nearestDist) { nearestDist = d; nearest = p; }
         }
         this.setBallHolder(nearest.data.id);
-        this.matchEngine.state.possession = otherTeam;
+        this.changePossession(otherTeam, 'ball out of bounds');
       }
     }
 
@@ -395,6 +409,7 @@ export class GameSession {
   }
 
   handleMadeShot(team: Possession, shotType: ShotType): void {
+    console.log(`[SCORE] ${team} scores ${shotType}`);
     // Trigger slam cam for dunks
     const scoringHoop = this.getTeamAttackHoop(team);
     if (shotType === 'dunk' || shotType === 'alley-oop' || shotType === 'powerup-dunk') {
@@ -465,6 +480,16 @@ export class GameSession {
   getPlayerTeam(playerId: string | null): Possession {
     if (!playerId) return 'home';
     return this.homePlayers.some(p => p.data.id === playerId) ? 'home' : 'away';
+  }
+
+  private changePossession(newTeam: 'home' | 'away', reason: string): void {
+    const oldTeam = this.matchEngine.state.possession;
+    if (oldTeam !== newTeam) {
+      console.log(`[POSSESSION] ${oldTeam} → ${newTeam} (${reason})`);
+    }
+    this.matchEngine.state.possession = newTeam;
+    this.matchEngine.resetShotClock();
+    this.aiShootTimer = 0;
   }
 
   getGameOverData(): GameOverData {
@@ -587,13 +612,9 @@ export class GameSession {
             human.loseBall();
             this.ball.passTo(teammate.position);
             this.pendingPassTarget = teammate.data.id;
+            this.passProtectionTimer = 0.3;
 
-            human.isHumanControlled = false;
-            this.playerAIs.set(human.data.id, new PlayerAI(human.data.stats, human.data.personality));
-
-            this.humanPlayerId = teammate.data.id;
-            teammate.isHumanControlled = true;
-            this.playerAIs.delete(teammate.data.id);
+            this.switchHumanControl(teammate.data.id);
           }
         }
         break;
@@ -616,6 +637,7 @@ export class GameSession {
   // --- Dead Ball System (replaces resetAfterScore + hoop swapping) ---
 
   private enterDeadBall(receivingTeam: 'home' | 'away'): void {
+    console.log(`[DEAD BALL] inbound to ${receivingTeam}`);
     this.shotDetector.reset();
 
     // No pause — instant positioning and resume
@@ -643,10 +665,8 @@ export class GameSession {
     this.inboundTargetId = pg.data.id;
 
     // Resume to 'playing' phase immediately — other players move naturally during live play
-    this.matchEngine.checkBallComplete(receivingTeam);
-    this.matchEngine.resetShotClock();
+    this.changePossession(receivingTeam, 'dead ball inbound');
     this.matchEngine.state.phase = 'playing';
-    this.aiShootTimer = 0;
     this.deadBallReceivingTeam = null;
   }
 
@@ -924,6 +944,7 @@ export class GameSession {
         player.loseBall();
         this.ball.passTo(openMate.position);
         this.pendingPassTarget = openMate.data.id;
+        this.passProtectionTimer = 0.3;
         // DO NOT reset aiShootTimer here — let it accumulate
       }
       return;
@@ -943,31 +964,6 @@ export class GameSession {
       const dz = ballTarget.z - player.position.z;
       if (Math.abs(dx) > 0.1 || Math.abs(dz) > 0.1) {
         player.group.rotation.y = Math.atan2(dx, dz);
-      }
-    }
-  }
-
-  private updateDefensiveAutoSwitch(dt: number): void {
-    this.autoSwitchCooldown = Math.max(0, this.autoSwitchCooldown - dt);
-    if (this.matchEngine.state.phase === 'playing' && this.autoSwitchCooldown <= 0) {
-      const humanTeam = this.getPlayerTeam(this.humanPlayerId);
-      const isOnDefense = this.matchEngine.state.possession !== humanTeam;
-
-      if (isOnDefense) {
-        const ballHolder = this.getAllPlayers().find(p => p.hasBall);
-        if (ballHolder) {
-          const humanTeamPlayers = humanTeam === 'home' ? this.homePlayers : this.awayPlayers;
-          let nearestId = this.humanPlayerId;
-          let nearestDist = Infinity;
-          for (const p of humanTeamPlayers) {
-            const d = p.distanceTo(ballHolder.position);
-            if (d < nearestDist) { nearestDist = d; nearestId = p.data.id; }
-          }
-          if (nearestId !== this.humanPlayerId) {
-            this.switchHumanControl(nearestId);
-            this.autoSwitchCooldown = 0.5;
-          }
-        }
       }
     }
   }
@@ -1007,14 +1003,43 @@ export class GameSession {
   }
 
   private checkBallPickup(): void {
+    const ballPos = this.ball.mesh.position;
+    let closest: GamePlayer | null = null;
+    let closestDist = 1.0; // pickup radius
+
     for (const p of this.getAllPlayers()) {
-      if (p.distanceTo(this.ball.mesh.position) < 1.0) {
-        this.setBallHolder(p.data.id);
-        if (this.pendingPassTarget === p.data.id) {
-          this.pendingPassTarget = null;
+      const d = p.distanceTo(ballPos);
+      if (d < closestDist) {
+        // During pass protection, only same-team players can pick up
+        if (this.passProtectionTimer > 0 && this.pendingPassTarget) {
+          const passTeam = this.getPlayerTeam(this.pendingPassTarget);
+          const playerTeam = this.getPlayerTeam(p.data.id);
+          if (playerTeam !== passTeam) continue; // skip opponents during protection
         }
-        break;
+        closestDist = d;
+        closest = p;
       }
+    }
+
+    if (closest) {
+      this.setBallHolder(closest.data.id);
+
+      // Update possession to match who actually has the ball
+      const pickupTeam = this.getPlayerTeam(closest.data.id);
+      if (this.matchEngine.state.possession !== pickupTeam) {
+        this.changePossession(pickupTeam, `ball pickup by ${closest.data.id}`);
+      }
+
+      // Auto-switch human control on rebound/loose ball pickup
+      const humanTeam = this.getPlayerTeam(this.humanPlayerId);
+      if (pickupTeam === humanTeam && closest.data.id !== this.humanPlayerId && !this.pendingPassTarget) {
+        this.switchHumanControl(closest.data.id);
+      }
+
+      if (this.pendingPassTarget === closest.data.id) {
+        this.pendingPassTarget = null;
+      }
+      this.passProtectionTimer = 0;
     }
   }
 
@@ -1030,10 +1055,18 @@ export class GameSession {
       ballHolder.loseBall();
       ballHolder.recordStat('turnovers', 1);
       this.setBallHolder(stealer.data.id);
+      // Update possession on steal
+      const stealerTeam = this.getPlayerTeam(stealer.data.id);
+      if (this.matchEngine.state.possession !== stealerTeam) {
+        this.changePossession(stealerTeam, `steal by ${stealer.data.id}`);
+      }
       this.events.emit('splash', { text: 'STEAL!', color: '#f39c12' });
     } else if (roll < 0.6) {
       const stealerTeam = this.getPlayerTeam(stealer.data.id);
       this.matchEngine.callFoul(stealerTeam);
+      // Foul results in dead ball — receiving team inbounds
+      const receivingTeam: 'home' | 'away' = stealerTeam === 'home' ? 'away' : 'home';
+      this.enterDeadBall(receivingTeam);
     }
   }
 
@@ -1049,12 +1082,6 @@ export class GameSession {
       }
     }
     return nearest;
-  }
-
-  private getDefensiveAssignment(player: GamePlayer): GamePlayer | null {
-    const opponents = this.isHomePlayer(player) ? this.awayPlayers : this.homePlayers;
-    const playerIdx = (this.isHomePlayer(player) ? this.homePlayers : this.awayPlayers).indexOf(player);
-    return opponents[playerIdx] ?? opponents[0];
   }
 
   private isHomePlayer(player: GamePlayer): boolean {

@@ -92,7 +92,7 @@ export class MatchEngine {
       if (this.state.shotClockSeconds <= 0) {
         this.state.shotClockSeconds = 24;
         const violatingTeam = this.state.possession;
-        this.state.possession = this.state.possession === 'home' ? 'away' : 'home';
+        // Do NOT flip possession here — game-session handles it via the event
         this.events.emit('shot-clock-violation', { violatingTeam });
       }
     }

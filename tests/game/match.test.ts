@@ -95,12 +95,16 @@ describe('MatchEngine', () => {
     expect(gameOver).toHaveBeenCalledWith(expect.objectContaining({ winner: 'home' }));
   });
 
-  it('shot clock violation causes turnover after 24 seconds', () => {
-    const { match } = createMatch();
+  it('shot clock violation emits event after 24 seconds (possession flip handled by game-session)', () => {
+    const { match, events } = createMatch();
+    const violationHandler = vi.fn();
+    events.on('shot-clock-violation', violationHandler);
     match.state.possession = 'home';
     match.tickClock(25); // exceeds 24 seconds
-    expect(match.state.possession).toBe('away');
+    // match.ts no longer flips possession — game-session handles it via the event
+    expect(match.state.possession).toBe('home');
     expect(match.state.shotClockSeconds).toBe(24);
+    expect(violationHandler).toHaveBeenCalledWith({ violatingTeam: 'home' });
   });
 
   it('shot clock resets on score', () => {
