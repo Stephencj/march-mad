@@ -350,9 +350,8 @@ function animate() {
 
     if (!ball.heldBy && dunkReleased) {
       ball.update(dt);
-    } else if (ball.heldBy) {
-      ball.followHolder(player.group, false);
     }
+    // NOTE: ball.followHolder for dunk is called AFTER player positioning below
     ball.mesh.visible = true;
 
     // Body swing during rim hang handled in the positioning block below
@@ -465,6 +464,12 @@ function animate() {
       player.group.position.y = 0;
     }
     player.group.position.x = 0;
+
+    // Update ball to track hand AFTER player position is set
+    if (currentAnim === 'dunk' && ball.heldBy && !dunkReleased) {
+      player.group.updateWorldMatrix(true, true);
+      ball.followHolder(player.group, false);
+    }
   }
 
   // Camera orbit
