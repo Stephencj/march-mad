@@ -113,17 +113,17 @@ describe('GamePlayer - ball handling', () => {
 });
 
 describe('GamePlayer - animation & indicators', () => {
-  it('possession ring is visible only when holding ball', () => {
+  it('possession ring is visible only when human-controlled', () => {
     const player = makePlayer();
     player.animate(1 / 60);
     const ring = player.group.getObjectByName('possession-ring')!;
     expect(ring.visible).toBe(false);
 
-    player.giveBall();
+    player.isHumanControlled = true;
     player.animate(1 / 60);
     expect(ring.visible).toBe(true);
 
-    player.loseBall();
+    player.isHumanControlled = false;
     player.animate(1 / 60);
     expect(ring.visible).toBe(false);
   });
@@ -153,7 +153,7 @@ describe('GamePlayer - animation & indicators', () => {
 
   it('moveToward calls animate automatically', () => {
     const player = makePlayer();
-    player.giveBall();
+    player.isHumanControlled = true;
     player.moveToward(new THREE.Vector3(10, 0, 0), 1 / 60);
     // Possession ring should be updated by animate called inside moveToward
     const ring = player.group.getObjectByName('possession-ring')!;
@@ -162,7 +162,7 @@ describe('GamePlayer - animation & indicators', () => {
 
   it('moveByInput calls animate automatically', () => {
     const player = makePlayer();
-    player.giveBall();
+    player.isHumanControlled = true;
     player.moveByInput(1, 0, 1 / 60);
     const ring = player.group.getObjectByName('possession-ring')!;
     expect(ring.visible).toBe(true);

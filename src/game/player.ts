@@ -469,7 +469,7 @@ export class GamePlayer {
     // Possession ring pulse
     const ring = this.group.getObjectByName('possession-ring');
     if (ring) {
-      ring.visible = this.hasBall;
+      ring.visible = this.isHumanControlled;
       if (this.hasBall) {
         const pulse = 1 + Math.sin(this.animTime * 4) * 0.15;
         ring.scale.set(pulse, 1, pulse);

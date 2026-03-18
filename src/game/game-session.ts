@@ -366,7 +366,14 @@ export class GameSession {
     const humanTeam = this.getPlayerTeam(this.humanPlayerId);
     const human = this.getHumanPlayer();
     const ballHolder = this.getAllPlayers().find(p => p.hasBall);
-    const trackTarget = ballHolder?.position ?? human.position;
+    let trackTarget: THREE.Vector3;
+    if (possession === humanTeam) {
+      // On offense: track whoever has the ball (human or AI teammate)
+      trackTarget = ballHolder?.position ?? human.position;
+    } else {
+      // On defense: ALWAYS track human player
+      trackTarget = human.position;
+    }
 
     let mode: CameraMode;
     if (this.ball.isInFlight) {
@@ -588,8 +595,18 @@ export class GameSession {
     }
     this.lastPossession = possession;
 
+    // LOOSE BALL — everyone chases it
+    const ballIsLoose = !this.ball.heldBy && !this.ball.isInFlight;
+
     for (const player of this.getAllPlayers()) {
       if (player.data.id === this.humanPlayerId) continue; // Skip human
+
+      if (ballIsLoose) {
+        // ALL AI players chase the loose ball
+        player.aiTarget = this.ball.mesh.position.clone();
+        player.aiMovementState = 'reacting'; // urgent movement
+        continue; // skip normal offense/defense logic
+      }
 
       // Determine if this player's team has possession (on offense)
       const isHome = this.isHomePlayer(player);
@@ -656,6 +673,21 @@ export class GameSession {
 
       // --- OFFENSIVE AI WITHOUT BALL: V-Cuts and patience ---
       if (isOnOffense && !player.hasBall) {
+        // First: get to the offensive end of the court
+        const distToHoopOffBall = player.distanceTo(this.attackingHoop);
+
+        if (distToHoopOffBall > 10) {
+          // Too far from the hoop — advance down court
+          player.aiTarget = new THREE.Vector3(
+            this.attackingHoop.x + (Math.random() - 0.5) * 6, // spread across width
+            0,
+            this.attackingHoop.z + (this.attackingHoop.z > 0 ? -5 : 5) // approach from behind arc
+          );
+          player.aiMovementState = 'moving';
+          continue;
+        }
+
+        // In offensive zone — do V-cuts
         // V-Cut system: hold position, then cut, then return
         if (player.aiMovementState === 'holding' && player.aiHoldTimer <= 0) {
           // Time to make a move — pick a V-cut or reposition
@@ -692,6 +724,16 @@ export class GameSession {
 
       // --- OFFENSIVE AI WITH BALL: patience then act ---
       if (isOnOffense && player.hasBall) {
+        const distToHoopBallHandler = player.distanceTo(this.attackingHoop);
+
+        // If far from hoop, advance first before shooting
+        if (distToHoopBallHandler > 8) {
+          player.aiTarget = this.attackingHoop.clone();
+          player.aiMovementState = 'moving';
+          continue; // don't shoot from too far
+        }
+
+        // Close enough — survey and decide
         // Ball handler — survey for 0.5-1s then act
         if (player.aiMovementState === 'holding' && player.aiHoldTimer > 0) {
           // Holding ball, surveying — don't move, let timer run

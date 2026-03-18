@@ -20,6 +20,8 @@ export class KeyboardControls {
       this.emitGesture({ type: 'tap', power: 0, direction: { x: 0, y: 0 } });
     } else if (code === 'KeyF') {
       this.emitGesture({ type: 'jump', power: 1, direction: { x: 0, y: 0 } });
+    } else if (code === 'KeyG') {
+      this.emitGesture({ type: 'swipe-down', power: 1, direction: { x: 0, y: 1 } });
     } else if (code === 'ShiftLeft' || code === 'ShiftRight') {
       // Sprint toggle handled via key state, not gesture
     }
