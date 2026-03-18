@@ -30,12 +30,31 @@ export class HUD {
 
     this.scoreEl = document.createElement('div');
     this.scoreEl.dataset.hudRole = 'score';
+    Object.assign(this.scoreEl.style, {
+      position: 'absolute', top: '10px', left: '50%',
+      transform: 'translateX(-50%)', fontSize: '32px',
+      fontWeight: 'bold', color: 'white',
+      textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+      fontFamily: 'sans-serif', zIndex: '10',
+    });
 
     this.clockEl = document.createElement('div');
     this.clockEl.dataset.hudRole = 'clock';
+    Object.assign(this.clockEl.style, {
+      position: 'absolute', top: '50px', left: '50%',
+      transform: 'translateX(-50%)', fontSize: '20px',
+      color: 'white', textShadow: '1px 1px 3px rgba(0,0,0,0.8)',
+      fontFamily: 'sans-serif', zIndex: '10',
+    });
 
     this.shotClockEl = document.createElement('div');
     this.shotClockEl.dataset.hudRole = 'shot-clock';
+    Object.assign(this.shotClockEl.style, {
+      position: 'absolute', top: '10px', right: '20px',
+      fontSize: '24px', fontWeight: 'bold', color: 'white',
+      textShadow: '1px 1px 3px rgba(0,0,0,0.8)',
+      fontFamily: 'sans-serif', zIndex: '10',
+    });
 
     this.powerupEl = document.createElement('div');
     this.powerupEl.dataset.hudRole = 'powerup';
