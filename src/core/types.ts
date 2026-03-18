@@ -70,7 +70,7 @@ export interface TeamData {
 }
 
 // --- Match ---
-export type GamePhase = 'pre-game' | 'playing' | 'check-ball' | 'foul' | 'post-game';
+export type GamePhase = 'pre-game' | 'playing' | 'check-ball' | 'foul' | 'transitioning' | 'post-game';
 export type Possession = 'home' | 'away';
 
 export interface MatchState {

@@ -53,6 +53,8 @@ export class GameSession {
   private powerupSystem: PowerupSystem;
   private powerupVisuals = new PowerupVisuals();
   lastPowerupPickup: string | null = null;
+  private transitionTimer = 0;
+  private pendingReceivingTeam: 'home' | 'away' | null = null;
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
     this.events = events;
@@ -168,6 +170,48 @@ export class GameSession {
   }
 
   update(dt: number): void {
+    // Handle transition phase (after score)
+    if (this.matchEngine.state.phase === 'transitioning') {
+      this.transitionTimer -= dt;
+
+      // Move all players toward their targets
+      for (const p of this.getAllPlayers()) {
+        if (p.aiTarget) {
+          p.moveToward(p.aiTarget, dt);
+        }
+        p.animate(dt);
+      }
+
+      // When transition completes
+      if (this.transitionTimer <= 0) {
+        if (this.pendingReceivingTeam) {
+          const receiver = this.pendingReceivingTeam === 'home' ? this.homePlayers[0] : this.awayPlayers[0];
+
+          // Position ball for inbound
+          if (this.mode === '5v5') {
+            const baselineZ = this.pendingReceivingTeam === 'home' ? -13 : 13;
+            this.ball.mesh.position.set(0, 1, baselineZ * 0.8);
+          } else {
+            this.ball.mesh.position.set(0, 1, 5); // check-ball line
+          }
+          this.ball.velocity.set(0, 0, 0);
+          this.ball.mesh.visible = true;
+          this.setBallHolder(receiver.data.id);
+          this.matchEngine.checkBallComplete(this.pendingReceivingTeam);
+          this.matchEngine.resetShotClock();
+          this.pendingReceivingTeam = null;
+        }
+
+        // Stop sprinting, go to holding
+        for (const p of this.getAllPlayers()) {
+          p.isSprinting = false;
+          p.aiMovementState = 'holding';
+          p.aiHoldTimer = 0.5;
+        }
+      }
+      return; // Skip normal game logic during transition
+    }
+
     // Update ball position
     if (this.ball.heldBy) {
       const holder = this.getPlayerById(this.ball.heldBy);
@@ -362,6 +406,7 @@ export class GameSession {
   }
 
   processInput(input: ControlInput, dt: number): void {
+    if (this.matchEngine.state.phase === 'transitioning') return;
     const human = this.getHumanPlayer();
     if (!human) return;
 
@@ -565,58 +610,40 @@ export class GameSession {
 
   private resetAfterScore(receivingTeam: Possession): void {
     this.shotDetector.reset();
+    this.matchEngine.state.phase = 'transitioning';
+    this.transitionTimer = 2.0;
+    this.pendingReceivingTeam = receivingTeam;
 
+    // Swap hoops in 5v5
     if (this.mode === '5v5') {
-      // Swap attacking/defending hoops
       const temp = this.attackingHoop.clone();
       this.attackingHoop.copy(this.defendingHoop);
       this.defendingHoop.copy(temp);
       this.shotDetector.setHoopPosition(this.attackingHoop);
-
-      // Ball to receiving team's first player at their baseline
-      const baselineZ = receivingTeam === 'home' ? -13 : 13;
-      this.ball.mesh.position.set(0, 1, baselineZ * 0.8); // slightly in from baseline
-    } else {
-      // Move ball to check-ball position
-      this.ball.mesh.position.set(0, 1, COURT_DIMENSIONS.checkBallLine);
     }
 
-    this.ball.velocity.set(0, 0, 0);
-    // Give ball to receiving team's first player
-    const receiver = receivingTeam === 'home' ? this.homePlayers[0] : this.awayPlayers[0];
-    this.setBallHolder(receiver.data.id);
-    this.matchEngine.checkBallComplete(receivingTeam);
+    // Set target positions for all players to sprint to
+    const homeTargets = this.mode === '5v5'
+      ? [new THREE.Vector3(0,0,-8), new THREE.Vector3(-4,0,-5), new THREE.Vector3(4,0,-5), new THREE.Vector3(-2,0,-3), new THREE.Vector3(2,0,-3)]
+      : [new THREE.Vector3(-3,0,2), new THREE.Vector3(3,0,2), new THREE.Vector3(0,0,5)];
+    const awayTargets = this.mode === '5v5'
+      ? [new THREE.Vector3(0,0,8), new THREE.Vector3(-4,0,5), new THREE.Vector3(4,0,5), new THREE.Vector3(-2,0,3), new THREE.Vector3(2,0,3)]
+      : [new THREE.Vector3(-2,0,-2), new THREE.Vector3(2,0,-2), new THREE.Vector3(0,0,-4)];
 
-    // Reset all AI to holding with staggered timers
-    for (const p of this.getAllPlayers()) {
-      if (p.data.id !== this.humanPlayerId) {
-        p.aiMovementState = 'holding';
-        p.aiHoldTimer = 0.5 + Math.random() * 1.5;
-      }
-    }
+    this.homePlayers.forEach((p, i) => {
+      p.aiTarget = homeTargets[i] ?? homeTargets[0];
+      p.aiMovementState = 'reacting';
+      p.isSprinting = true;
+    });
+    this.awayPlayers.forEach((p, i) => {
+      p.aiTarget = awayTargets[i] ?? awayTargets[0];
+      p.aiMovementState = 'reacting';
+      p.isSprinting = true;
+    });
 
-    // Reset player positions to starting formation
-    if (this.mode === '5v5') {
-      const homePositions = [
-        new THREE.Vector3(0, 0, -8), new THREE.Vector3(-4, 0, -5),
-        new THREE.Vector3(4, 0, -5), new THREE.Vector3(-2, 0, -3), new THREE.Vector3(2, 0, -3),
-      ];
-      const awayPositions = [
-        new THREE.Vector3(0, 0, 8), new THREE.Vector3(-4, 0, 5),
-        new THREE.Vector3(4, 0, 5), new THREE.Vector3(-2, 0, 3), new THREE.Vector3(2, 0, 3),
-      ];
-      this.homePlayers.forEach((p, i) => {
-        if (homePositions[i]) p.group.position.copy(homePositions[i]);
-      });
-      this.awayPlayers.forEach((p, i) => {
-        if (awayPositions[i]) p.group.position.copy(awayPositions[i]);
-      });
-    } else {
-      const homePos = [new THREE.Vector3(-3, 0, 2), new THREE.Vector3(3, 0, 2), new THREE.Vector3(0, 0, 5)];
-      const awayPos = [new THREE.Vector3(-2, 0, -2), new THREE.Vector3(2, 0, -2), new THREE.Vector3(0, 0, -4)];
-      this.homePlayers.forEach((p, i) => { if (homePos[i]) p.group.position.copy(homePos[i]); });
-      this.awayPlayers.forEach((p, i) => { if (awayPos[i]) p.group.position.copy(awayPos[i]); });
-    }
+    // Release ball temporarily
+    this.ball.release();
+    this.ball.mesh.visible = false; // hide during transition
   }
 
   private checkBallPickup(): void {
