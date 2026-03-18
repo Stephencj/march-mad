@@ -88,6 +88,17 @@ describe('GameSession', () => {
     expect(target.trackPosition).toBeDefined();
   });
 
+  it('provides game over data', () => {
+    const events = new EventBus();
+    const session = new GameSession(events, makeTeam('h', 'Home'), makeTeam('a', 'Away'), 'h-1');
+    session.start();
+    session.handleMadeShot('home', 'three-pointer');
+    const data = session.getGameOverData();
+    expect(data.homeScore).toBe(2);
+    expect(data.humanTeam).toBe('home');
+    expect(data.xpEarned).toBeGreaterThan(0);
+  });
+
   it('detects made shot and updates score', () => {
     const events = new EventBus();
     const scoreHandler = vi.fn();

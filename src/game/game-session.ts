@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { TeamData, Possession, ShotType, GameMode } from '@/core/types';
+import type { TeamData, Possession, ShotType, GameMode, GameOverData } from '@/core/types';
 import type { EventBus } from '@/core/events';
 import type { ControlInput, GestureResult } from './controls';
 import type { CameraMode } from './camera';
@@ -12,6 +12,7 @@ import { TeamAI, type TeamPlay } from '@/ai/team-ai';
 import { COURT_DIMENSIONS } from './court';
 import { FULL_COURT_DIMENSIONS } from './full-court';
 import { getFormation5v5 } from '@/ai/formations-5v5';
+import { ProgressionSystem } from '@/meta/progression';
 
 interface CameraInfo {
   mode: CameraMode;
@@ -338,6 +339,36 @@ export class GameSession {
   getPlayerTeam(playerId: string | null): Possession {
     if (!playerId) return 'home';
     return this.homePlayers.some(p => p.data.id === playerId) ? 'home' : 'away';
+  }
+
+  getGameOverData(): GameOverData {
+    const humanPlayer = this.getHumanPlayer();
+    const humanTeam = this.getPlayerTeam(this.humanPlayerId);
+    const winner: 'home' | 'away' = this.matchEngine.state.homeScore >= this.matchEngine.state.awayScore ? 'home' : 'away';
+    const humanWon = winner === humanTeam;
+
+    const xp = ProgressionSystem.calculateXP({
+      won: humanWon,
+      points: humanPlayer.performanceScore,
+      assists: 0,
+      subbedIn: false,
+    });
+
+    return {
+      winner,
+      homeScore: this.matchEngine.state.homeScore,
+      awayScore: this.matchEngine.state.awayScore,
+      humanTeam,
+      humanWon,
+      humanStats: {
+        points: humanPlayer.performanceScore,
+        assists: 0,
+        steals: 0,
+      },
+      xpEarned: xp,
+      coinsEarned: humanWon ? 50 : 10,
+      gameDuration: 180 - this.matchEngine.state.clockSeconds,
+    };
   }
 
   private switchHumanControl(newPlayerId: string): void {
