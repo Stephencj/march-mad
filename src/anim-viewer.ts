@@ -320,17 +320,25 @@ function animate() {
     }
     ball.mesh.visible = true;
 
-    // Body swing during rim hang (0.45-0.65) — swing forward and back on the arm
+    // Body swing during rim hang (0.45-0.65) — pivot from the ARM (top), not feet
+    // To swing from the top: offset the body DOWN, rotate, then offset back UP
+    // This creates a pendulum effect where the hand stays fixed and the body swings below
     if (dunkProg >= 0.45 && dunkProg < 0.65) {
-      const hangT = (dunkProg - 0.45) / 0.2; // 0 to 1
-      // Swing: forward, back, settle — like pendulum
-      const swing = Math.sin(hangT * Math.PI * 2) * 0.25; // one full swing cycle
-      player.group.rotation.x = swing; // rotate whole body around X (forward/back tilt)
+      const hangT = (dunkProg - 0.45) / 0.2;
+      const swing = Math.sin(hangT * Math.PI * 2) * 0.3; // one full swing
+      // Pivot from arm height (~1.2 + player height ~2.0 = rim area)
+      // Move the Z position based on the swing angle (pendulum at top)
+      const pendulumLength = 1.5; // approximate distance from hand to center of mass
+      player.group.position.z = hoopZ + Math.sin(swing) * pendulumLength;
+      // Tilt the body with the swing
+      player.group.rotation.x = swing;
+    } else if (dunkProg < 0.45) {
+      player.group.rotation.x = 0;
     } else {
       player.group.rotation.x = 0;
     }
   } else {
-    player.group.rotation.x = 0; // ensure no leftover rotation
+    player.group.rotation.x = 0;
   }
 
   // Ball visibility and position for dribble animations

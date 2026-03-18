@@ -1318,19 +1318,29 @@ export class GamePlayer {
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
         } else if (progress < 0.35) {
-          // HANG TIME: MJ pose — deep knee bend, legs wide apart and split
-          bodyPivot.rotation.x = -0.1; // slight back arch
-          shoulderR.rotation.x = -2.6;
-          shoulderL.rotation.x = -2.6;
-          elbowR.rotation.x = -0.1;
-          elbowL.rotation.x = -0.1;
+          // HANG TIME: MJ pose — RIGHT arm stretches UP with ball, getting bigger
+          const hangT = (progress - 0.15) / 0.2;
+          bodyPivot.rotation.x = -0.1;
+          // Right arm reaches UP high with ball — stretches dramatically
+          shoulderR.rotation.x = -2.6 - hangT * 0.3; // goes higher (-2.9)
+          elbowR.rotation.x = -0.05; // nearly straight — reaching for rim
+          // Left arm out for balance
+          shoulderL.rotation.x = -0.8;
+          shoulderL.rotation.z = -0.3;
+          elbowL.rotation.x = -0.2;
           shoulderR.rotation.z = 0;
-          shoulderL.rotation.z = 0;
-          kneeL.rotation.x = 0.7; // deep knee bend
-          kneeR.rotation.x = 0.8; // slightly more on trailing leg
-          hipL.rotation.x = -0.3; // left leg forward
-          hipR.rotation.x = 0.4; // right leg back
-          hipL.rotation.z = -0.2; // spread out
+          // Scale up the right arm — getting bigger as he winds up to dunk
+          const armScale = 1 + hangT * 0.3; // grows from 1.0 to 1.3
+          const upperArmR = this.group.getObjectByName('upper-arm-right');
+          const forearmR = this.group.getObjectByName('forearm-right');
+          if (upperArmR) upperArmR.scale.set(armScale, armScale * 1.1, armScale);
+          if (forearmR) forearmR.scale.set(armScale * 1.1, armScale * 1.2, armScale * 1.1);
+          // MJ legs
+          kneeL.rotation.x = 0.7;
+          kneeR.rotation.x = 0.8;
+          hipL.rotation.x = -0.3;
+          hipR.rotation.x = 0.4;
+          hipL.rotation.z = -0.2;
           hipR.rotation.z = 0.2;
         } else if (progress < 0.45) {
           // SLAM: arms drive down, body curls forward
