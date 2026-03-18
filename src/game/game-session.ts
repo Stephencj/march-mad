@@ -312,9 +312,6 @@ export class GameSession {
     // Make AI players face the ball/ball holder
     this.updateAIFacing();
 
-    // Auto-switch human control on defense (with cooldown to prevent jitter)
-    this.updateDefensiveAutoSwitch(dt);
-
     // Update match engine clock
     if (this.matchEngine.state.phase === 'playing') {
       this.matchEngine.tickClock(dt);
@@ -440,11 +437,11 @@ export class GameSession {
       humanTeam,
       humanWon,
       humanStats: {
-        points: humanPlayer.performanceScore,
+        points: humanTeam === 'home' ? this.matchEngine.state.homeScore : this.matchEngine.state.awayScore,
         assists: 0,
         steals: 0,
       },
-      xpEarned: xp,
+      xpEarned: Math.max(0, xp),
       coinsEarned: humanWon ? 50 : 10,
       gameDuration: 180 - this.matchEngine.state.clockSeconds,
     };
@@ -530,46 +527,71 @@ export class GameSession {
 
   private enterDeadBall(receivingTeam: 'home' | 'away'): void {
     this.shotDetector.reset();
-    this.matchEngine.state.phase = 'transitioning';
-    this.deadBallTimer = 1.5;
-    this.deadBallReceivingTeam = receivingTeam;
 
-    // Hide ball during transition
-    this.ball.release();
-    this.ball.mesh.visible = false;
-
-    // Set target positions: scoring team retreats to DEFENSE, receiving team goes to OFFENSE
-    const scoringTeam: 'home' | 'away' = receivingTeam === 'home' ? 'away' : 'home';
-
-    // Scoring team -> retreat to their defensive end
-    const scoringDefendHoop = this.getTeamDefendHoop(scoringTeam);
-    const scoringPlayers = scoringTeam === 'home' ? this.homePlayers : this.awayPlayers;
-    const defenseSpots: [number, number][] = [[0, 3], [-4, 5], [4, 5], [-2, 7], [2, 7]];
-    const defDir = scoringDefendHoop.z > 0 ? -1 : 1;
-    scoringPlayers.forEach((p, i) => {
-      const [x, z] = defenseSpots[i] ?? [0, 5];
-      p.aiTarget = new THREE.Vector3(x, 0, scoringDefendHoop.z + z * defDir);
-    });
-
-    // Receiving team -> go to their offensive end
-    const receivingAttackHoop = this.getTeamAttackHoop(receivingTeam);
+    // No pause — instant inbound
     const receivingPlayers = receivingTeam === 'home' ? this.homePlayers : this.awayPlayers;
-    const offenseSpots: [number, number][] = [[0, 8], [-5, 6], [4, 5], [-2, 3], [0, 2]];
-    const offDir = receivingAttackHoop.z > 0 ? -1 : 1;
-    receivingPlayers.forEach((p, i) => {
-      const [x, z] = offenseSpots[i] ?? [0, 5];
-      p.aiTarget = new THREE.Vector3(x, 0, receivingAttackHoop.z + z * offDir);
-    });
+    const inbounder = receivingPlayers[receivingPlayers.length - 1]; // last player inbounds
+    const pg = receivingPlayers[0]; // PG receives
+
+    // Position inbounder at baseline (out of bounds)
+    const defendHoop = this.getTeamDefendHoop(receivingTeam);
+    const baselineZ = defendHoop.z + (defendHoop.z < 0 ? -1.5 : 1.5); // just outside baseline
+    inbounder.group.position.set(0, 0, baselineZ);
+
+    // Give ball to inbounder
+    this.ball.release();
+    this.ball.mesh.visible = true;
+    this.setBallHolder(inbounder.data.id);
+
+    // PG positions near baseline to receive
+    const pgZ = defendHoop.z + (defendHoop.z < 0 ? 2 : -2);
+    pg.group.position.set(2, 0, pgZ);
+
+    // Set all other players to their positions immediately
+    this.setTeamPositions(receivingTeam);
+    const scoringTeam: 'home' | 'away' = receivingTeam === 'home' ? 'away' : 'home';
+    this.setTeamPositions(scoringTeam);
+
+    // Resume play immediately
+    this.matchEngine.checkBallComplete(receivingTeam);
+    this.matchEngine.resetShotClock();
+    this.matchEngine.state.phase = 'playing';
+    this.aiShootTimer = 0;
+    this.deadBallReceivingTeam = null;
+
+    // The inbounder will pass to PG on next AI frame (they're holding ball far from hoop)
+  }
+
+  private setTeamPositions(team: 'home' | 'away'): void {
+    const players = team === 'home' ? this.homePlayers : this.awayPlayers;
+    const attackHoop = this.getTeamAttackHoop(team);
+    const possession = this.matchEngine.state.possession;
+    const onOffense = possession === team;
+
+    if (onOffense) {
+      players.forEach((p) => {
+        p.group.position.copy(this.getOffensivePosition(p, attackHoop));
+      });
+    } else {
+      const defendHoop = this.getTeamDefendHoop(team);
+      const defSpots: [number, number][] = [[0, 3], [-3, 5], [3, 5], [-5, 7], [5, 7]];
+      const dir = defendHoop.z > 0 ? -1 : 1;
+      players.forEach((p, i) => {
+        const [x, z] = defSpots[i] ?? [0, 5];
+        p.group.position.set(x, 0, defendHoop.z + z * dir);
+      });
+    }
   }
 
   private resumeAfterDeadBall(): void {
+    // No longer used — enterDeadBall handles everything instantly
+    // Kept for safety in case transitioning phase is somehow reached
     if (!this.deadBallReceivingTeam) return;
 
     const receiver = this.deadBallReceivingTeam === 'home' ? this.homePlayers[0] : this.awayPlayers[0];
 
-    // Ball at the receiving team's BASELINE (far from their attacking hoop)
     const defendHoop = this.getTeamDefendHoop(this.deadBallReceivingTeam);
-    const baselineZ = defendHoop.z + (defendHoop.z < 0 ? 1 : -1); // just inside baseline
+    const baselineZ = defendHoop.z + (defendHoop.z < 0 ? 1 : -1);
 
     this.ball.mesh.position.set(0, 1, baselineZ);
     this.ball.velocity.set(0, 0, 0);
@@ -600,35 +622,24 @@ export class GameSession {
 
       if (onOffense) {
         if (player.hasBall) {
-          // BALL HANDLER: advance toward attacking hoop
+          // BALL HANDLER: always sprint toward attacking hoop
+          player.isSprinting = true;
           const distToHoop = player.distanceTo(attackHoop);
-          if (distToHoop > 6) {
-            // Too far -- drive toward hoop
+          if (distToHoop > 4) {
+            // Drive toward hoop
             target = attackHoop.clone();
           } else {
-            // In range -- AI decides (shoot/pass/drive)
+            // In range — make a decision
             this.handleBallHandlerAI(player, attackHoop, dt);
-            continue; // decision handled inside
+            continue;
           }
         } else {
           // OFF-BALL OFFENSE: go to offensive spot
           target = this.getOffensivePosition(player, attackHoop);
         }
       } else {
-        // DEFENSE: position between assignment and defending hoop
-        const assignment = this.getDefensiveAssignment(player);
-        if (assignment) {
-          target = this.getDefensivePosition(player, assignment, defendHoop);
-
-          // Attempt steal if very close to ball handler
-          if (assignment.hasBall && player.distanceTo(assignment.position) < 1.5) {
-            if (Math.random() < 0.05) {
-              this.attemptSteal(player);
-            }
-          }
-        } else {
-          target = defendHoop.clone();
-        }
+        // DEFENSE: zone-based positioning near defending hoop
+        target = this.getZoneDefensePosition(player, defendHoop);
       }
 
       player.aiTarget = target;
@@ -658,66 +669,125 @@ export class GameSession {
     return new THREE.Vector3(xOff, 0, attackHoop.z + zOff * zDir);
   }
 
-  private getDefensivePosition(_player: GamePlayer, assignment: GamePlayer, defendHoop: THREE.Vector3): THREE.Vector3 {
-    const isBallHandler = assignment.hasBall;
-    // Ball defender: stay close (80% toward man). Off-ball: help side (65%)
-    const blend = isBallHandler ? 0.8 : 0.65;
+  private getDefensivePosition(player: GamePlayer, _assignment: GamePlayer, defendHoop: THREE.Vector3): THREE.Vector3 {
+    const team = this.isHomePlayer(player) ? this.homePlayers : this.awayPlayers;
+    const idx = team.indexOf(player);
 
-    return new THREE.Vector3(
-      assignment.position.x * blend + defendHoop.x * (1 - blend),
-      0,
-      assignment.position.z * blend + defendHoop.z * (1 - blend)
-    );
+    // Defensive formation zones (relative to defending hoop)
+    const defZones: [number, number][] = [
+      [0, 7],   // PG: top of key defense
+      [-4, 5],  // SG: left wing defense
+      [4, 5],   // SF: right wing defense
+      [-2, 3],  // PF: left block
+      [0, 2],   // C: paint protector
+    ];
+
+    const [baseX, baseZ] = defZones[idx] ?? [0, 4];
+    const zDir = defendHoop.z > 0 ? -1 : 1;
+
+    // Base formation position
+    let targetX = baseX;
+    let targetZ = defendHoop.z + baseZ * zDir;
+
+    // Shift toward the ball to provide help defense
+    const ballPos = this.ball.heldBy
+      ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
+      : this.ball.mesh.position;
+
+    // Drift 30% toward the ball position for help defense
+    targetX = targetX * 0.7 + ballPos.x * 0.3;
+    targetZ = targetZ * 0.7 + ballPos.z * 0.3;
+
+    return new THREE.Vector3(targetX, 0, targetZ);
+  }
+
+  private getZoneDefensePosition(player: GamePlayer, defendHoop: THREE.Vector3): THREE.Vector3 {
+    const team = this.isHomePlayer(player) ? this.homePlayers : this.awayPlayers;
+    const idx = team.indexOf(player);
+
+    const zones: [number, number][] = [
+      [0, 7],   // PG: top of key
+      [-4, 5],  // SG: left wing
+      [4, 5],   // SF: right wing
+      [-2, 3],  // PF: left block
+      [0, 2],   // C: paint
+    ];
+
+    const [baseX, baseZ] = zones[idx] ?? [0, 4];
+    const zDir = defendHoop.z > 0 ? -1 : 1;
+
+    let targetX = baseX;
+    let targetZ = defendHoop.z + baseZ * zDir;
+
+    // Drift 30% toward ball for help defense
+    const ballPos = this.ball.heldBy
+      ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
+      : this.ball.mesh.position;
+    targetX = targetX * 0.7 + ballPos.x * 0.3;
+    targetZ = targetZ * 0.7 + ballPos.z * 0.3;
+
+    return new THREE.Vector3(targetX, 0, targetZ);
   }
 
   private handleBallHandlerAI(player: GamePlayer, attackHoop: THREE.Vector3, dt: number): void {
     this.aiShootTimer += dt;
-
-    // Wait at least 1 second before shooting
-    if (this.aiShootTimer < 1) {
-      player.aiTarget = attackHoop.clone();
-      player.moveToward(player.aiTarget, dt);
-      return;
-    }
-
     const dist = player.distanceTo(attackHoop);
     const nearestDef = this.getNearestOpponentDist(player);
 
-    // Simple decision: shoot if open and in range, pass if covered, drive if lane open
+    // Always keep driving toward hoop while deciding
+    player.aiTarget = attackHoop.clone();
+    player.moveToward(player.aiTarget, dt);
+
+    // Wait 0.3s before shooting decisions
+    if (this.aiShootTimer < 0.3) return;
+
+    // Close + open → dunk/layup (100%)
     if (dist < 3 && nearestDef > 2) {
-      // Close and open -- dunk/layup
-      player.loseBall();
-      player.triggerShoot();
+      player.loseBall(); player.triggerShoot();
       this.lastShooterId = player.data.id;
       this.ball.shootAt(attackHoop, 1.0);
       this.aiShootTimer = 0;
-    } else if (dist < 7 && nearestDef > 2.5 && Math.random() < 0.3) {
-      // Mid range, open -- shoot
-      player.loseBall();
-      player.triggerShoot();
+      return;
+    }
+
+    // Mid-range + open → shoot (70%)
+    if (dist < 7 && nearestDef > 2.5 && Math.random() < 0.7) {
+      player.loseBall(); player.triggerShoot();
       this.lastShooterId = player.data.id;
       this.ball.shootAt(attackHoop, 0.5 + Math.random() * 0.3);
       this.aiShootTimer = 0;
-    } else if (nearestDef < 2) {
-      // Covered -- pass to open teammate
-      const teammates = this.getTeammates(player);
-      const openTeammate = teammates.find(t =>
-        this.getNearestOpponentDist(t) > 2.5
-      );
-      if (openTeammate) {
-        player.loseBall();
-        this.ball.passTo(openTeammate.position);
-        this.pendingPassTarget = openTeammate.data.id;
+      return;
+    }
+
+    // Three-point range + very open → shoot (50%)
+    if (dist < 10 && nearestDef > 3 && Math.random() < 0.5) {
+      player.loseBall(); player.triggerShoot();
+      this.lastShooterId = player.data.id;
+      this.ball.shootAt(attackHoop, 0.4 + Math.random() * 0.3);
+      this.aiShootTimer = 0;
+      return;
+    }
+
+    // Contested → 20% shoot anyway, else pass
+    if (nearestDef < 2) {
+      if (dist < 6 && Math.random() < 0.2) {
+        player.loseBall(); player.triggerShoot();
+        this.lastShooterId = player.data.id;
+        this.ball.shootAt(attackHoop, 0.3 + Math.random() * 0.3);
         this.aiShootTimer = 0;
-      } else {
-        // No one open -- keep driving
-        player.aiTarget = attackHoop.clone();
-        player.moveToward(player.aiTarget, dt);
+        return;
       }
-    } else {
-      // Drive closer
-      player.aiTarget = attackHoop.clone();
-      player.moveToward(player.aiTarget, dt);
+      // Pass to open teammate
+      const teammates = this.getTeammates(player);
+      const openMate = teammates.find(t => this.getNearestOpponentDist(t) > 2.5);
+      if (openMate) {
+        player.loseBall();
+        this.ball.passTo(openMate.position);
+        this.pendingPassTarget = openMate.data.id;
+        this.aiShootTimer = 0;
+      }
+      // If no one open, keep driving (already set target above)
+      return;
     }
   }
 

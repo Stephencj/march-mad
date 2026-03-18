@@ -176,7 +176,7 @@ describe('GameSession - 5v5 mode', () => {
     expect(session.getTeamAttackHoop('away').z).toBeCloseTo(awayAttackZ, 0);
   });
 
-  it('auto-switches to nearest defender on defense', () => {
+  it('keeps human control stable on defense (no auto-switch)', () => {
     const events = new EventBus();
     const session = new GameSession(events, makeTeam5('h'), makeTeam5('a'), 'h-1', '5v5');
     session.start();
@@ -185,6 +185,7 @@ describe('GameSession - 5v5 mode', () => {
     // Move h-3 very close to a-1
     session.homePlayers[2].group.position.copy(session.awayPlayers[0].group.position);
     session.update(1/60);
-    expect(session.getHumanPlayer().data.id).toBe('h-3');
+    // Zone defense: human player stays the same, no auto-switch
+    expect(session.getHumanPlayer().data.id).toBe('h-1');
   });
 });
