@@ -81,6 +81,7 @@ export interface MatchState {
   possession: Possession;
   phase: GamePhase;
   clockSeconds: number;
+  shotClockSeconds: number;
   powerupMeter: number;
 }
 

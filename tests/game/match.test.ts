@@ -93,4 +93,19 @@ describe('MatchEngine', () => {
     match.tickClock(180);
     expect(gameOver).toHaveBeenCalledWith(expect.objectContaining({ winner: 'home' }));
   });
+
+  it('shot clock violation causes turnover after 24 seconds', () => {
+    const { match } = createMatch();
+    match.state.possession = 'home';
+    match.tickClock(25); // exceeds 24 seconds
+    expect(match.state.possession).toBe('away');
+    expect(match.state.shotClockSeconds).toBe(24);
+  });
+
+  it('shot clock resets on score', () => {
+    const { match } = createMatch();
+    match.tickClock(20); // 4 seconds left
+    match.score('home', 'layup');
+    expect(match.state.shotClockSeconds).toBe(24);
+  });
 });

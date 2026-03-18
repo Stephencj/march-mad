@@ -20,6 +20,7 @@ export class HUD {
   private container: HTMLElement;
   private scoreEl: HTMLElement;
   private clockEl: HTMLElement;
+  private shotClockEl: HTMLElement;
   private powerupEl: HTMLElement;
   private crowdEl: HTMLElement;
   private subInEl: HTMLElement;
@@ -32,6 +33,9 @@ export class HUD {
 
     this.clockEl = document.createElement('div');
     this.clockEl.dataset.hudRole = 'clock';
+
+    this.shotClockEl = document.createElement('div');
+    this.shotClockEl.dataset.hudRole = 'shot-clock';
 
     this.powerupEl = document.createElement('div');
     this.powerupEl.dataset.hudRole = 'powerup';
@@ -46,6 +50,7 @@ export class HUD {
 
     this.container.appendChild(this.scoreEl);
     this.container.appendChild(this.clockEl);
+    this.container.appendChild(this.shotClockEl);
     this.container.appendChild(this.powerupEl);
     this.container.appendChild(this.crowdEl);
     this.container.appendChild(this.subInEl);
@@ -73,6 +78,12 @@ export class HUD {
     const secs = seconds % 60;
     const formatted = `${mins}:${String(secs).padStart(2, '0')}`;
     this.clockEl.textContent = formatted;
+  }
+
+  updateShotClock(seconds: number): void {
+    const display = Math.ceil(seconds);
+    this.shotClockEl.textContent = String(display);
+    this.shotClockEl.style.color = seconds < 5 ? '#f44336' : '';
   }
 
   showPowerup(type: string, remaining: number): void {
@@ -145,6 +156,7 @@ export class HUD {
   destroy(): void {
     this.container.removeChild(this.scoreEl);
     this.container.removeChild(this.clockEl);
+    this.container.removeChild(this.shotClockEl);
     this.container.removeChild(this.powerupEl);
     this.container.removeChild(this.crowdEl);
     this.container.removeChild(this.subInEl);

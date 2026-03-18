@@ -28,6 +28,7 @@ export class MatchEngine {
       possession: 'home',
       phase: 'playing',
       clockSeconds: 180,
+      shotClockSeconds: 24,
       powerupMeter: 0,
     };
   }
@@ -54,6 +55,8 @@ export class MatchEngine {
       this.state.awayScore += points;
     }
 
+    this.state.shotClockSeconds = 24;
+
     this.events.emit('score', { team, points, shotType });
 
     // Check win condition
@@ -79,6 +82,17 @@ export class MatchEngine {
           this.onFire[team].active = false;
           this.onFire[team].timer = 0;
         }
+      }
+    }
+
+    // Shot clock
+    if (this.state.shotClockSeconds > 0) {
+      this.state.shotClockSeconds -= dt;
+      if (this.state.shotClockSeconds <= 0) {
+        this.state.shotClockSeconds = 24;
+        // Shot clock violation — turnover
+        this.state.possession = this.state.possession === 'home' ? 'away' : 'home';
+        this.events.emit('foul', { team: this.state.possession });
       }
     }
 
@@ -109,6 +123,11 @@ export class MatchEngine {
   checkBallComplete(team: Possession): void {
     this.state.possession = team;
     this.state.phase = 'playing';
+    this.state.shotClockSeconds = 24;
+  }
+
+  resetShotClock(): void {
+    this.state.shotClockSeconds = 24;
   }
 
   getScoreDifferential(): { losingTeam: Possession; deficit: number } | null {
