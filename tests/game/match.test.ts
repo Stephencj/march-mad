@@ -61,6 +61,7 @@ describe('MatchEngine', () => {
     const gameOver = vi.fn();
     events.on('game-over', gameOver);
     match.score('home', 'three-pointer');
+    match.checkBallComplete('away'); // resume playing phase so clock ticks
     match.tickClock(180);
     expect(gameOver).toHaveBeenCalledWith(expect.objectContaining({ winner: 'home' }));
   });
