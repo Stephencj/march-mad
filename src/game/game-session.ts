@@ -45,6 +45,8 @@ export class GameSession {
   private playRefreshInterval = 3; // seconds
   private lastPossession: Possession | null = null;
   private autoSwitchCooldown = 0;
+  private slamCamRequested = false;
+  private slamCamPosition: THREE.Vector3 | null = null;
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
     this.events = events;
@@ -280,6 +282,12 @@ export class GameSession {
   }
 
   handleMadeShot(team: Possession, shotType: ShotType): void {
+    // Trigger slam cam for dunks
+    if (shotType === 'dunk' || shotType === 'alley-oop' || shotType === 'powerup-dunk') {
+      this.slamCamRequested = true;
+      this.slamCamPosition = this.attackingHoop.clone();
+    }
+
     this.matchEngine.score(team, shotType);
     this.ball.isInFlight = false;
     // Reset for check-ball: other team gets the ball
@@ -300,6 +308,15 @@ export class GameSession {
   }
 
   getCameraInfo(): CameraInfo {
+    if (this.slamCamRequested) {
+      this.slamCamRequested = false;
+      return {
+        mode: 'slam' as CameraMode,
+        trackPosition: this.slamCamPosition!,
+        lookAt: this.slamCamPosition!,
+      };
+    }
+
     const possession = this.matchEngine.state.possession;
     const humanTeam = this.getPlayerTeam(this.humanPlayerId);
     const human = this.getHumanPlayer();

@@ -252,7 +252,11 @@ function update(dt: number): void {
 
     // Camera
     const camInfo = session.getCameraInfo();
-    cameraSystem.setMode(camInfo.mode);
+    if (camInfo.mode === 'slam') {
+      cameraSystem.triggerSlamCam(camInfo.trackPosition);
+    } else {
+      cameraSystem.setMode(camInfo.mode);
+    }
     cameraSystem.update(camInfo.trackPosition, camInfo.lookAt, dt);
 
     // HUD
