@@ -774,7 +774,7 @@ export class GameSession {
         // First: get to the offensive end of the court
         const distToHoopOffBall = player.distanceTo(this.attackingHoop);
 
-        if (distToHoopOffBall > 10) {
+        if (distToHoopOffBall > 5) {
           // Too far from the hoop — advance down court
           player.aiTarget = new THREE.Vector3(
             this.attackingHoop.x + (Math.random() - 0.5) * 6, // spread across width
@@ -808,14 +808,14 @@ export class GameSession {
             );
             player.aiMovementState = 'moving';
           } else {
-            // HOLD AND WAIT: stay at current spot longer
-            player.aiHoldTimer = 1 + Math.random() * 1.5;
+            // HOLD AND WAIT: stay at current spot briefly
+            player.aiHoldTimer = 0.5 + Math.random() * 0.8;
           }
-        } else if (player.aiMovementState !== 'holding' && player.aiMovementState !== 'moving') {
-          // Just arrived or no state — get a formation position and hold
+        } else if (player.aiMovementState === 'holding' && player.aiHoldTimer <= 0) {
+          // Hold timer expired — get a formation position and set moving
           this.moveToFormation(player);
-          player.aiMovementState = 'holding';
-          player.aiHoldTimer = 0.8 + Math.random() * 1.2;
+          player.aiMovementState = 'moving';
+          player.aiHoldTimer = 0;
         }
         continue; // Skip the old decision tree
       }
@@ -825,7 +825,7 @@ export class GameSession {
         const distToHoopBallHandler = player.distanceTo(this.attackingHoop);
 
         // If far from hoop, advance first before shooting
-        if (distToHoopBallHandler > 8) {
+        if (distToHoopBallHandler > 6) {
           player.aiTarget = this.attackingHoop.clone();
           player.aiMovementState = 'moving';
           continue; // don't shoot from too far
@@ -945,9 +945,9 @@ export class GameSession {
           }
           const dist = player.distanceTo(player.aiTarget!);
           if (dist < 0.3) {
-            // Reached target — switch to holding for 1-2 seconds
+            // Reached target — switch to holding briefly
             player.aiMovementState = 'holding';
-            player.aiHoldTimer = 0.8 + Math.random() * 1.2;
+            player.aiHoldTimer = 0.3 + Math.random() * 0.5;
           } else {
             player.moveToward(player.aiTarget!, dt);
           }
@@ -999,7 +999,10 @@ export class GameSession {
       if (positions[idx]) {
         // Position relative to the hoop we're attacking/defending
         const refHoop = isOnOffense ? this.attackingHoop : this.defendingHoop;
-        const dir = refHoop.z < 0 ? -1 : 1;
+        // Formation positions are "units in front of hoop toward center court"
+        // For hoop at -13, "in front" = toward +Z = add position.z
+        // For hoop at +13, "in front" = toward -Z = subtract position.z
+        const dir = refHoop.z < 0 ? 1 : -1;
         player.aiTarget = new THREE.Vector3(
           positions[idx].x,
           0,

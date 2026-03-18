@@ -143,6 +143,10 @@ export function createFullCourt(homeColor: number, awayColor: number): THREE.Gro
       end.color
     );
     hoop.name = `hoop-${end.suffix}`;
+    // Away hoop faces the other direction so backboard is behind the rim
+    if (end.suffix === 'away') {
+      hoop.rotation.y = Math.PI;
+    }
     group.add(hoop);
   }
 

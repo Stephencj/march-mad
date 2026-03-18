@@ -130,11 +130,7 @@ const postGameUI = new PostGameUI(uiOverlay, handlePostGameAction);
 function handlePostGameAction(action: string) {
   if (action === 'play-again') {
     postGameUI.hide();
-    if (cameraSystem.fullCourt) {
-      startMainGame();
-    } else {
-      startQuickGame();
-    }
+    startMainGame();
   }
   if (action === 'menu') {
     postGameUI.hide();
@@ -189,8 +185,7 @@ function startMainGame(): void {
 }
 
 function handleMenuAction(action: string, _data?: unknown) {
-  if (action === 'play' || action === 'quick-play') startQuickGame();
-  if (action === 'main-game') startMainGame();
+  if (action === 'play' || action === 'quick-play' || action === 'main-game') startMainGame();
   if (action === 'select-tier') stateMachine.transition('DraftPhase');
   if (action === 'back') stateMachine.transition('MainMenu');
   if (action === 'settings') { /* settings handled inline */ }
