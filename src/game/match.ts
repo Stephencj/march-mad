@@ -70,7 +70,8 @@ export class MatchEngine {
   }
 
   tickClock(dt: number): void {
-    if (this.state.phase === 'post-game') return;
+    // Only tick during active play — not during transitions, check-ball, or post-game
+    if (this.state.phase !== 'playing') return;
 
     this.state.clockSeconds -= dt;
 
