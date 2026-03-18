@@ -46,7 +46,6 @@ export class GameSession {
   private scene: THREE.Scene | null = null;
   private lastShooterId: string | null = null;
   private pendingPassTarget: string | null = null;
-  private autoSwitchCooldown = 0;
   private slamCamRequested = false;
   private slamCamPosition: THREE.Vector3 | null = null;
   private powerupSystem: PowerupSystem;
@@ -705,11 +704,9 @@ export class GameSession {
     this.ball.velocity.set(0, 0, 0);
     this.ball.mesh.visible = true;
     this.setBallHolder(receiver.data.id);
-    this.matchEngine.checkBallComplete(this.deadBallReceivingTeam);
-    this.matchEngine.resetShotClock();
+    this.changePossession(this.deadBallReceivingTeam, 'resume after dead ball');
 
     this.deadBallReceivingTeam = null;
-    this.aiShootTimer = 0;
   }
 
   // --- New AI System (replaces runAIDecisions, moveAIPlayers, moveToFormation) ---
@@ -806,38 +803,6 @@ export class GameSession {
     const zDir = attackHoop.z > 0 ? -1 : 1;
 
     return new THREE.Vector3(xOff, 0, attackHoop.z + zOff * zDir);
-  }
-
-  private getDefensivePosition(player: GamePlayer, _assignment: GamePlayer, defendHoop: THREE.Vector3): THREE.Vector3 {
-    const team = this.isHomePlayer(player) ? this.homePlayers : this.awayPlayers;
-    const idx = team.indexOf(player);
-
-    // Defensive formation zones (relative to defending hoop)
-    const defZones: [number, number][] = [
-      [0, 7],   // PG: top of key defense
-      [-4, 5],  // SG: left wing defense
-      [4, 5],   // SF: right wing defense
-      [-2, 3],  // PF: left block
-      [0, 2],   // C: paint protector
-    ];
-
-    const [baseX, baseZ] = defZones[idx] ?? [0, 4];
-    const zDir = defendHoop.z > 0 ? -1 : 1;
-
-    // Base formation position
-    let targetX = baseX;
-    let targetZ = defendHoop.z + baseZ * zDir;
-
-    // Shift toward the ball to provide help defense
-    const ballPos = this.ball.heldBy
-      ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
-      : this.ball.mesh.position;
-
-    // Drift 30% toward the ball position for help defense
-    targetX = targetX * 0.7 + ballPos.x * 0.3;
-    targetZ = targetZ * 0.7 + ballPos.z * 0.3;
-
-    return new THREE.Vector3(targetX, 0, targetZ);
   }
 
   private getZoneDefensePosition(player: GamePlayer, defendHoop: THREE.Vector3): THREE.Vector3 {

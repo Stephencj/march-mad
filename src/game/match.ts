@@ -107,8 +107,7 @@ export class MatchEngine {
   callFoul(team: Possession): void {
     if (this.state.phase === 'post-game') return;
 
-    // Swap possession: fouling team loses possession
-    this.state.possession = team === 'home' ? 'away' : 'home';
+    // Possession change is handled by game-session via enterDeadBall()
 
     // Charge powerup meter
     this.state.powerupMeter += FOUL_POWERUP_CHARGE;

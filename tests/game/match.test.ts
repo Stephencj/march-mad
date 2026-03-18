@@ -80,11 +80,12 @@ describe('MatchEngine', () => {
     expect(match.state.powerupMeter).toBeGreaterThan(initial);
   });
 
-  it('changes possession on foul', () => {
+  it('does not change possession on foul (game-session handles it)', () => {
     const { match } = createMatch();
     match.state.possession = 'home';
     match.callFoul('home');
-    expect(match.state.possession).toBe('away');
+    // match.ts no longer flips possession — game-session handles it via enterDeadBall()
+    expect(match.state.possession).toBe('home');
   });
 
   it('handles tied game at buzzer (home wins tiebreak)', () => {
