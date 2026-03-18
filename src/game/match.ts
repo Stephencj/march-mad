@@ -91,9 +91,9 @@ export class MatchEngine {
       this.state.shotClockSeconds -= dt;
       if (this.state.shotClockSeconds <= 0) {
         this.state.shotClockSeconds = 24;
-        // Shot clock violation — turnover
+        const violatingTeam = this.state.possession;
         this.state.possession = this.state.possession === 'home' ? 'away' : 'home';
-        this.events.emit('foul', { team: this.state.possession });
+        this.events.emit('shot-clock-violation', { violatingTeam });
       }
     }
 

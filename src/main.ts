@@ -282,6 +282,15 @@ function update(dt: number): void {
     session.processInput(input, dt);
     session.update(dt);
 
+    // Compute player spread for dynamic zoom
+    const allPlayers = session.getAllPlayers();
+    let minZ = Infinity, maxZ = -Infinity;
+    for (const p of allPlayers) {
+      if (p.position.z < minZ) minZ = p.position.z;
+      if (p.position.z > maxZ) maxZ = p.position.z;
+    }
+    cameraSystem.setPlayerBounds(minZ, maxZ, -7, 7);
+
     // Camera
     const camInfo = session.getCameraInfo();
     if (camInfo.mode === 'slam') {

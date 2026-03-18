@@ -65,6 +65,13 @@ export class GameSession {
     this.matchEngine = new MatchEngine(events, homeTeam, awayTeam);
     this.powerupSystem = new PowerupSystem(events);
 
+    this.events.on('shot-clock-violation', () => {
+      // Proper turnover — inbound to the other team
+      const receivingTeam = this.matchEngine.state.possession;
+      this.enterDeadBall(receivingTeam);
+      this.events.emit('splash', { text: 'SHOT CLOCK!', color: '#ff6600' });
+    });
+
     if (mode === '5v5') {
       // Fixed per-team hoops — set once, NEVER change
       this.homeAttackHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();  // z=+13
@@ -256,14 +263,29 @@ export class GameSession {
         if (goesIn) {
           this.handleMadeShot(team, shotType);
         } else {
-          // Miss — ball bounces off rim
-          this.events.emit('splash', { text: 'MISS!', color: '#e74c3c' });
+          // Miss — ball rebounds off rim in random direction
           this.ball.isInFlight = false;
+
+          // Random rebound direction — more variety
+          const rimX = this.getTeamAttackHoop(this.getPlayerTeam(this.lastShooterId)).x;
+          const rimZ = this.getTeamAttackHoop(this.getPlayerTeam(this.lastShooterId)).z;
+
+          // Ball bounces in a random direction from the rim
+          const reboundAngle = Math.random() * Math.PI * 2;
+          const reboundForce = 2 + Math.random() * 3;
           this.ball.velocity.set(
-            (Math.random() - 0.5) * 3,
-            2,
-            (Math.random() - 0.5) * 3
+            Math.cos(reboundAngle) * reboundForce,
+            1.5 + Math.random() * 2, // upward bounce
+            Math.sin(reboundAngle) * reboundForce
           );
+          // Position ball near the rim
+          this.ball.mesh.position.set(
+            rimX + (Math.random() - 0.5) * 0.5,
+            3.0, // rim height
+            rimZ + (Math.random() - 0.5) * 0.5
+          );
+
+          this.events.emit('splash', { text: 'MISS!', color: '#e74c3c' });
         }
       }
     }
@@ -700,8 +722,39 @@ export class GameSession {
             continue;
           }
         } else {
-          // OFF-BALL OFFENSE: go to offensive spot
-          target = this.getOffensivePosition(player, attackHoop);
+          // OFF-BALL OFFENSE: base position + dynamic drift
+          const basePos = this.getOffensivePosition(player, attackHoop);
+
+          // Add periodic drift within ~2 units of base spot
+          const time = performance.now() * 0.001;
+          const playerSeed = player.data.id.charCodeAt(0); // unique per player
+          const driftX = Math.sin(time * 0.8 + playerSeed) * 2;
+          const driftZ = Math.cos(time * 0.6 + playerSeed * 1.5) * 1.5;
+
+          target = new THREE.Vector3(
+            basePos.x + driftX,
+            0,
+            basePos.z + driftZ
+          );
+
+          // If nearest defender is very close (<2 units), move AWAY from them to get open
+          const nearestDefDist = this.getNearestOpponentDist(player);
+          if (nearestDefDist < 2) {
+            const opponents = this.isHomePlayer(player) ? this.awayPlayers : this.homePlayers;
+            let closestOpp: GamePlayer | null = null;
+            let closestDist = Infinity;
+            for (const opp of opponents) {
+              const d = player.distanceTo(opp.position);
+              if (d < closestDist) { closestDist = d; closestOpp = opp; }
+            }
+            if (closestOpp) {
+              const awayDir = new THREE.Vector3()
+                .subVectors(player.position, closestOpp.position)
+                .normalize()
+                .multiplyScalar(2);
+              target.add(awayDir);
+            }
+          }
         }
       } else {
         // DEFENSE: zone-based positioning near defending hoop
@@ -717,14 +770,14 @@ export class GameSession {
     const team = this.isHomePlayer(player) ? this.homePlayers : this.awayPlayers;
     const idx = team.indexOf(player);
 
-    // Standard basketball offensive spots
+    // Standard basketball offensive spots (spread wider)
     // [xOffset, zOffsetFromHoop (toward center court)]
     const offsets: [number, number][] = [
-      [0, 8],    // PG: top of key
-      [-5, 6],   // SG: left wing
-      [4, 5],    // SF: right wing
-      [-2, 3],   // PF: left elbow
-      [0, 2],    // C: paint
+      [0, 9],    // PG: top of key (further out)
+      [-6, 6],   // SG: left wing (wider)
+      [6, 6],    // SF: right wing (wider, symmetric)
+      [-3, 3],   // PF: left elbow
+      [0, 1.5],  // C: deep paint
     ];
 
     const [xOff, zOff] = offsets[idx] ?? [0, 5];
@@ -791,6 +844,12 @@ export class GameSession {
       : this.ball.mesh.position;
     targetX = targetX * 0.7 + ballPos.x * 0.3;
     targetZ = targetZ * 0.7 + ballPos.z * 0.3;
+
+    // Add subtle sway so defenders aren't statues
+    const time = performance.now() * 0.001;
+    const seed = player.data.id.charCodeAt(0);
+    targetX += Math.sin(time * 0.5 + seed) * 0.5;
+    targetZ += Math.cos(time * 0.4 + seed * 2) * 0.5;
 
     return new THREE.Vector3(targetX, 0, targetZ);
   }

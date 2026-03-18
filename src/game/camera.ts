@@ -22,6 +22,8 @@ export class CameraSystem {
   private targetLookAt = new THREE.Vector3();
   private _needsSnap = true;
   fullCourt = false;
+  private playerSpreadZ = 28;
+  private playerSpreadX = 15;
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
@@ -37,6 +39,11 @@ export class CameraSystem {
       this._currentMode = mode;
       this._needsSnap = true;
     }
+  }
+
+  setPlayerBounds(minZ: number, maxZ: number, minX: number, maxX: number): void {
+    this.playerSpreadZ = maxZ - minZ;
+    this.playerSpreadX = maxX - minX;
   }
 
   triggerSlamCam(hoopPosition: THREE.Vector3): void {
@@ -68,9 +75,17 @@ export class CameraSystem {
       );
       this.targetLookAt.copy(trackPosition);
     } else {
-      // Broadcast camera: fixed X (side distance), fixed Y (height), Z follows action
+      // Broadcast camera: dynamic zoom based on player spread, Z follows action
       const clampedZ = THREE.MathUtils.clamp(trackPosition.z, -courtZ, courtZ);
-      this.targetPosition.set(courtConfig.sideDistance, courtConfig.height, clampedZ);
+
+      // Dynamic zoom based on player spread
+      const spreadFactor = Math.max(this.playerSpreadZ / 28, this.playerSpreadX / 15);
+      const minDist = 10; // closest zoom
+      const maxDist = 18; // furthest zoom
+      const dynamicDist = minDist + (maxDist - minDist) * Math.max(0.2, Math.min(1, spreadFactor));
+      const dynamicHeight = dynamicDist * 0.6; // proportional height
+
+      this.targetPosition.set(dynamicDist, dynamicHeight, clampedZ);
 
       // Look at center of court (x=0), waist height, same Z as camera
       this.targetLookAt.set(0, 1.5, clampedZ);

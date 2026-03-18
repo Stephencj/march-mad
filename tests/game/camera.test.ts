@@ -10,22 +10,32 @@ describe('CameraSystem', () => {
     expect(cs.currentMode).toBe('broadcast');
   });
 
-  it('camera X stays at fixed sideDistance (half court)', () => {
+  it('camera X uses dynamic zoom based on player spread (half court)', () => {
     const cam = makeCam();
     const cs = new CameraSystem(cam);
     cs.fullCourt = false;
+    // Default spread (28/15) gives spreadFactor=1 → dynamicDist=18
     cs.update(new THREE.Vector3(2, 0, 3), new THREE.Vector3(0, 3, -6), 1 / 60);
-    // Half court sideDistance = 14
-    expect(cam.position.x).toBe(14);
+    expect(cam.position.x).toBe(18);
+
+    // Tight spread → closer zoom target; lerp moves camera toward it
+    cs.setPlayerBounds(0, 5, -2, 2);
+    // Run many frames so lerp converges
+    for (let i = 0; i < 300; i++) {
+      cs.update(new THREE.Vector3(2, 0, 3), new THREE.Vector3(0, 3, -6), 1 / 60);
+    }
+    // spreadFactor = max(5/28, 4/15) ≈ 0.267 → dynamicDist ≈ 12.13
+    expect(cam.position.x).toBeGreaterThan(10);
+    expect(cam.position.x).toBeLessThan(14);
   });
 
-  it('camera X stays at fixed sideDistance (full court)', () => {
+  it('camera X uses dynamic zoom based on player spread (full court)', () => {
     const cam = makeCam();
     const cs = new CameraSystem(cam);
     cs.fullCourt = true;
+    // Default spread → dynamicDist=18
     cs.update(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 3, -6), 1 / 60);
-    // Full court sideDistance = 16
-    expect(cam.position.x).toBe(16);
+    expect(cam.position.x).toBe(18);
   });
 
   it('camera Z follows trackPosition.z', () => {
@@ -51,12 +61,13 @@ describe('CameraSystem', () => {
     expect(cam.position.z).toBe(7);
   });
 
-  it('camera height stays fixed', () => {
+  it('camera height is proportional to dynamic distance', () => {
     const cam = makeCam();
     const cs = new CameraSystem(cam);
     cs.fullCourt = false;
+    // Default spread → dynamicDist=18 → height=18*0.6=10.8
     cs.update(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 3, -6), 1 / 60);
-    expect(cam.position.y).toBe(8); // half court height
+    expect(cam.position.y).toBeCloseTo(10.8, 1);
   });
 
   it('slam cam activates and auto-reverts to broadcast', () => {
