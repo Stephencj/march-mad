@@ -53,6 +53,9 @@ export class GameSession {
   private powerupVisuals = new PowerupVisuals();
   lastPowerupPickup: string | null = null;
   private aiShootTimer = 0;
+  private inboundTimer = 0;
+  private inbounderId: string | null = null;
+  private inboundTargetId: string | null = null;
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
     this.events = events;
@@ -175,6 +178,22 @@ export class GameSession {
   }
 
   update(dt: number): void {
+    // === INBOUND AUTO-PASS ===
+    if (this.inboundTimer > 0) {
+      this.inboundTimer -= dt;
+      if (this.inboundTimer <= 0 && this.inbounderId && this.inboundTargetId) {
+        const inbounder = this.getPlayerById(this.inbounderId);
+        const target = this.getPlayerById(this.inboundTargetId);
+        if (inbounder && target && inbounder.hasBall) {
+          inbounder.loseBall();
+          this.ball.passTo(target.position);
+          this.pendingPassTarget = this.inboundTargetId;
+        }
+        this.inbounderId = null;
+        this.inboundTargetId = null;
+      }
+    }
+
     // === DEAD BALL PHASE (after score) ===
     if (this.matchEngine.state.phase === 'transitioning') {
       this.deadBallTimer -= dt;
@@ -477,18 +496,58 @@ export class GameSession {
         }
         break;
 
-      case 'swipe-down':
-        if (hasBall) {
-          const humanTeam = this.getPlayerTeam(this.humanPlayerId);
-          const targetHoop = this.getTeamAttackHoop(humanTeam);
-          if (human.distanceTo(targetHoop) < 4.5) {
+      case 'swipe-down': {
+        const humanTeam = this.getPlayerTeam(this.humanPlayerId);
+        const targetHoop = this.getTeamAttackHoop(humanTeam);
+        const dist = human.distanceTo(targetHoop);
+
+        if (hasBall && dist < 8) {
+          // Success rate based on distance
+          let successRate: number;
+          if (dist < 3) successRate = 0.9;
+          else if (dist < 5) successRate = 0.7;
+          else successRate = 0.4;
+
+          // Modify by dunkPower stat (±15%)
+          successRate += (human.data.stats.dunkPower - 5) * 0.03;
+          successRate = Math.max(0.1, Math.min(0.95, successRate));
+
+          // Check for contest — defender in path AND jumping
+          const opponents = humanTeam === 'home' ? this.awayPlayers : this.homePlayers;
+          let contested = false;
+          for (const def of opponents) {
+            const defDist = def.distanceTo(targetHoop);
+            const isInPath = defDist < dist && def.distanceTo(human.position) < 3;
+            if (isInPath && def.isJumping) {
+              contested = true;
+              break;
+            }
+          }
+
+          if (contested && Math.random() < 0.6) {
+            // BLOCKED — ball knocked loose, dunker falls
             human.loseBall();
-            human.triggerShoot();
+            human.triggerFall();
+            this.ball.release();
+            this.ball.velocity.set((Math.random() - 0.5) * 5, 3, (Math.random() - 0.5) * 5);
+            break;
+          }
+
+          if (Math.random() < successRate) {
+            // Dunk succeeds
+            human.loseBall();
+            human.triggerDunk();
             this.lastShooterId = human.data.id;
             this.ball.shootAt(targetHoop, 1.0);
+          } else {
+            // Missed dunk — ball bounces off rim
+            human.loseBall();
+            this.lastShooterId = human.data.id;
+            this.ball.shootAt(targetHoop, 0.8);
           }
         }
         break;
+      }
 
       case 'pass':
         if (hasBall) {
@@ -528,14 +587,14 @@ export class GameSession {
   private enterDeadBall(receivingTeam: 'home' | 'away'): void {
     this.shotDetector.reset();
 
-    // No pause — instant inbound
+    // No pause — instant positioning and resume
     const receivingPlayers = receivingTeam === 'home' ? this.homePlayers : this.awayPlayers;
     const inbounder = receivingPlayers[receivingPlayers.length - 1]; // last player inbounds
     const pg = receivingPlayers[0]; // PG receives
 
-    // Position inbounder at baseline (out of bounds)
+    // Position inbounder OUTSIDE baseline (1.5 units past court)
     const defendHoop = this.getTeamDefendHoop(receivingTeam);
-    const baselineZ = defendHoop.z + (defendHoop.z < 0 ? -1.5 : 1.5); // just outside baseline
+    const baselineZ = defendHoop.z + (defendHoop.z < 0 ? -1.5 : 1.5);
     inbounder.group.position.set(0, 0, baselineZ);
 
     // Give ball to inbounder
@@ -543,23 +602,21 @@ export class GameSession {
     this.ball.mesh.visible = true;
     this.setBallHolder(inbounder.data.id);
 
-    // PG positions near baseline to receive
+    // PG positions near baseline ON court to receive
     const pgZ = defendHoop.z + (defendHoop.z < 0 ? 2 : -2);
     pg.group.position.set(2, 0, pgZ);
 
-    // Set all other players to their positions immediately
-    this.setTeamPositions(receivingTeam);
-    const scoringTeam: 'home' | 'away' = receivingTeam === 'home' ? 'away' : 'home';
-    this.setTeamPositions(scoringTeam);
+    // Set inbound timer — auto-pass after 0.5s
+    this.inboundTimer = 0.5;
+    this.inbounderId = inbounder.data.id;
+    this.inboundTargetId = pg.data.id;
 
-    // Resume play immediately
+    // Resume to 'playing' phase immediately — other players move naturally during live play
     this.matchEngine.checkBallComplete(receivingTeam);
     this.matchEngine.resetShotClock();
     this.matchEngine.state.phase = 'playing';
     this.aiShootTimer = 0;
     this.deadBallReceivingTeam = null;
-
-    // The inbounder will pass to PG on next AI frame (they're holding ball far from hoop)
   }
 
   private setTeamPositions(team: 'home' | 'away'): void {
@@ -742,7 +799,7 @@ export class GameSession {
     if (this.aiShootTimer < 0.3) return;
 
     // Close + open → dunk/layup (100%)
-    if (dist < 3 && nearestDef > 2) {
+    if (dist < 4 && nearestDef > 2) {
       player.loseBall(); player.triggerShoot();
       this.lastShooterId = player.data.id;
       this.ball.shootAt(attackHoop, 1.0);
