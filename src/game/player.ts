@@ -483,6 +483,18 @@ export class GamePlayer {
       }
     }
 
+    let isMovingBackwards = false;
+    if (isMoving) {
+      const facingDir = new THREE.Vector3(0, 0, 1);
+      facingDir.applyQuaternion(this.group.quaternion);
+      facingDir.y = 0;
+      facingDir.normalize();
+      const moveDir = this.velocity.clone();
+      moveDir.y = 0;
+      moveDir.normalize();
+      isMovingBackwards = facingDir.dot(moveDir) < -0.3;
+    }
+
     switch (this.animState) {
       case 'idle': {
         // Gentle breathing/sway
@@ -502,6 +514,34 @@ export class GamePlayer {
       }
 
       case 'walk': {
+        if (isMovingBackwards) {
+          // BACKWARDS SHUFFLE: slower, shorter strides, defensive stance
+          const t = this.animTime * 3;
+          const bounceT = this.animTime * 6;
+          const bouncePhase = (Math.sin(bounceT) + 1) / 2;
+          this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.08;
+
+          bodyPivot.rotation.x = 0; // upright, no lean
+          bodyPivot.scale.set(1, 1, 1);
+
+          const strideRaw = Math.sin(t);
+          const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.3;
+
+          hipL.rotation.x = -stride;
+          hipR.rotation.x = stride;
+          kneeL.rotation.x = 0.15 + Math.max(0, stride) * 0.3;
+          kneeR.rotation.x = 0.15 + Math.max(0, -stride) * 0.3;
+
+          // Arms in defensive ready position
+          shoulderL.rotation.x = -0.3;
+          shoulderL.rotation.z = -0.4;
+          shoulderR.rotation.x = -0.3;
+          shoulderR.rotation.z = 0.4;
+          elbowL.rotation.x = -0.3;
+          elbowR.rotation.x = -0.3;
+          break;
+        }
+
         // Bouncy stride — faster pace, subtler bounce
         const t = this.animTime * 5; // faster stride
         const bounceT = this.animTime * 10; // double freq for per-foot bounce
