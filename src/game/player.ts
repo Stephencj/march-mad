@@ -680,6 +680,7 @@ export class GamePlayer {
 
       case 'steal': {
         // SIDE SWIPE: arm pulls back to side, pauses, quick sweep across
+        // Now with guard-like crouch throughout
         const stealDuration = 0.6;
         const progress = 1 - (this.stealTimer / stealDuration);
 
@@ -691,9 +692,12 @@ export class GamePlayer {
         const forearmR = this.group.getObjectByName('forearm-right');
         let forearmScale = 1;
 
-        bodyPivot.rotation.x = 0.05;
+        // Lower stance like guard
+        this.group.position.y = -0.05;
+
         if (progress < 0.2) {
           const wind = progress / 0.2;
+          bodyPivot.rotation.x = 0.15; // guard-like forward lean
           // Arm pulls to the right side
           shoulderR.rotation.x = -0.3 * wind;
           shoulderR.rotation.z = 0.8 * wind; // out to right
@@ -705,6 +709,7 @@ export class GamePlayer {
           bodyPivot.scale.set(1.05, 0.95, 1.05);
         } else if (progress < 0.55) {
           // HOLD: cocked back, big forearm, dramatic pause
+          bodyPivot.rotation.x = 0.2; // deeper lean during wind-up
           shoulderR.rotation.x = -0.3;
           shoulderR.rotation.z = 0.8;
           elbowR.rotation.x = -0.3;
@@ -714,6 +719,7 @@ export class GamePlayer {
           bodyPivot.scale.set(1.06, 0.94, 1.06);
         } else if (progress < 0.85) {
           // SWIPE: quick sweep from right to left, low
+          bodyPivot.rotation.x = 0.25; // lean INTO the swipe
           const swipe = (progress - 0.55) / 0.3;
           shoulderR.rotation.x = -0.3 - swipe * 0.3;
           shoulderR.rotation.z = 0.8 - swipe * 1.6; // right to left
@@ -727,6 +733,7 @@ export class GamePlayer {
         } else {
           // Recovery
           const recover = (progress - 0.85) / 0.15;
+          bodyPivot.rotation.x = 0.2 * (1 - recover); // lean eases back
           shoulderR.rotation.x = -0.6 + recover * 0.6;
           shoulderR.rotation.z = -0.8 + recover * 0.8;
           elbowR.rotation.x = -0.2 + recover * 0.1;
@@ -738,6 +745,8 @@ export class GamePlayer {
             1 - (1 - recover) * 0.04,
             1
           );
+          // Ease stance height back up during recovery
+          this.group.position.y = -0.05 * (1 - recover);
         }
 
         if (forearmR) {
@@ -749,11 +758,11 @@ export class GamePlayer {
         shoulderL.rotation.x = 0;
         elbowL.rotation.x = -0.1;
 
-        // Stable stance
+        // Deep crouched stance like guard
         hipL.rotation.x = -0.05;
         hipR.rotation.x = 0.05;
-        kneeL.rotation.x = 0.2;
-        kneeR.rotation.x = 0.2;
+        kneeL.rotation.x = 0.35;
+        kneeR.rotation.x = 0.35;
         break;
       }
 
@@ -1462,44 +1471,45 @@ export class GamePlayer {
         const passDuration = 0.35;
         const progress = 1 - (this.passTimer / passDuration);
 
-        if (progress < 0.15) {
-          // Wind up: pull ball to chest
-          const wind = progress / 0.15;
-          shoulderR.rotation.x = -0.4 * wind;
-          shoulderL.rotation.x = -0.4 * wind;
-          elbowR.rotation.x = -0.8 * wind;
-          elbowL.rotation.x = -0.8 * wind;
-          bodyPivot.rotation.x = 0.05 * wind;
-          hipL.rotation.x = 0;
-          hipR.rotation.x = 0;
-          kneeL.rotation.x = 0.05;
-          kneeR.rotation.x = 0.05;
-        } else if (progress < 0.4) {
-          // PUSH: both arms thrust forward
-          const push = (progress - 0.15) / 0.25;
-          shoulderR.rotation.x = -0.4 - push * 0.8;
-          shoulderL.rotation.x = -0.4 - push * 0.8;
-          elbowR.rotation.x = -0.8 + push * 0.7;
-          elbowL.rotation.x = -0.8 + push * 0.7;
-          bodyPivot.rotation.x = 0.05 + push * 0.1;
-          // Step forward
-          hipR.rotation.x = -0.1 * push;
+        if (progress < 0.25) {
+          // PULL IN: both hands come together at chest, pull ball toward body
+          const pull = progress / 0.25;
+          // Both arms come to center-chest
+          shoulderR.rotation.x = -0.5 * pull; // arms come forward
+          shoulderL.rotation.x = -0.5 * pull;
+          shoulderR.rotation.z = -0.15 * pull; // hands come inward toward each other
+          shoulderL.rotation.z = 0.15 * pull;
+          elbowR.rotation.x = -0.9 * pull; // bent tight — hands at chest
+          elbowL.rotation.x = -0.9 * pull;
+          bodyPivot.rotation.x = 0.05 * pull; // slight lean back (pulling ball in)
+        } else if (progress < 0.5) {
+          // THROW: both arms thrust forward together, extending
+          const push = (progress - 0.25) / 0.25;
+          shoulderR.rotation.x = -0.5 - push * 0.7; // thrust forward hard
+          shoulderL.rotation.x = -0.5 - push * 0.7;
+          shoulderR.rotation.z = -0.15 + push * 0.15; // hands spread slightly on release
+          shoulderL.rotation.z = 0.15 - push * 0.15;
+          elbowR.rotation.x = -0.9 + push * 0.8; // straighten arms (release)
+          elbowL.rotation.x = -0.9 + push * 0.8;
+          bodyPivot.rotation.x = 0.05 + push * 0.12; // lean INTO the pass
+          // Step forward with right foot
+          hipR.rotation.x = -0.15 * push;
           kneeR.rotation.x = 0.1 * push;
-          hipL.rotation.x = 0;
-          kneeL.rotation.x = 0.05;
         } else {
-          // Recovery: arms return to sides
-          const recover = (progress - 0.4) / 0.6;
-          shoulderR.rotation.x = -1.2 + recover * 1.1;
+          // FOLLOW THROUGH: arms stay extended briefly, then return
+          const recover = (progress - 0.5) / 0.5;
+          shoulderR.rotation.x = -1.2 + recover * 1.1; // back to ~-0.1
           shoulderL.rotation.x = -1.2 + recover * 1.1;
+          shoulderR.rotation.z = 0;
+          shoulderL.rotation.z = 0;
           elbowR.rotation.x = -0.1;
           elbowL.rotation.x = -0.1;
-          bodyPivot.rotation.x = 0.15 * (1 - recover);
-          hipR.rotation.x = -0.1 * (1 - recover);
+          bodyPivot.rotation.x = 0.17 * (1 - recover);
+          hipR.rotation.x = -0.15 * (1 - recover);
           kneeR.rotation.x = 0.1 * (1 - recover);
-          hipL.rotation.x = 0;
-          kneeL.rotation.x = 0.05;
         }
+        hipL.rotation.x = 0;
+        kneeL.rotation.x = 0.05;
         break;
       }
     }
@@ -1510,8 +1520,8 @@ export class GamePlayer {
       if (screen) screen.visible = false;
     }
 
-    // Reset shoulder Z rotation if not in dribble/guard/steal/jump/jump-block/dunk/dribble-sprint/fall
-    if (this.animState !== 'dribble' && this.animState !== 'guard' && this.animState !== 'steal' && this.animState !== 'jump' && this.animState !== 'jump-block' && this.animState !== 'dunk' && this.animState !== 'dribble-sprint' && this.animState !== 'fall') {
+    // Reset shoulder Z rotation if not in dribble/guard/steal/jump/jump-block/dunk/dribble-sprint/fall/pass
+    if (this.animState !== 'dribble' && this.animState !== 'guard' && this.animState !== 'steal' && this.animState !== 'jump' && this.animState !== 'jump-block' && this.animState !== 'dunk' && this.animState !== 'dribble-sprint' && this.animState !== 'fall' && this.animState !== 'pass') {
       shoulderL.rotation.z = 0;
       shoulderR.rotation.z = 0;
     }

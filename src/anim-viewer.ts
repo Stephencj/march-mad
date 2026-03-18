@@ -66,12 +66,14 @@ let camHeight = 1.5;
 let camDist = 4;
 let shootReleased = false;
 let dunkReleased = false;
+let passReleased = false;
 let shootResetDelay = 0;
 let shootBallFalling = false;
 let shootInIdle = false;
 let shootIdleTimer = 0;
 
 let player: GamePlayer;
+let passTarget: GamePlayer | null = null;
 
 function createPlayer(teamColor: number, hairId: number, position?: Position) {
   if (player) {
@@ -93,6 +95,23 @@ function createPlayer(teamColor: number, hairId: number, position?: Position) {
 }
 
 createPlayer(0xe94560, 0);
+
+// --- Pass target player (stands opposite, faces passer) ---
+function createPassTarget(teamColor: number) {
+  if (passTarget) scene.remove(passTarget.group);
+  passTarget = new GamePlayer({
+    id: 'pass-target',
+    name: 'Target',
+    stats: createDefaultPlayerStats(),
+    personality: 'Team Player',
+    isCustom: false,
+    hairOverride: 2,
+  } as any, new THREE.Vector3(0, 0, 3), teamColor);
+  passTarget.group.rotation.y = Math.PI; // face the passer
+  passTarget.group.visible = false; // hidden by default
+  scene.add(passTarget.group);
+}
+createPassTarget(0xe94560);
 
 // --- Ball for dribble/shoot/dunk preview ---
 const ball = new Ball(new THREE.Vector3(0, 1, 0));
@@ -191,10 +210,17 @@ function animate() {
       }
       break;
     case 'pass':
-      player.hasBall = true;
       player.velocity.set(0, 0, 0);
       if ((player as unknown as { passTimer: number }).passTimer <= 0) {
+        // Reset for next pass cycle
+        ball.pickup('viewer');
+        ball.isInFlight = false;
+        player.hasBall = true;
         player.triggerPass();
+        passReleased = false;
+      }
+      if (!passReleased) {
+        player.hasBall = true;
       }
       break;
   }
@@ -214,6 +240,15 @@ function animate() {
   }
 
   player.animate(dt);
+
+  // Show/hide pass target player
+  if (passTarget) {
+    passTarget.group.visible = (currentAnim === 'pass');
+    if (currentAnim === 'pass') {
+      passTarget.velocity.set(0, 0, 0);
+      passTarget.animate(dt); // idle animation
+    }
+  }
 
   // CRITICAL: Force hasBall=false after animate() when ball has been released
   // This prevents player.animate() from auto-detecting 'dribble' state
@@ -334,9 +369,30 @@ function animate() {
     ball.pickup('viewer');
     ball.followHolder(player.group, true, player.dribblePhase);
   } else if (currentAnim === 'pass') {
+    // Pass ball handling — ball in hand, then flies to target
+    const passTimer = (player as unknown as { passTimer: number }).passTimer;
+
+    // Release ball at throw point (progress ~0.4 => passTimer ~0.21)
+    if (!passReleased && passTimer > 0 && passTimer < 0.2) {
+      passReleased = true;
+      player.hasBall = false;
+      ball.release();
+      // Pass toward the target player at chest height
+      ball.passTo(new THREE.Vector3(0, 1.0, 3));
+    }
+
+    if (ball.isInFlight || (!ball.heldBy && passReleased)) {
+      ball.update(dt);
+    } else if (ball.heldBy) {
+      ball.followHolder(player.group, false, 0);
+    }
+
+    // Force hasBall false after release so player doesn't dribble
+    if (passReleased) {
+      player.hasBall = false;
+    }
+
     ball.mesh.visible = true;
-    ball.pickup('viewer');
-    ball.followHolder(player.group, false, 0);
   } else if (currentAnim !== 'shoot' && currentAnim !== 'dunk') {
     // Non-ball animations
     ball.mesh.visible = false;
@@ -429,6 +485,8 @@ function animate() {
   );
   if (currentAnim === 'shoot' || currentAnim === 'dunk') {
     camera.lookAt(0, 1.5, 1.25); // between player and hoop (hoop at z=2.5)
+  } else if (currentAnim === 'pass') {
+    camera.lookAt(0, 1.0, 1.5); // between passer and target (target at z=3)
   } else {
     camera.lookAt(0, 0.8, 0);
   }
@@ -455,6 +513,7 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
     player.isSprinting = false;
     shootReleased = false;
     dunkReleased = false;
+    passReleased = false;
     shootResetDelay = 0;
     shootBallFalling = false;
     shootInIdle = false;
