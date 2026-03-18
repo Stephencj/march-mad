@@ -8,10 +8,8 @@ import { Ball } from './ball';
 import { MatchEngine } from './match';
 import { ShotDetector } from './shot-detector';
 import { PlayerAI, type AIContext } from '@/ai/player-ai';
-import { TeamAI, type TeamPlay } from '@/ai/team-ai';
 import { COURT_DIMENSIONS } from './court';
 import { FULL_COURT_DIMENSIONS } from './full-court';
-import { getFormation5v5 } from '@/ai/formations-5v5';
 import { ProgressionSystem } from '@/meta/progression';
 import { PowerupSystem } from '@/systems/powerups';
 import { PowerupVisuals } from './powerup-visuals';
@@ -28,8 +26,16 @@ export class GameSession {
   awayPlayers: GamePlayer[] = [];
   ball: Ball;
   matchEngine: MatchEngine;
-  attackingHoop: THREE.Vector3;
-  defendingHoop: THREE.Vector3;
+
+  // Fixed per-team hoops — NEVER swap
+  private homeAttackHoop: THREE.Vector3;  // hoopAway z=+13 (home SCORES here)
+  private homeDefendHoop: THREE.Vector3;  // hoopHome z=-13 (home DEFENDS here)
+  private awayAttackHoop: THREE.Vector3;  // hoopHome z=-13 (away SCORES here)
+  private awayDefendHoop: THREE.Vector3;  // hoopAway z=+13 (away DEFENDS here)
+
+  // Dead ball state
+  private deadBallTimer = 0;
+  private deadBallReceivingTeam: 'home' | 'away' | null = null;
 
   private mode: GameMode;
   private cameraRef: THREE.Camera | null = null;
@@ -37,24 +43,16 @@ export class GameSession {
   private humanPlayerId: string;
   private shotDetector: ShotDetector;
   private playerAIs = new Map<string, PlayerAI>();
-  private homeTeamAI: TeamAI;
-  private awayTeamAI: TeamAI;
   private scene: THREE.Scene | null = null;
-  private aiDecisionTimer = 0;
-  private readonly AI_DECISION_INTERVAL = 0.2; // seconds between AI decisions (5/sec for responsiveness)
   private lastShooterId: string | null = null;
   private pendingPassTarget: string | null = null;
-  private cachedPlays: Record<string, { play: TeamPlay; timestamp: number }> = {};
-  private playRefreshInterval = 3; // seconds
-  private lastPossession: Possession | null = null;
   private autoSwitchCooldown = 0;
   private slamCamRequested = false;
   private slamCamPosition: THREE.Vector3 | null = null;
   private powerupSystem: PowerupSystem;
   private powerupVisuals = new PowerupVisuals();
   lastPowerupPickup: string | null = null;
-  private transitionTimer = 0;
-  private pendingReceivingTeam: 'home' | 'away' | null = null;
+  private aiShootTimer = 0;
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
     this.events = events;
@@ -63,16 +61,20 @@ export class GameSession {
     this.ball = new Ball(new THREE.Vector3(0, 1, 2));
     this.matchEngine = new MatchEngine(events, homeTeam, awayTeam);
     this.powerupSystem = new PowerupSystem(events);
-    this.homeTeamAI = new TeamAI(homeTeam.archetype);
-    this.awayTeamAI = new TeamAI(awayTeam.archetype);
 
     if (mode === '5v5') {
-      this.attackingHoop = FULL_COURT_DIMENSIONS.hoopHome.clone();
-      this.defendingHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();
-      this.shotDetector = new ShotDetector(this.attackingHoop);
+      // Fixed per-team hoops — set once, NEVER change
+      this.homeAttackHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();  // z=+13
+      this.homeDefendHoop = FULL_COURT_DIMENSIONS.hoopHome.clone();  // z=-13
+      this.awayAttackHoop = FULL_COURT_DIMENSIONS.hoopHome.clone();  // z=-13
+      this.awayDefendHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();  // z=+13
+      this.shotDetector = new ShotDetector(this.homeAttackHoop);
     } else {
-      this.attackingHoop = COURT_DIMENSIONS.hoopPosition.clone();
-      this.defendingHoop = COURT_DIMENSIONS.hoopPosition.clone();
+      // 3v3: single hoop
+      this.homeAttackHoop = COURT_DIMENSIONS.hoopPosition.clone();
+      this.homeDefendHoop = COURT_DIMENSIONS.hoopPosition.clone();
+      this.awayAttackHoop = COURT_DIMENSIONS.hoopPosition.clone();
+      this.awayDefendHoop = COURT_DIMENSIONS.hoopPosition.clone();
       this.shotDetector = new ShotDetector();
     }
 
@@ -128,6 +130,16 @@ export class GameSession {
     });
   }
 
+  // --- Per-team hoop helpers ---
+
+  getTeamAttackHoop(team: 'home' | 'away'): THREE.Vector3 {
+    return team === 'home' ? this.homeAttackHoop : this.awayAttackHoop;
+  }
+
+  getTeamDefendHoop(team: 'home' | 'away'): THREE.Vector3 {
+    return team === 'home' ? this.homeDefendHoop : this.awayDefendHoop;
+  }
+
   setCameraRef(camera: THREE.Camera): void {
     this.cameraRef = camera;
   }
@@ -160,57 +172,26 @@ export class GameSession {
     this.setBallHolder(this.homePlayers[0].data.id);
     this.matchEngine.state.phase = 'playing';
     this.matchEngine.state.possession = 'home';
-
-    // Initialize AI movement states — stagger initial holds
-    for (const player of this.getAllPlayers()) {
-      if (player.data.id === this.humanPlayerId) continue;
-      player.aiMovementState = 'holding';
-      player.aiHoldTimer = 0.5 + Math.random() * 1.5;
-    }
   }
 
   update(dt: number): void {
-    // Handle transition phase (after score)
+    // === DEAD BALL PHASE (after score) ===
     if (this.matchEngine.state.phase === 'transitioning') {
-      this.transitionTimer -= dt;
-
-      // Move all players toward their targets
+      this.deadBallTimer -= dt;
+      // All players move toward reset positions
       for (const p of this.getAllPlayers()) {
-        if (p.aiTarget) {
-          p.moveToward(p.aiTarget, dt);
-        }
+        if (p.data.id === this.humanPlayerId) continue;
+        if (p.aiTarget) p.moveToward(p.aiTarget, dt);
         p.animate(dt);
       }
-
-      // When transition completes
-      if (this.transitionTimer <= 0) {
-        if (this.pendingReceivingTeam) {
-          const receiver = this.pendingReceivingTeam === 'home' ? this.homePlayers[0] : this.awayPlayers[0];
-
-          // Position ball for inbound
-          if (this.mode === '5v5') {
-            const baselineZ = this.pendingReceivingTeam === 'home' ? -13 : 13;
-            this.ball.mesh.position.set(0, 1, baselineZ * 0.8);
-          } else {
-            this.ball.mesh.position.set(0, 1, 5); // check-ball line
-          }
-          this.ball.velocity.set(0, 0, 0);
-          this.ball.mesh.visible = true;
-          this.setBallHolder(receiver.data.id);
-          this.matchEngine.checkBallComplete(this.pendingReceivingTeam);
-          this.matchEngine.resetShotClock();
-          this.pendingReceivingTeam = null;
-        }
-
-        // Stop sprinting, go to holding
-        for (const p of this.getAllPlayers()) {
-          p.isSprinting = false;
-          p.aiMovementState = 'holding';
-          p.aiHoldTimer = 0.5;
-        }
+      // When timer expires, give ball and resume
+      if (this.deadBallTimer <= 0) {
+        this.resumeAfterDeadBall();
       }
-      return; // Skip normal game logic during transition
+      return;
     }
+
+    // === LIVE PLAY ===
 
     // Update ball position
     if (this.ball.heldBy) {
@@ -225,6 +206,11 @@ export class GameSession {
 
     // Check for made shots only when ball is in flight
     if (this.ball.isInFlight) {
+      // Determine which hoop the shooter was aiming at
+      const shooterTeam = this.getPlayerTeam(this.lastShooterId);
+      const targetHoop = this.getTeamAttackHoop(shooterTeam);
+      this.shotDetector.setHoopPosition(targetHoop);
+
       const result = this.shotDetector.check(
         this.ball.mesh.position,
         this.ball.velocity,
@@ -238,7 +224,7 @@ export class GameSession {
           shooter?.position ?? this.ball.mesh.position
         );
 
-        const distance = shooter ? shooter.distanceTo(this.attackingHoop) : 10;
+        const distance = shooter ? shooter.distanceTo(targetHoop) : 10;
         const defDist = shooter ? this.getNearestOpponentDist(shooter) : 5;
 
         const goesIn = calculateShotSuccess({
@@ -262,11 +248,6 @@ export class GameSession {
       }
     }
 
-    // Check for loose ball pickup
-    if (!this.ball.heldBy && !this.ball.isInFlight) {
-      this.checkBallPickup();
-    }
-
     // Ball out of bounds detection (in-flight going way out)
     if (this.ball.isInFlight) {
       const ballPos = this.ball.mesh.position;
@@ -274,11 +255,14 @@ export class GameSession {
       const courtHalfLength = this.mode === '5v5' ? 14 : 7;
 
       if (Math.abs(ballPos.x) > courtHalfWidth + 5 || Math.abs(ballPos.z) > courtHalfLength + 5 || ballPos.y < -1) {
-        // Ball went way out — cancel flight and treat as out of bounds
         this.ball.isInFlight = false;
         this.ball.velocity.set(0, 0, 0);
-        // Will be caught by the loose ball OOB check next frame
       }
+    }
+
+    // Check for loose ball pickup
+    if (!this.ball.heldBy && !this.ball.isInFlight) {
+      this.checkBallPickup();
     }
 
     // Ball out of bounds detection (loose ball)
@@ -288,17 +272,14 @@ export class GameSession {
       const courtHalfLength = this.mode === '5v5' ? 14 : 7;
 
       if (Math.abs(ballPos.x) > courtHalfWidth || Math.abs(ballPos.z) > courtHalfLength) {
-        // Ball went out of bounds — give to the other team
         const currentPossession = this.matchEngine.state.possession;
         const otherTeam: 'home' | 'away' = currentPossession === 'home' ? 'away' : 'home';
 
-        // Reset ball to sideline
         const inboundX = THREE.MathUtils.clamp(ballPos.x, -courtHalfWidth + 1, courtHalfWidth - 1);
         const inboundZ = THREE.MathUtils.clamp(ballPos.z, -courtHalfLength + 1, courtHalfLength - 1);
         this.ball.mesh.position.set(inboundX, 1, inboundZ);
         this.ball.velocity.set(0, 0, 0);
 
-        // Give to other team's nearest player
         const otherPlayers = otherTeam === 'home' ? this.homePlayers : this.awayPlayers;
         let nearest = otherPlayers[0];
         let nearestDist = Infinity;
@@ -311,59 +292,28 @@ export class GameSession {
       }
     }
 
-    // AI decisions run every AI_DECISION_INTERVAL seconds
-    this.aiDecisionTimer += dt;
-    if (this.aiDecisionTimer >= this.AI_DECISION_INTERVAL) {
-      this.aiDecisionTimer = 0;
-      this.runAIDecisions(dt);
+    // Loose ball — everyone chases
+    if (!this.ball.heldBy && !this.ball.isInFlight) {
+      for (const p of this.getAllPlayers()) {
+        if (p.data.id === this.humanPlayerId) continue;
+        p.aiTarget = this.ball.mesh.position.clone();
+        p.moveToward(p.aiTarget, dt);
+      }
+    } else {
+      // Normal AI positioning
+      this.runAI(dt);
     }
 
-    // Move AI players toward their targets every frame
-    this.moveAIPlayers(dt);
-
-    // Animate all players (dribble, walk cycle, idle)
+    // Animate all players
     for (const player of this.getAllPlayers()) {
       player.animate(dt);
     }
 
     // Make AI players face the ball/ball holder
-    const ballTarget = this.ball.heldBy
-      ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
-      : this.ball.mesh.position;
-
-    for (const player of this.getAllPlayers()) {
-      if (player.data.id === this.humanPlayerId) continue;
-      // Face toward ball holder
-      const dx = ballTarget.x - player.position.x;
-      const dz = ballTarget.z - player.position.z;
-      if (Math.abs(dx) > 0.1 || Math.abs(dz) > 0.1) {
-        player.group.rotation.y = Math.atan2(dx, dz);
-      }
-    }
+    this.updateAIFacing();
 
     // Auto-switch human control on defense (with cooldown to prevent jitter)
-    this.autoSwitchCooldown = Math.max(0, this.autoSwitchCooldown - dt);
-    if (this.matchEngine.state.phase === 'playing' && this.autoSwitchCooldown <= 0) {
-      const humanTeam = this.getPlayerTeam(this.humanPlayerId);
-      const isOnDefense = this.matchEngine.state.possession !== humanTeam;
-
-      if (isOnDefense) {
-        const ballHolder = this.getAllPlayers().find(p => p.hasBall);
-        if (ballHolder) {
-          const humanTeamPlayers = humanTeam === 'home' ? this.homePlayers : this.awayPlayers;
-          let nearestId = this.humanPlayerId;
-          let nearestDist = Infinity;
-          for (const p of humanTeamPlayers) {
-            const d = p.distanceTo(ballHolder.position);
-            if (d < nearestDist) { nearestDist = d; nearestId = p.data.id; }
-          }
-          if (nearestId !== this.humanPlayerId) {
-            this.switchHumanControl(nearestId);
-            this.autoSwitchCooldown = 0.5; // prevent rapid toggling
-          }
-        }
-      }
-    }
+    this.updateDefensiveAutoSwitch(dt);
 
     // Update match engine clock
     if (this.matchEngine.state.phase === 'playing') {
@@ -371,38 +321,7 @@ export class GameSession {
     }
 
     // Powerup system
-    this.powerupSystem.tick(dt);
-    const diff = this.matchEngine.getScoreDifferential();
-    if (diff) {
-      this.powerupSystem.update(diff.deficit, dt);
-    }
-
-    // Spawn visual orb when powerup system has one
-    if (this.powerupSystem.activeOrb && !this.powerupVisuals.hasActiveOrb()) {
-      const orb = this.powerupSystem.activeOrb;
-      this.powerupVisuals.spawnOrb(orb.type, orb.position);
-      if (this.scene) this.scene.add(this.powerupVisuals.getOrbMesh()!);
-    }
-
-    // Animate orb
-    this.powerupVisuals.update(dt);
-
-    // Check pickup by losing team players
-    if (this.powerupVisuals.hasActiveOrb() && diff) {
-      const losingPlayers = diff.losingTeam === 'home' ? this.homePlayers : this.awayPlayers;
-      for (const p of losingPlayers) {
-        if (this.powerupVisuals.checkPickup(p.position)) {
-          const type = this.powerupSystem.activeOrb?.type ?? null;
-          this.powerupSystem.pickupOrb(diff.losingTeam);
-          const orbMesh = this.powerupVisuals.getOrbMesh();
-          if (orbMesh && this.scene) this.scene.remove(orbMesh);
-          this.powerupVisuals.removeOrb();
-          // Store last picked up powerup for HUD
-          this.lastPowerupPickup = type;
-          break;
-        }
-      }
-    }
+    this.updatePowerups(dt);
   }
 
   processInput(input: ControlInput, dt: number): void {
@@ -412,10 +331,9 @@ export class GameSession {
 
     // Transform joystick input to camera-relative world space
     let worldX = input.joystick.x;
-    let worldZ = input.joystick.y; // screen Y → world Z
+    let worldZ = input.joystick.y; // screen Y -> world Z
 
     if (this.cameraRef) {
-      // Get camera's forward and right vectors projected onto XZ plane
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.cameraRef.quaternion);
       forward.y = 0;
       forward.normalize();
@@ -423,7 +341,6 @@ export class GameSession {
       right.y = 0;
       right.normalize();
 
-      // Transform input: joystick X = camera right, joystick Y = camera forward
       worldX = right.x * input.joystick.x + forward.x * (-input.joystick.y);
       worldZ = right.z * input.joystick.x + forward.z * (-input.joystick.y);
     }
@@ -431,7 +348,6 @@ export class GameSession {
     human.isSprinting = input.sprinting ?? false;
     human.moveByInput(worldX, worldZ, dt);
 
-    // Process gesture (consume it so it doesn't repeat next frame)
     if (input.gesture) {
       this.handleGesture(input.gesture, human);
       input.gesture = null;
@@ -440,19 +356,21 @@ export class GameSession {
 
   handleMadeShot(team: Possession, shotType: ShotType): void {
     // Trigger slam cam for dunks
+    const scoringHoop = this.getTeamAttackHoop(team);
     if (shotType === 'dunk' || shotType === 'alley-oop' || shotType === 'powerup-dunk') {
       this.slamCamRequested = true;
-      this.slamCamPosition = this.attackingHoop.clone();
+      this.slamCamPosition = scoringHoop.clone();
     }
 
     this.matchEngine.score(team, shotType);
     this.ball.isInFlight = false;
-    // Reset for check-ball: other team gets the ball
-    this.resetAfterScore(team === 'home' ? 'away' : 'home');
+
+    // Enter dead ball phase — NO HOOP SWAP
+    const receivingTeam: 'home' | 'away' = team === 'home' ? 'away' : 'home';
+    this.enterDeadBall(receivingTeam);
   }
 
   setBallHolder(playerId: string): void {
-    // Clear old holder
     for (const p of this.getAllPlayers()) {
       p.loseBall();
     }
@@ -474,7 +392,6 @@ export class GameSession {
       };
     }
 
-    // Track the ball (wherever it is)
     const ballPos = this.ball.heldBy
       ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
       : this.ball.mesh.position;
@@ -482,7 +399,7 @@ export class GameSession {
     return {
       mode: 'broadcast' as CameraMode,
       trackPosition: ballPos.clone(),
-      lookAt: this.attackingHoop.clone(),
+      lookAt: new THREE.Vector3(0, 1.5, ballPos.z),
     };
   }
 
@@ -554,21 +471,25 @@ export class GameSession {
     switch (gesture.type) {
       case 'swipe-up':
         if (hasBall) {
-          // Shoot
+          const humanTeam = this.getPlayerTeam(this.humanPlayerId);
+          const targetHoop = this.getTeamAttackHoop(humanTeam);
           human.loseBall();
           human.triggerShoot();
           this.lastShooterId = human.data.id;
-          this.ball.shootAt(this.attackingHoop, gesture.power);
+          this.ball.shootAt(targetHoop, gesture.power);
         }
         break;
 
       case 'swipe-down':
-        if (hasBall && human.distanceTo(this.attackingHoop) < 4.5) {
-          // Dunk attempt
-          human.loseBall();
-          human.triggerShoot();
-          this.lastShooterId = human.data.id;
-          this.ball.shootAt(this.attackingHoop, 1.0);
+        if (hasBall) {
+          const humanTeam = this.getPlayerTeam(this.humanPlayerId);
+          const targetHoop = this.getTeamAttackHoop(humanTeam);
+          if (human.distanceTo(targetHoop) < 4.5) {
+            human.loseBall();
+            human.triggerShoot();
+            this.lastShooterId = human.data.id;
+            this.ball.shootAt(targetHoop, 1.0);
+          }
         }
         break;
 
@@ -580,7 +501,6 @@ export class GameSession {
             this.ball.passTo(teammate.position);
             this.pendingPassTarget = teammate.data.id;
 
-            // Switch control to the pass target
             human.isHumanControlled = false;
             this.playerAIs.set(human.data.id, new PlayerAI(human.data.stats, human.data.personality));
 
@@ -593,7 +513,6 @@ export class GameSession {
 
       case 'tap':
         if (!hasBall) {
-          // Steal attempt
           this.attemptSteal(human);
         }
         break;
@@ -603,55 +522,285 @@ export class GameSession {
         break;
 
       case 'double-tap':
-        // Switch controlled player or call screen
         break;
     }
   }
 
-  private resetAfterScore(receivingTeam: Possession): void {
+  // --- Dead Ball System (replaces resetAfterScore + hoop swapping) ---
+
+  private enterDeadBall(receivingTeam: 'home' | 'away'): void {
     this.shotDetector.reset();
     this.matchEngine.state.phase = 'transitioning';
-    this.transitionTimer = 2.0;
-    this.pendingReceivingTeam = receivingTeam;
+    this.deadBallTimer = 1.5;
+    this.deadBallReceivingTeam = receivingTeam;
 
-    // Swap hoops in 5v5
-    if (this.mode === '5v5') {
-      const temp = this.attackingHoop.clone();
-      this.attackingHoop.copy(this.defendingHoop);
-      this.defendingHoop.copy(temp);
-      this.shotDetector.setHoopPosition(this.attackingHoop);
+    // Hide ball during transition
+    this.ball.release();
+    this.ball.mesh.visible = false;
+
+    // Set target positions: scoring team retreats to DEFENSE, receiving team goes to OFFENSE
+    const scoringTeam: 'home' | 'away' = receivingTeam === 'home' ? 'away' : 'home';
+
+    // Scoring team -> retreat to their defensive end
+    const scoringDefendHoop = this.getTeamDefendHoop(scoringTeam);
+    const scoringPlayers = scoringTeam === 'home' ? this.homePlayers : this.awayPlayers;
+    const defenseSpots: [number, number][] = [[0, 3], [-4, 5], [4, 5], [-2, 7], [2, 7]];
+    const defDir = scoringDefendHoop.z > 0 ? -1 : 1;
+    scoringPlayers.forEach((p, i) => {
+      const [x, z] = defenseSpots[i] ?? [0, 5];
+      p.aiTarget = new THREE.Vector3(x, 0, scoringDefendHoop.z + z * defDir);
+    });
+
+    // Receiving team -> go to their offensive end
+    const receivingAttackHoop = this.getTeamAttackHoop(receivingTeam);
+    const receivingPlayers = receivingTeam === 'home' ? this.homePlayers : this.awayPlayers;
+    const offenseSpots: [number, number][] = [[0, 8], [-5, 6], [4, 5], [-2, 3], [0, 2]];
+    const offDir = receivingAttackHoop.z > 0 ? -1 : 1;
+    receivingPlayers.forEach((p, i) => {
+      const [x, z] = offenseSpots[i] ?? [0, 5];
+      p.aiTarget = new THREE.Vector3(x, 0, receivingAttackHoop.z + z * offDir);
+    });
+  }
+
+  private resumeAfterDeadBall(): void {
+    if (!this.deadBallReceivingTeam) return;
+
+    const receiver = this.deadBallReceivingTeam === 'home' ? this.homePlayers[0] : this.awayPlayers[0];
+
+    // Ball at the receiving team's BASELINE (far from their attacking hoop)
+    const defendHoop = this.getTeamDefendHoop(this.deadBallReceivingTeam);
+    const baselineZ = defendHoop.z + (defendHoop.z < 0 ? 1 : -1); // just inside baseline
+
+    this.ball.mesh.position.set(0, 1, baselineZ);
+    this.ball.velocity.set(0, 0, 0);
+    this.ball.mesh.visible = true;
+    this.setBallHolder(receiver.data.id);
+    this.matchEngine.checkBallComplete(this.deadBallReceivingTeam);
+    this.matchEngine.resetShotClock();
+
+    this.deadBallReceivingTeam = null;
+    this.aiShootTimer = 0;
+  }
+
+  // --- New AI System (replaces runAIDecisions, moveAIPlayers, moveToFormation) ---
+
+  private runAI(dt: number): void {
+    const possession = this.matchEngine.state.possession;
+
+    for (const player of this.getAllPlayers()) {
+      if (player.data.id === this.humanPlayerId) continue;
+
+      const isHome = this.isHomePlayer(player);
+      const myTeam: 'home' | 'away' = isHome ? 'home' : 'away';
+      const onOffense = possession === myTeam;
+      const attackHoop = this.getTeamAttackHoop(myTeam);
+      const defendHoop = this.getTeamDefendHoop(myTeam);
+
+      let target: THREE.Vector3;
+
+      if (onOffense) {
+        if (player.hasBall) {
+          // BALL HANDLER: advance toward attacking hoop
+          const distToHoop = player.distanceTo(attackHoop);
+          if (distToHoop > 6) {
+            // Too far -- drive toward hoop
+            target = attackHoop.clone();
+          } else {
+            // In range -- AI decides (shoot/pass/drive)
+            this.handleBallHandlerAI(player, attackHoop, dt);
+            continue; // decision handled inside
+          }
+        } else {
+          // OFF-BALL OFFENSE: go to offensive spot
+          target = this.getOffensivePosition(player, attackHoop);
+        }
+      } else {
+        // DEFENSE: position between assignment and defending hoop
+        const assignment = this.getDefensiveAssignment(player);
+        if (assignment) {
+          target = this.getDefensivePosition(player, assignment, defendHoop);
+
+          // Attempt steal if very close to ball handler
+          if (assignment.hasBall && player.distanceTo(assignment.position) < 1.5) {
+            if (Math.random() < 0.05) {
+              this.attemptSteal(player);
+            }
+          }
+        } else {
+          target = defendHoop.clone();
+        }
+      }
+
+      player.aiTarget = target;
+      player.moveToward(target, dt);
+    }
+  }
+
+  private getOffensivePosition(player: GamePlayer, attackHoop: THREE.Vector3): THREE.Vector3 {
+    const team = this.isHomePlayer(player) ? this.homePlayers : this.awayPlayers;
+    const idx = team.indexOf(player);
+
+    // Standard basketball offensive spots
+    // [xOffset, zOffsetFromHoop (toward center court)]
+    const offsets: [number, number][] = [
+      [0, 8],    // PG: top of key
+      [-5, 6],   // SG: left wing
+      [4, 5],    // SF: right wing
+      [-2, 3],   // PF: left elbow
+      [0, 2],    // C: paint
+    ];
+
+    const [xOff, zOff] = offsets[idx] ?? [0, 5];
+
+    // Z direction: toward center court from the hoop
+    const zDir = attackHoop.z > 0 ? -1 : 1;
+
+    return new THREE.Vector3(xOff, 0, attackHoop.z + zOff * zDir);
+  }
+
+  private getDefensivePosition(_player: GamePlayer, assignment: GamePlayer, defendHoop: THREE.Vector3): THREE.Vector3 {
+    const isBallHandler = assignment.hasBall;
+    // Ball defender: stay close (80% toward man). Off-ball: help side (65%)
+    const blend = isBallHandler ? 0.8 : 0.65;
+
+    return new THREE.Vector3(
+      assignment.position.x * blend + defendHoop.x * (1 - blend),
+      0,
+      assignment.position.z * blend + defendHoop.z * (1 - blend)
+    );
+  }
+
+  private handleBallHandlerAI(player: GamePlayer, attackHoop: THREE.Vector3, dt: number): void {
+    this.aiShootTimer += dt;
+
+    // Wait at least 1 second before shooting
+    if (this.aiShootTimer < 1) {
+      player.aiTarget = attackHoop.clone();
+      player.moveToward(player.aiTarget, dt);
+      return;
     }
 
-    // Set target positions for all players to sprint to
-    const homeTargets = this.mode === '5v5'
-      ? [new THREE.Vector3(0,0,-8), new THREE.Vector3(-4,0,-5), new THREE.Vector3(4,0,-5), new THREE.Vector3(-2,0,-3), new THREE.Vector3(2,0,-3)]
-      : [new THREE.Vector3(-3,0,2), new THREE.Vector3(3,0,2), new THREE.Vector3(0,0,5)];
-    const awayTargets = this.mode === '5v5'
-      ? [new THREE.Vector3(0,0,8), new THREE.Vector3(-4,0,5), new THREE.Vector3(4,0,5), new THREE.Vector3(-2,0,3), new THREE.Vector3(2,0,3)]
-      : [new THREE.Vector3(-2,0,-2), new THREE.Vector3(2,0,-2), new THREE.Vector3(0,0,-4)];
+    const dist = player.distanceTo(attackHoop);
+    const nearestDef = this.getNearestOpponentDist(player);
 
-    this.homePlayers.forEach((p, i) => {
-      p.aiTarget = homeTargets[i] ?? homeTargets[0];
-      p.aiMovementState = 'reacting';
-      p.isSprinting = true;
-    });
-    this.awayPlayers.forEach((p, i) => {
-      p.aiTarget = awayTargets[i] ?? awayTargets[0];
-      p.aiMovementState = 'reacting';
-      p.isSprinting = true;
-    });
+    // Simple decision: shoot if open and in range, pass if covered, drive if lane open
+    if (dist < 3 && nearestDef > 2) {
+      // Close and open -- dunk/layup
+      player.loseBall();
+      player.triggerShoot();
+      this.lastShooterId = player.data.id;
+      this.ball.shootAt(attackHoop, 1.0);
+      this.aiShootTimer = 0;
+    } else if (dist < 7 && nearestDef > 2.5 && Math.random() < 0.3) {
+      // Mid range, open -- shoot
+      player.loseBall();
+      player.triggerShoot();
+      this.lastShooterId = player.data.id;
+      this.ball.shootAt(attackHoop, 0.5 + Math.random() * 0.3);
+      this.aiShootTimer = 0;
+    } else if (nearestDef < 2) {
+      // Covered -- pass to open teammate
+      const teammates = this.getTeammates(player);
+      const openTeammate = teammates.find(t =>
+        this.getNearestOpponentDist(t) > 2.5
+      );
+      if (openTeammate) {
+        player.loseBall();
+        this.ball.passTo(openTeammate.position);
+        this.pendingPassTarget = openTeammate.data.id;
+        this.aiShootTimer = 0;
+      } else {
+        // No one open -- keep driving
+        player.aiTarget = attackHoop.clone();
+        player.moveToward(player.aiTarget, dt);
+      }
+    } else {
+      // Drive closer
+      player.aiTarget = attackHoop.clone();
+      player.moveToward(player.aiTarget, dt);
+    }
+  }
 
-    // Release ball temporarily
-    this.ball.release();
-    this.ball.mesh.visible = false; // hide during transition
+  // --- Helpers ---
+
+  private updateAIFacing(): void {
+    const ballTarget = this.ball.heldBy
+      ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
+      : this.ball.mesh.position;
+
+    for (const player of this.getAllPlayers()) {
+      if (player.data.id === this.humanPlayerId) continue;
+      const dx = ballTarget.x - player.position.x;
+      const dz = ballTarget.z - player.position.z;
+      if (Math.abs(dx) > 0.1 || Math.abs(dz) > 0.1) {
+        player.group.rotation.y = Math.atan2(dx, dz);
+      }
+    }
+  }
+
+  private updateDefensiveAutoSwitch(dt: number): void {
+    this.autoSwitchCooldown = Math.max(0, this.autoSwitchCooldown - dt);
+    if (this.matchEngine.state.phase === 'playing' && this.autoSwitchCooldown <= 0) {
+      const humanTeam = this.getPlayerTeam(this.humanPlayerId);
+      const isOnDefense = this.matchEngine.state.possession !== humanTeam;
+
+      if (isOnDefense) {
+        const ballHolder = this.getAllPlayers().find(p => p.hasBall);
+        if (ballHolder) {
+          const humanTeamPlayers = humanTeam === 'home' ? this.homePlayers : this.awayPlayers;
+          let nearestId = this.humanPlayerId;
+          let nearestDist = Infinity;
+          for (const p of humanTeamPlayers) {
+            const d = p.distanceTo(ballHolder.position);
+            if (d < nearestDist) { nearestDist = d; nearestId = p.data.id; }
+          }
+          if (nearestId !== this.humanPlayerId) {
+            this.switchHumanControl(nearestId);
+            this.autoSwitchCooldown = 0.5;
+          }
+        }
+      }
+    }
+  }
+
+  private updatePowerups(dt: number): void {
+    this.powerupSystem.tick(dt);
+    const diff = this.matchEngine.getScoreDifferential();
+    if (diff) {
+      this.powerupSystem.update(diff.deficit, dt);
+    }
+
+    // Spawn visual orb when powerup system has one
+    if (this.powerupSystem.activeOrb && !this.powerupVisuals.hasActiveOrb()) {
+      const orb = this.powerupSystem.activeOrb;
+      this.powerupVisuals.spawnOrb(orb.type, orb.position);
+      if (this.scene) this.scene.add(this.powerupVisuals.getOrbMesh()!);
+    }
+
+    // Animate orb
+    this.powerupVisuals.update(dt);
+
+    // Check pickup by losing team players
+    if (this.powerupVisuals.hasActiveOrb() && diff) {
+      const losingPlayers = diff.losingTeam === 'home' ? this.homePlayers : this.awayPlayers;
+      for (const p of losingPlayers) {
+        if (this.powerupVisuals.checkPickup(p.position)) {
+          const type = this.powerupSystem.activeOrb?.type ?? null;
+          this.powerupSystem.pickupOrb(diff.losingTeam);
+          const orbMesh = this.powerupVisuals.getOrbMesh();
+          if (orbMesh && this.scene) this.scene.remove(orbMesh);
+          this.powerupVisuals.removeOrb();
+          this.lastPowerupPickup = type;
+          break;
+        }
+      }
+    }
   }
 
   private checkBallPickup(): void {
     for (const p of this.getAllPlayers()) {
       if (p.distanceTo(this.ball.mesh.position) < 1.0) {
         this.setBallHolder(p.data.id);
-
-        // Clear pending pass target on pickup
         if (this.pendingPassTarget === p.data.id) {
           this.pendingPassTarget = null;
         }
@@ -667,238 +816,14 @@ export class GameSession {
 
     stealer.triggerSteal();
 
-    // 30% chance of steal, 30% chance of foul, 40% nothing
     const roll = Math.random();
     if (roll < 0.3) {
-      // Successful steal
       ballHolder.loseBall();
       ballHolder.recordStat('turnovers', 1);
       this.setBallHolder(stealer.data.id);
     } else if (roll < 0.6) {
-      // Foul
       const stealerTeam = this.getPlayerTeam(stealer.data.id);
       this.matchEngine.callFoul(stealerTeam);
-    }
-    // else: failed attempt, nothing happens
-  }
-
-  private runAIDecisions(_dt: number): void {
-    const scoreDiff = this.matchEngine.state.homeScore - this.matchEngine.state.awayScore;
-    const clock = this.matchEngine.state.clockSeconds;
-    const possession = this.matchEngine.state.possession;
-
-    // Invalidate cached plays when possession changes
-    if (this.lastPossession !== null && this.lastPossession !== possession) {
-      this.cachedPlays = {};
-    }
-    this.lastPossession = possession;
-
-    // LOOSE BALL — everyone chases it
-    const ballIsLoose = !this.ball.heldBy && !this.ball.isInFlight;
-
-    for (const player of this.getAllPlayers()) {
-      if (player.data.id === this.humanPlayerId) continue; // Skip human
-
-      if (ballIsLoose) {
-        // ALL AI players chase the loose ball
-        player.aiTarget = this.ball.mesh.position.clone();
-        player.aiMovementState = 'reacting'; // urgent movement
-        continue; // skip normal offense/defense logic
-      }
-
-      // Determine if this player's team has possession (on offense)
-      const isHome = this.isHomePlayer(player);
-      const isOnOffense = (isHome && possession === 'home') || (!isHome && possession === 'away');
-
-      // --- DEFENSIVE AI: man-to-man ball pressure ---
-      if (!isOnOffense) {
-        const assignment = this.getDefensiveAssignment(player);
-        if (!assignment) { this.moveToFormation(player); continue; }
-
-        const isGuardingBallHandler = assignment.hasBall;
-        const distToAssignment = player.distanceTo(assignment.position);
-
-        if (isGuardingBallHandler) {
-          // BALL PRESSURE DEFENSE
-          // Position between ball handler and hoop, ~2 units from handler
-          const handlerPos = assignment.position;
-          const hoopPos = this.defendingHoop;
-
-          // Direction from handler to hoop
-          const toHoop = new THREE.Vector3().subVectors(hoopPos, handlerPos).normalize();
-
-          // Position 2 units toward hoop from handler (between them and basket)
-          const defensePos = new THREE.Vector3(
-            handlerPos.x + toHoop.x * 2,
-            0,
-            handlerPos.z + toHoop.z * 2
-          );
-
-          // Mirror handler's lateral movement
-          defensePos.x = handlerPos.x * 0.8; // track 80% of their x-movement
-
-          player.aiTarget = defensePos;
-          player.aiMovementState = 'reacting'; // always responsive to ball handler
-
-          // Attempt steal if very close and handler is driving
-          if (distToAssignment < 1.5) {
-            const ai = this.playerAIs.get(player.data.id);
-            if (ai && Math.random() < 0.05) { // 5% chance per decision tick
-              this.attemptSteal(player);
-            }
-          }
-        } else {
-          // OFF-BALL DEFENSE
-          // Position 2/3 of the way between assignment and hoop (closer to their man)
-          const assignPos = assignment.position;
-          const hoopPos = this.defendingHoop;
-
-          player.aiTarget = new THREE.Vector3(
-            assignPos.x * 0.7 + hoopPos.x * 0.3,
-            0,
-            assignPos.z * 0.7 + hoopPos.z * 0.3
-          );
-
-          // Always track their man — use reacting for close tracking, moving for distant
-          if (assignment.velocity && assignment.velocity.lengthSq() > 0.5) {
-            player.aiMovementState = 'reacting'; // man is cutting, react fast
-          } else if (player.aiMovementState === 'holding' && player.aiHoldTimer <= 0) {
-            player.aiMovementState = 'moving'; // done holding, follow man
-          }
-        }
-        continue; // Skip the offensive decision tree
-      }
-
-      // --- OFFENSIVE AI WITHOUT BALL: V-Cuts and patience ---
-      if (isOnOffense && !player.hasBall) {
-        // First: get to the offensive end of the court
-        const distToHoopOffBall = player.distanceTo(this.attackingHoop);
-
-        if (distToHoopOffBall > 5) {
-          // Too far from the hoop — advance down court
-          player.aiTarget = new THREE.Vector3(
-            this.attackingHoop.x + (Math.random() - 0.5) * 6, // spread across width
-            0,
-            this.attackingHoop.z + (this.attackingHoop.z > 0 ? -5 : 5) // approach from behind arc
-          );
-          player.aiMovementState = 'moving';
-          continue;
-        }
-
-        // In offensive zone — do V-cuts
-        // V-Cut system: hold position, then cut, then return
-        if (player.aiMovementState === 'holding' && player.aiHoldTimer <= 0) {
-          // Time to make a move — pick a V-cut or reposition
-          const roll = Math.random();
-          if (roll < 0.4) {
-            // V-CUT TOWARD HOOP: fake toward basket
-            player.aiTarget = new THREE.Vector3(
-              this.attackingHoop.x + (Math.random() - 0.5) * 3,
-              0,
-              this.attackingHoop.z + 2 + Math.random() * 2
-            );
-            player.aiMovementState = 'moving';
-          } else if (roll < 0.7) {
-            // V-CUT TO WING: move to open perimeter spot
-            const side = player.position.x > 0 ? -1 : 1;
-            player.aiTarget = new THREE.Vector3(
-              side * (4 + Math.random() * 2),
-              0,
-              1 + Math.random() * 3
-            );
-            player.aiMovementState = 'moving';
-          } else {
-            // HOLD AND WAIT: stay at current spot briefly
-            player.aiHoldTimer = 0.5 + Math.random() * 0.8;
-          }
-        } else if (player.aiMovementState === 'holding' && player.aiHoldTimer <= 0) {
-          // Hold timer expired — get a formation position and set moving
-          this.moveToFormation(player);
-          player.aiMovementState = 'moving';
-          player.aiHoldTimer = 0;
-        }
-        continue; // Skip the old decision tree
-      }
-
-      // --- OFFENSIVE AI WITH BALL: patience then act ---
-      if (isOnOffense && player.hasBall) {
-        const distToHoopBallHandler = player.distanceTo(this.attackingHoop);
-
-        // If far from hoop, advance first before shooting
-        if (distToHoopBallHandler > 6) {
-          player.aiTarget = this.attackingHoop.clone();
-          player.aiMovementState = 'moving';
-          continue; // don't shoot from too far
-        }
-
-        // Close enough — survey and decide
-        // Ball handler — survey for 0.5-1s then act
-        if (player.aiMovementState === 'holding' && player.aiHoldTimer > 0) {
-          // Holding ball, surveying — don't move, let timer run
-          continue;
-        }
-
-        // Now decide what to do
-        const ai = this.playerAIs.get(player.data.id);
-        if (!ai) continue;
-
-        const ctx: AIContext = {
-          hasBall: player.hasBall,
-          isOnOffense,
-          distanceToHoop: player.distanceTo(this.attackingHoop),
-          nearestDefenderDist: this.getNearestOpponentDist(player),
-          teammateOpenness: this.getTeammateOpenness(player),
-          scoreDiff: isHome ? scoreDiff : -scoreDiff,
-          clockSeconds: clock,
-        };
-
-        const decision = ai.decide(ctx);
-
-        switch (decision.action) {
-          case 'shoot':
-            if (player.distanceTo(this.attackingHoop) < 8) {
-              player.loseBall();
-              player.triggerShoot();
-              this.lastShooterId = player.data.id;
-              this.ball.shootAt(this.attackingHoop, 0.5 + Math.random() * 0.3);
-            }
-            // After shooting, go back to holding
-            player.aiMovementState = 'holding';
-            player.aiHoldTimer = 1;
-            break;
-          case 'pass':
-            if (decision.targetIndex !== undefined) {
-              const teammates = this.getTeammates(player);
-              const target = teammates[decision.targetIndex % teammates.length];
-              if (target) {
-                player.loseBall();
-                this.ball.passTo(target.position);
-                this.pendingPassTarget = target.data.id;
-              }
-            }
-            player.aiMovementState = 'holding';
-            player.aiHoldTimer = 0.5;
-            break;
-          case 'drive':
-            player.aiTarget = this.attackingHoop.clone();
-            player.aiMovementState = 'moving';
-            break;
-          case 'dunk':
-            if (player.distanceTo(this.attackingHoop) < 4.5) {
-              player.loseBall();
-              player.triggerShoot();
-              this.lastShooterId = player.data.id;
-              this.ball.shootAt(this.attackingHoop, 1.0);
-            }
-            break;
-          default:
-            // Hold and survey
-            player.aiMovementState = 'holding';
-            player.aiHoldTimer = 0.5 + Math.random();
-            break;
-        }
-        continue;
-      }
     }
   }
 
@@ -916,112 +841,9 @@ export class GameSession {
     return nearest;
   }
 
-  private moveAIPlayers(dt: number): void {
-    for (const player of this.getAllPlayers()) {
-      if (player.data.id === this.humanPlayerId) continue;
-
-      switch (player.aiMovementState) {
-        case 'holding':
-          // Stand still, face the ball, countdown timer
-          player.aiHoldTimer -= dt;
-          if (player.aiHoldTimer <= 0) {
-            // Timer expired — if we have a target, start moving; otherwise stay holding briefly
-            if (player.aiTarget) {
-              player.aiMovementState = 'moving';
-            } else {
-              // No target yet — give a formation target as fallback
-              this.moveToFormation(player);
-              player.aiMovementState = 'moving';
-            }
-          }
-          // Don't move — just animate idle
-          player.velocity.set(0, 0, 0);
-          break;
-
-        case 'moving': {
-          if (!player.aiTarget) {
-            // No target — get a formation position and keep moving
-            this.moveToFormation(player);
-          }
-          const dist = player.distanceTo(player.aiTarget!);
-          if (dist < 0.3) {
-            // Reached target — switch to holding briefly
-            player.aiMovementState = 'holding';
-            player.aiHoldTimer = 0.3 + Math.random() * 0.5;
-          } else {
-            player.moveToward(player.aiTarget!, dt);
-          }
-          break;
-        }
-
-        case 'reacting': {
-          if (!player.aiTarget) break;
-          // Quick burst movement — no holding, just go
-          player.moveToward(player.aiTarget, dt);
-          const reactDist = player.distanceTo(player.aiTarget);
-          if (reactDist < 0.5) {
-            player.aiMovementState = 'holding';
-            player.aiHoldTimer = 0.3 + Math.random() * 0.7;
-          }
-          break;
-        }
-      }
-    }
-  }
-
-  private moveToFormation(player: GamePlayer): void {
-    const isHome = this.isHomePlayer(player);
-    const teamKey = isHome ? 'home' : 'away';
-    const teamAI = isHome ? this.homeTeamAI : this.awayTeamAI;
-    const teammates = isHome ? this.homePlayers : this.awayPlayers;
-    const idx = teammates.indexOf(player);
-
-    const isOnOffense = (isHome && this.matchEngine.state.possession === 'home') ||
-                        (!isHome && this.matchEngine.state.possession === 'away');
-
-    // Use cached play to prevent jittering from random deviation each tick
-    const now = this.matchEngine.state.clockSeconds;
-    const cached = this.cachedPlays[teamKey];
-    let play: TeamPlay;
-    if (cached && Math.abs(cached.timestamp - now) < this.playRefreshInterval) {
-      play = cached.play;
-    } else {
-      play = teamAI.choosePlay({
-        possession: this.matchEngine.state.possession,
-        scoreDiff: this.matchEngine.state.homeScore - this.matchEngine.state.awayScore,
-        clockSeconds: now,
-      });
-      this.cachedPlays[teamKey] = { play, timestamp: now };
-    }
-
-    if (this.mode === '5v5') {
-      const positions = getFormation5v5(play.formation, !isOnOffense);
-      if (positions[idx]) {
-        // Position relative to the hoop we're attacking/defending
-        const refHoop = isOnOffense ? this.attackingHoop : this.defendingHoop;
-        // Formation positions are "units in front of hoop toward center court"
-        // For hoop at -13, "in front" = toward +Z = add position.z
-        // For hoop at +13, "in front" = toward -Z = subtract position.z
-        const dir = refHoop.z < 0 ? 1 : -1;
-        player.aiTarget = new THREE.Vector3(
-          positions[idx].x,
-          0,
-          refHoop.z + positions[idx].z * dir
-        );
-      }
-    } else {
-      // Existing 3v3 formation logic
-      const positions = TeamAI.getFormationPositions(play.formation);
-      if (positions[idx]) {
-        player.aiTarget = new THREE.Vector3(positions[idx].x, 0, positions[idx].z);
-      }
-    }
-  }
-
   private getDefensiveAssignment(player: GamePlayer): GamePlayer | null {
     const opponents = this.isHomePlayer(player) ? this.awayPlayers : this.homePlayers;
     const playerIdx = (this.isHomePlayer(player) ? this.homePlayers : this.awayPlayers).indexOf(player);
-    // Simple 1-to-1 matching by index
     return opponents[playerIdx] ?? opponents[0];
   }
 
@@ -1042,18 +864,5 @@ export class GameSession {
       if (d < minDist) minDist = d;
     }
     return minDist;
-  }
-
-  private getTeammateOpenness(player: GamePlayer): number[] {
-    const teammates = this.getTeammates(player);
-    const opponents = this.isHomePlayer(player) ? this.awayPlayers : this.homePlayers;
-    return teammates.map(tm => {
-      let minOppDist = Infinity;
-      for (const opp of opponents) {
-        const d = tm.distanceTo(opp.position);
-        if (d < minOppDist) minOppDist = d;
-      }
-      return Math.min(1, minOppDist / 5); // 0-1 openness
-    });
   }
 }

@@ -150,19 +150,30 @@ describe('GameSession - 5v5 mode', () => {
     expect(session.awayPlayers).toHaveLength(5);
   });
 
-  it('has two different hoops in 5v5', () => {
+  it('home team always attacks hoopAway (z=+13)', () => {
     const events = new EventBus();
     const session = new GameSession(events, makeTeam5('h'), makeTeam5('a'), 'h-1', '5v5');
-    expect(session.attackingHoop.z).not.toBeCloseTo(session.defendingHoop.z, 0);
+    expect(session.getTeamAttackHoop('home').z).toBeCloseTo(13, 0);
+    expect(session.getTeamDefendHoop('home').z).toBeCloseTo(-13, 0);
   });
 
-  it('switches hoops on score', () => {
+  it('away team always attacks hoopHome (z=-13)', () => {
+    const events = new EventBus();
+    const session = new GameSession(events, makeTeam5('h'), makeTeam5('a'), 'h-1', '5v5');
+    expect(session.getTeamAttackHoop('away').z).toBeCloseTo(-13, 0);
+    expect(session.getTeamDefendHoop('away').z).toBeCloseTo(13, 0);
+  });
+
+  it('after score, hoops do NOT swap', () => {
     const events = new EventBus();
     const session = new GameSession(events, makeTeam5('h'), makeTeam5('a'), 'h-1', '5v5');
     session.start();
-    const firstAttackZ = session.attackingHoop.z;
+    const homeAttackZ = session.getTeamAttackHoop('home').z;
+    const awayAttackZ = session.getTeamAttackHoop('away').z;
     session.handleMadeShot('home', 'three-pointer');
-    expect(session.attackingHoop.z).not.toBeCloseTo(firstAttackZ, 0);
+    // Hoops should NOT change after a score
+    expect(session.getTeamAttackHoop('home').z).toBeCloseTo(homeAttackZ, 0);
+    expect(session.getTeamAttackHoop('away').z).toBeCloseTo(awayAttackZ, 0);
   });
 
   it('auto-switches to nearest defender on defense', () => {
