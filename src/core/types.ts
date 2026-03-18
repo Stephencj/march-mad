@@ -151,3 +151,16 @@ export const SHOT_POINTS: Record<ShotType, number> = {
   'alley-oop': 2,
   'powerup-dunk': 3,
 };
+
+// --- Game Over ---
+export interface GameOverData {
+  winner: 'home' | 'away';
+  homeScore: number;
+  awayScore: number;
+  humanTeam: 'home' | 'away';
+  humanWon: boolean;
+  humanStats: { points: number; assists: number; steals: number };
+  xpEarned: number;
+  coinsEarned: number;
+  gameDuration: number;
+}
