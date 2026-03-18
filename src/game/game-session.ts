@@ -15,6 +15,7 @@ import { getFormation5v5 } from '@/ai/formations-5v5';
 import { ProgressionSystem } from '@/meta/progression';
 import { PowerupSystem } from '@/systems/powerups';
 import { PowerupVisuals } from './powerup-visuals';
+import { calculateShotSuccess } from './shot-accuracy';
 
 interface CameraInfo {
   mode: CameraMode;
@@ -188,10 +189,32 @@ export class GameSession {
       if (result.made) {
         const shooterId = this.lastShooterId;
         const team = this.getPlayerTeam(shooterId);
+        const shooter = shooterId ? this.getPlayerById(shooterId) : undefined;
         const shotType = this.shotDetector.classifyShot(
-          shooterId ? this.getPlayerById(shooterId)!.position : this.ball.mesh.position
+          shooter?.position ?? this.ball.mesh.position
         );
-        this.handleMadeShot(team, shotType);
+
+        const distance = shooter ? shooter.distanceTo(this.attackingHoop) : 10;
+        const defDist = shooter ? this.getNearestOpponentDist(shooter) : 5;
+
+        const goesIn = calculateShotSuccess({
+          distance,
+          shootingStat: shooter?.data.stats.shooting ?? 5,
+          defenderDistance: defDist,
+          shotType,
+        });
+
+        if (goesIn) {
+          this.handleMadeShot(team, shotType);
+        } else {
+          // Miss — ball bounces off rim
+          this.ball.isInFlight = false;
+          this.ball.velocity.set(
+            (Math.random() - 0.5) * 3,
+            2,
+            (Math.random() - 0.5) * 3
+          );
+        }
       }
     }
 
@@ -406,33 +429,14 @@ export class GameSession {
       };
     }
 
-    const possession = this.matchEngine.state.possession;
-    const humanTeam = this.getPlayerTeam(this.humanPlayerId);
-    const human = this.getHumanPlayer();
-    const ballHolder = this.getAllPlayers().find(p => p.hasBall);
-    let trackTarget: THREE.Vector3;
-    if (possession === humanTeam) {
-      // On offense: track whoever has the ball (human or AI teammate)
-      trackTarget = ballHolder?.position ?? human.position;
-    } else {
-      // On defense: ALWAYS track human player
-      trackTarget = human.position;
-    }
+    // Track the ball (wherever it is)
+    const ballPos = this.ball.heldBy
+      ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
+      : this.ball.mesh.position;
 
-    let mode: CameraMode;
-    if (this.ball.isInFlight) {
-      mode = 'offense'; // follow the shot
-    } else if (possession === humanTeam) {
-      mode = 'offense';
-    } else {
-      mode = 'defense';
-    }
-
-    const stableTrack = trackTarget.clone();
-    stableTrack.y = 0; // Prevent camera from bouncing with player animation
     return {
-      mode,
-      trackPosition: stableTrack,
+      mode: 'broadcast' as CameraMode,
+      trackPosition: ballPos.clone(),
       lookAt: this.attackingHoop.clone(),
     };
   }

@@ -36,8 +36,8 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1a2e);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 10, 15);
-camera.lookAt(0, 0, 0);
+camera.position.set(18, 10, 0);
+camera.lookAt(0, 1.5, 0);
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -260,6 +260,7 @@ function update(dt: number): void {
     // HUD
     hud.updateScore(session.matchEngine.state.homeScore, session.matchEngine.state.awayScore);
     hud.updateClock(session.matchEngine.state.clockSeconds);
+    hud.updateShotClock(session.matchEngine.state.shotClockSeconds);
     hud.updateCrowdLevel(crowdSystem.getLevel());
 
     // Powerup HUD notification
