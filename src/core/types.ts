@@ -25,11 +25,11 @@ export const POSITION_STATS: Record<Position, PlayerStats> = {
 };
 
 export const POSITION_SCALES: Record<Position, { height: number; body: number; head: number }> = {
-  PG: { height: 0.85, body: 0.85, head: 1.0 },
-  SG: { height: 0.95, body: 0.90, head: 1.0 },
-  SF: { height: 1.0,  body: 1.0,  head: 1.05 },
-  PF: { height: 1.1,  body: 1.15, head: 1.08 },
-  C:  { height: 1.2,  body: 1.3,  head: 1.12 },
+  PG: { height: 0.92, body: 0.95, head: 1.0 },
+  SG: { height: 0.96, body: 0.97, head: 1.0 },
+  SF: { height: 1.0,  body: 1.0,  head: 1.0 },
+  PF: { height: 1.06, body: 1.02, head: 1.0 },
+  C:  { height: 1.12, body: 1.04, head: 1.0 },
 };
 
 export interface PlayerData {

@@ -86,8 +86,6 @@ export class GamePlayer {
     if (data.position) {
       const scales = POSITION_SCALES[data.position];
       this.group.scale.set(scales.body, scales.height, scales.body);
-      const head = this.group.getObjectByName('head');
-      if (head) head.scale.multiplyScalar(scales.head);
     }
   }
 
@@ -1642,6 +1640,14 @@ export class GamePlayer {
     const actualStep = Math.min(step, distance);
     this.velocity.copy(direction).multiplyScalar(actualStep / dt);
     this.group.position.addScaledVector(direction, actualStep);
+
+    // Clamp to court bounds (same as moveByInput)
+    this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -7, 7);
+    this.group.position.z = THREE.MathUtils.clamp(
+      this.group.position.z,
+      GamePlayer.courtBoundsZ[0],
+      GamePlayer.courtBoundsZ[1]
+    );
 
     const angle = Math.atan2(direction.x, direction.z);
     this.group.rotation.y = angle;
