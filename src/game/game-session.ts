@@ -859,59 +859,73 @@ export class GameSession {
     const dist = player.distanceTo(attackHoop);
     const nearestDef = this.getNearestOpponentDist(player);
 
-    // Always keep driving toward hoop while deciding
+    // Always keep driving toward hoop
     player.aiTarget = attackHoop.clone();
     player.moveToward(player.aiTarget, dt);
 
-    // Wait 0.3s before shooting decisions
+    // Minimum 0.3s before shooting
     if (this.aiShootTimer < 0.3) return;
 
-    // Close + open → dunk/layup (100%)
-    if (dist < 4 && nearestDef > 2) {
-      player.loseBall(); player.triggerShoot();
+    // Close range (< 4) → ALWAYS shoot/dunk regardless of defense
+    if (dist < 4) {
+      player.loseBall();
+      player.triggerShoot();
       this.lastShooterId = player.data.id;
       this.ball.shootAt(attackHoop, 1.0);
       this.aiShootTimer = 0;
       return;
     }
 
-    // Mid-range + open → shoot (70%)
-    if (dist < 7 && nearestDef > 2.5 && Math.random() < 0.7) {
-      player.loseBall(); player.triggerShoot();
+    // Mid-range (< 8) → shoot if somewhat open (defender > 1.5)
+    if (dist < 8 && nearestDef > 1.5 && Math.random() < 0.6) {
+      player.loseBall();
+      player.triggerShoot();
       this.lastShooterId = player.data.id;
       this.ball.shootAt(attackHoop, 0.5 + Math.random() * 0.3);
       this.aiShootTimer = 0;
       return;
     }
 
-    // Three-point range + very open → shoot (50%)
-    if (dist < 10 && nearestDef > 3 && Math.random() < 0.5) {
-      player.loseBall(); player.triggerShoot();
+    // Three-point range (< 11) → shoot if open (defender > 2)
+    if (dist < 11 && nearestDef > 2 && Math.random() < 0.4) {
+      player.loseBall();
+      player.triggerShoot();
       this.lastShooterId = player.data.id;
       this.ball.shootAt(attackHoop, 0.4 + Math.random() * 0.3);
       this.aiShootTimer = 0;
       return;
     }
 
-    // Contested → 20% shoot anyway, else pass
-    if (nearestDef < 2) {
-      if (dist < 6 && Math.random() < 0.2) {
-        player.loseBall(); player.triggerShoot();
+    // Been holding too long (> 3 seconds) → force a shot from anywhere
+    if (this.aiShootTimer > 3 && dist < 12) {
+      player.loseBall();
+      player.triggerShoot();
+      this.lastShooterId = player.data.id;
+      this.ball.shootAt(attackHoop, 0.3 + Math.random() * 0.4);
+      this.aiShootTimer = 0;
+      return;
+    }
+
+    // Contested → try to pass, but if timer > 2s, shoot contested anyway
+    if (nearestDef < 1.5) {
+      if (this.aiShootTimer > 2 && dist < 8) {
+        // Forced contested shot
+        player.loseBall();
+        player.triggerShoot();
         this.lastShooterId = player.data.id;
         this.ball.shootAt(attackHoop, 0.3 + Math.random() * 0.3);
         this.aiShootTimer = 0;
         return;
       }
-      // Pass to open teammate
+      // Try to pass
       const teammates = this.getTeammates(player);
-      const openMate = teammates.find(t => this.getNearestOpponentDist(t) > 2.5);
+      const openMate = teammates.find(t => this.getNearestOpponentDist(t) > 1.5);
       if (openMate) {
         player.loseBall();
         this.ball.passTo(openMate.position);
         this.pendingPassTarget = openMate.data.id;
-        this.aiShootTimer = 0;
+        // DO NOT reset aiShootTimer here — let it accumulate
       }
-      // If no one open, keep driving (already set target above)
       return;
     }
   }

@@ -187,17 +187,18 @@ export class HUD {
       fontFamily: 'sans-serif',
       pointerEvents: 'none',
       zIndex: '20',
-      transition: 'opacity 0.8s, transform 0.8s',
+      transition: 'opacity 0.5s, transform 0.5s',
       opacity: '1',
     });
     this.container.appendChild(splash);
 
-    // Animate: scale up then fade
-    requestAnimationFrame(() => {
+    // Hold for 1 second, THEN fade
+    setTimeout(() => {
       splash.style.transform = 'translateX(-50%) scale(1.3)';
       splash.style.opacity = '0';
-    });
-    setTimeout(() => splash.remove(), 1000);
+    }, 1000);
+    // Remove after 2 seconds total
+    setTimeout(() => splash.remove(), 2000);
   }
 
   destroy(): void {
