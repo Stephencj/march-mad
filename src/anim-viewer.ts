@@ -320,21 +320,8 @@ function animate() {
     }
     ball.mesh.visible = true;
 
-    // Body swing during rim hang (0.45-0.65) — pivot from the ARM (top), not feet
-    // To swing from the top: offset the body DOWN, rotate, then offset back UP
-    // This creates a pendulum effect where the hand stays fixed and the body swings below
-    if (dunkProg >= 0.45 && dunkProg < 0.65) {
-      const hangT = (dunkProg - 0.45) / 0.2;
-      const swing = Math.sin(hangT * Math.PI * 2) * 0.3; // one full swing
-      // Pivot from arm height (~1.2 + player height ~2.0 = rim area)
-      // Move the Z position based on the swing angle (pendulum at top)
-      const pendulumLength = 1.5; // approximate distance from hand to center of mass
-      player.group.position.z = hoopZ + Math.sin(swing) * pendulumLength;
-      // Tilt the body with the swing
-      player.group.rotation.x = swing;
-    } else if (dunkProg < 0.45) {
-      player.group.rotation.x = 0;
-    } else {
+    // Body swing during rim hang handled in the positioning block below
+    if (dunkProg < 0.45 || dunkProg >= 0.65) {
       player.group.rotation.x = 0;
     }
   } else {
@@ -363,28 +350,57 @@ function animate() {
     player.group.position.z = 0;
   } else {
     // During dunk, TRUE PARABOLIC ARC from start to hoop
-    const dunkTimer = (player as unknown as { dunkTimer: number }).dunkTimer;
-    const dunkDuration = 1.2;
-    const dunkProgress = 1 - (dunkTimer / dunkDuration);
-    const hoopZ = 2.2; // just short of the hoop
+    const dunkTimer2 = (player as unknown as { dunkTimer: number }).dunkTimer;
+    const dunkDuration3 = 1.2;
+    const dunkProgress = 1 - (dunkTimer2 / dunkDuration3);
+    const hoopZ = 2.5; // match the hoop position
+
+    // Pendulum parameters for rim hang
+    const rimY = 3.05; // rim height (world Y)
+    const pendulumLen = 1.8; // hand-on-rim to feet distance
 
     if (dunkProgress < 0.35) {
       // Arc phase: jump TO the hoop in a parabola
       const arcT = dunkProgress / 0.35; // 0 to 1
       player.group.position.z = arcT * hoopZ; // linear z toward hoop
-      // Feet at 1.2 means hand reaches ~3.2 (rim height)
-      const endY = 1.2;
-      const overshoot = 1.0; // peak at ~1.6 above ground at midpoint, clearly above 1.2 end height
+      // Feet at 1.25 means hand reaches ~3.05 (rim height)
+      const endY = rimY - pendulumLen; // ~1.25
+      const overshoot = 1.0; // peak above endY at midpoint
       player.group.position.y = endY * arcT + overshoot * Math.sin(arcT * Math.PI);
-    } else if (dunkProgress < 0.65) {
-      // At the hoop: rim hang phase — stay at hoop position
+    } else if (dunkProgress < 0.45) {
+      // Slam phase — at hoop, straight hang
       player.group.position.z = hoopZ;
-      player.group.position.y = 1.2;
+      player.group.position.y = rimY - pendulumLen;
+      player.group.rotation.x = 0;
+    } else if (dunkProgress < 0.65) {
+      // RIM HANG — pendulum swing from hand on rim
+      // Hand grips rim at (0, rimY, hoopZ). Body hangs as pendulum below.
+      const hangT = (dunkProgress - 0.45) / 0.2; // 0 to 1
+
+      // Pendulum angle: slow tilt in, slightly faster tilt out before dismount
+      let angle: number;
+      if (hangT < 0.5) {
+        // Slow inward tilt
+        angle = hangT * 2 * 0.25; // 0 to 0.25 radians over first half
+      } else {
+        // Slightly faster outward tilt before dismount
+        const outT = (hangT - 0.5) / 0.5;
+        angle = 0.25 - outT * 0.35; // 0.25 to -0.1 (swings past center)
+      }
+
+      // Player position computed from pendulum pivot at rim
+      player.group.position.y = rimY - Math.cos(angle) * pendulumLen;
+      player.group.position.z = hoopZ + Math.sin(angle) * pendulumLen;
+      player.group.rotation.x = angle; // body tilts with the swing
     } else if (dunkProgress < 0.85) {
       // Drop from rim
       const dropT = (dunkProgress - 0.65) / 0.2;
-      player.group.position.z = hoopZ;
-      player.group.position.y = 1.2 * (1 - dropT);
+      // Start from where pendulum ended (angle = -0.1)
+      const startY = rimY - Math.cos(-0.1) * pendulumLen;
+      const startZ = hoopZ + Math.sin(-0.1) * pendulumLen;
+      player.group.position.z = startZ + (hoopZ - startZ) * dropT;
+      player.group.position.y = startY * (1 - dropT);
+      player.group.rotation.x = -0.1 * (1 - dropT); // straighten during drop
     } else {
       // On ground — landing
       player.group.position.z = hoopZ;
