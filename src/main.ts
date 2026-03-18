@@ -25,6 +25,7 @@ import { BracketViewUI } from './ui/bracket-view';
 import { BettingUI } from './ui/betting-ui';
 import { PlayerCreatorUI } from './ui/player-creator';
 import { DraftUI } from './ui/draft-ui';
+import { PostGameUI } from './ui/post-game';
 
 // --- Renderer Setup ---
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -63,6 +64,8 @@ const transitions: StateTransition[] = [
   { from: 'SubInCinematic', to: 'YourGame' },
   { from: 'PostGame', to: 'BracketView' },
   { from: 'PostGame', to: 'TournamentEnd' },
+  { from: 'PostGame', to: 'MainMenu' },
+  { from: 'PostGame', to: 'YourGame' },
   { from: 'TournamentEnd', to: 'MainMenu' },
 ];
 
@@ -124,6 +127,24 @@ document.addEventListener('keyup', (e) => keyboardControls.handleKeyUp(e.code));
 const uiOverlay = document.getElementById('ui-overlay')!;
 const hud = new HUD(uiOverlay);
 const menuUI = new MenuUI(uiOverlay, handleMenuAction);
+const postGameUI = new PostGameUI(uiOverlay, handlePostGameAction);
+
+function handlePostGameAction(action: string) {
+  if (action === 'play-again') {
+    postGameUI.hide();
+    if (cameraSystem.fullCourt) {
+      startMainGame();
+    } else {
+      startQuickGame();
+    }
+  }
+  if (action === 'menu') {
+    postGameUI.hide();
+    if (session) session.removeFromScene(scene);
+    session = null;
+    stateMachine.transition('MainMenu');
+  }
+}
 
 function startQuickGame(): void {
   if (session) {
@@ -196,6 +217,17 @@ stateMachine.onExit('TournamentSelect', () => {
 
 stateMachine.onEnter('YourGame', () => {
   menuUI.hide();
+});
+
+stateMachine.onEnter('PostGame', () => {
+  // Game stops but HUD stays visible
+});
+
+gameEvents.on('game-over', () => {
+  if (!session) return;
+  const data = session.getGameOverData();
+  stateMachine.transition('PostGame');
+  postGameUI.show(data);
 });
 
 // Show main menu on start
