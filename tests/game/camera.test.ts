@@ -15,8 +15,8 @@ describe('CameraSystem', () => {
     const cs = new CameraSystem(cam);
     cs.fullCourt = false;
     cs.update(new THREE.Vector3(2, 0, 3), new THREE.Vector3(0, 3, -6), 1 / 60);
-    // Half court sideDistance = 18
-    expect(cam.position.x).toBe(18);
+    // Half court sideDistance = 14
+    expect(cam.position.x).toBe(14);
   });
 
   it('camera X stays at fixed sideDistance (full court)', () => {
@@ -24,8 +24,8 @@ describe('CameraSystem', () => {
     const cs = new CameraSystem(cam);
     cs.fullCourt = true;
     cs.update(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 3, -6), 1 / 60);
-    // Full court sideDistance = 22
-    expect(cam.position.x).toBe(22);
+    // Full court sideDistance = 16
+    expect(cam.position.x).toBe(16);
   });
 
   it('camera Z follows trackPosition.z', () => {
@@ -56,7 +56,7 @@ describe('CameraSystem', () => {
     const cs = new CameraSystem(cam);
     cs.fullCourt = false;
     cs.update(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 3, -6), 1 / 60);
-    expect(cam.position.y).toBe(10); // half court height
+    expect(cam.position.y).toBe(8); // half court height
   });
 
   it('slam cam activates and auto-reverts to broadcast', () => {

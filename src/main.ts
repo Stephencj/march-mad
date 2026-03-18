@@ -180,7 +180,7 @@ function startQuickGame(): void {
   hud.updateClock(180);
 }
 
-function startMainGame(): void {
+function startMainGame(clockSeconds = 300): void {
   if (session) {
     session.removeFromScene(scene);
   }
@@ -199,14 +199,31 @@ function startMainGame(): void {
   session.start();
   stateMachine.transition('YourGame');
   hud.updateScore(0, 0);
-  hud.updateClock(300); // 5 minutes for main game
+  hud.updateClock(clockSeconds);
+  session.matchEngine.state.clockSeconds = clockSeconds;
 }
 
 function handleMenuAction(action: string, _data?: unknown) {
-  if (action === 'play' || action === 'quick-play' || action === 'main-game') startMainGame();
-  if (action === 'select-tier') stateMachine.transition('DraftPhase');
-  if (action === 'back') stateMachine.transition('MainMenu');
-  if (action === 'settings') { /* settings handled inline */ }
+  if (action === 'play' || action === 'quick-play' || action === 'quick-game') {
+    startMainGame(180); // 3 minutes
+  }
+  if (action === 'tournament') {
+    menuUI.show('tournament-select');
+  }
+  if (action === 'full-game') {
+    menuUI.show('full-game-select');
+  }
+  if (action === 'fullgame-8') startMainGame(8 * 60 * 4); // 4 quarters of 8 min
+  if (action === 'fullgame-10') startMainGame(10 * 60 * 4);
+  if (action === 'fullgame-12') startMainGame(12 * 60 * 4);
+  if (action === 'back-to-main') menuUI.show('main');
+  if (action === 'back') menuUI.show('main');
+  if (action === 'settings') { /* settings */ }
+  // Tournament actions can be stubs for now
+  if (action.startsWith('tournament-')) {
+    // TODO: wire tournament flow
+    startMainGame(180); // placeholder
+  }
 }
 
 // --- State Machine Hooks ---
@@ -232,6 +249,10 @@ stateMachine.onEnter('YourGame', () => {
 
 stateMachine.onEnter('PostGame', () => {
   // Game stops but HUD stays visible
+});
+
+gameEvents.on('splash', (data: { text: string; color: string }) => {
+  hud.showSplash(data.text, data.color);
 });
 
 gameEvents.on('game-over', () => {

@@ -3,8 +3,8 @@ import * as THREE from 'three';
 export type CameraMode = 'broadcast' | 'slam' | 'spectator';
 
 // Broadcast camera: fixed side-view that follows the action along the court
-const HALF_COURT = { sideDistance: 18, height: 10 };
-const FULL_COURT = { sideDistance: 22, height: 12 };
+const HALF_COURT = { sideDistance: 14, height: 8 };
+const FULL_COURT = { sideDistance: 16, height: 9 };
 
 const LERP_SPEED = 4.0;
 const SLAM_DURATION = 2.5; // seconds

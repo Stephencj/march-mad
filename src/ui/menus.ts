@@ -1,4 +1,4 @@
-type MenuScreen = 'main' | 'tournament-select' | 'settings';
+type MenuScreen = 'main' | 'tournament-select' | 'full-game-select' | 'settings';
 
 export class MenuUI {
   private container: HTMLElement;
@@ -18,7 +18,10 @@ export class MenuUI {
         this.renderMainMenu();
         break;
       case 'tournament-select':
-        this.renderTournamentSelect();
+        this.renderTournamentMenu();
+        break;
+      case 'full-game-select':
+        this.renderFullGameMenu();
         break;
       case 'settings':
         this.renderSettings();
@@ -33,91 +36,163 @@ export class MenuUI {
     }
   }
 
-  private renderMainMenu(): void {
+  private createWrapper(): HTMLDivElement {
     const wrapper = document.createElement('div');
-    wrapper.classList.add('menu', 'menu--main');
+    Object.assign(wrapper.style, {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '100%',
+      height: '100%',
+      background: 'rgba(10, 10, 20, 0.92)',
+      position: 'absolute',
+      top: '0',
+      left: '0',
+    });
+    return wrapper;
+  }
+
+  private createPrimaryButton(label: string, subtitle: string, action: string): HTMLButtonElement {
+    const btn = document.createElement('button');
+    Object.assign(btn.style, {
+      background: '#e94560',
+      color: '#ffffff',
+      fontSize: '18px',
+      fontWeight: 'bold',
+      fontFamily: 'sans-serif',
+      padding: '16px 40px',
+      borderRadius: '8px',
+      border: 'none',
+      cursor: 'pointer',
+      pointerEvents: 'auto',
+      margin: '8px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      minWidth: '220px',
+    });
+
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    btn.appendChild(labelSpan);
+
+    if (subtitle) {
+      const sub = document.createElement('span');
+      sub.textContent = subtitle;
+      Object.assign(sub.style, {
+        fontSize: '12px',
+        color: '#aaa',
+        marginTop: '4px',
+        fontWeight: 'normal',
+      });
+      btn.appendChild(sub);
+    }
+
+    btn.addEventListener('click', () => this.onAction(action));
+    return btn;
+  }
+
+  private createSecondaryButton(label: string, action: string): HTMLButtonElement {
+    const btn = document.createElement('button');
+    Object.assign(btn.style, {
+      background: 'transparent',
+      color: '#aaa',
+      fontSize: '16px',
+      fontFamily: 'sans-serif',
+      padding: '12px 32px',
+      borderRadius: '8px',
+      border: '1px solid #444',
+      cursor: 'pointer',
+      pointerEvents: 'auto',
+      margin: '8px',
+    });
+    btn.textContent = label;
+    btn.addEventListener('click', () => this.onAction(action));
+    return btn;
+  }
+
+  private renderMainMenu(): void {
+    const wrapper = this.createWrapper();
 
     const title = document.createElement('h1');
-    title.classList.add('menu__title');
-    title.textContent = 'MARCH MADNESS';
+    title.textContent = 'MARCH MAD';
+    Object.assign(title.style, {
+      fontSize: '64px',
+      fontWeight: 'bold',
+      color: '#ffffff',
+      fontFamily: 'sans-serif',
+      margin: '0 0 40px 0',
+      textShadow: '0 0 20px #e94560, 0 0 40px #e94560',
+      letterSpacing: '4px',
+    });
     wrapper.appendChild(title);
 
-    // Play button — single option, 5v5 full court
-    const playBtn = document.createElement('button');
-    playBtn.classList.add('menu__btn', 'menu__btn--primary');
-    playBtn.addEventListener('click', () => this.onAction('play'));
-    const playLabel = document.createElement('span');
-    playLabel.classList.add('menu__btn-label');
-    playLabel.textContent = 'PLAY';
-    playBtn.appendChild(playLabel);
-    const playSub = document.createElement('span');
-    playSub.classList.add('menu__btn-subtitle');
-    playSub.textContent = '5v5 Full Court';
-    playBtn.appendChild(playSub);
-    wrapper.appendChild(playBtn);
-
-    // Settings button
-    const settingsBtn = document.createElement('button');
-    settingsBtn.classList.add('menu__btn', 'menu__btn--secondary');
-    settingsBtn.textContent = 'Settings';
-    settingsBtn.addEventListener('click', () => this.onAction('settings'));
-    wrapper.appendChild(settingsBtn);
+    wrapper.appendChild(this.createPrimaryButton('Quick Game', '3 Minute Game', 'quick-game'));
+    wrapper.appendChild(this.createPrimaryButton('Tournament', 'Bracket Play', 'tournament'));
+    wrapper.appendChild(this.createPrimaryButton('Full Game', 'Quarter-Based', 'full-game'));
 
     this.container.appendChild(wrapper);
   }
 
-  private renderTournamentSelect(): void {
-    const wrapper = document.createElement('div');
-    wrapper.classList.add('menu', 'menu--tournament-select');
+  private renderTournamentMenu(): void {
+    const wrapper = this.createWrapper();
 
-    const heading = document.createElement('h2');
-    heading.classList.add('menu__heading');
-    heading.textContent = 'Select Tournament';
-    wrapper.appendChild(heading);
+    const title = document.createElement('h1');
+    title.textContent = 'TOURNAMENT';
+    Object.assign(title.style, {
+      fontSize: '48px',
+      fontWeight: 'bold',
+      color: '#ffffff',
+      fontFamily: 'sans-serif',
+      margin: '0 0 32px 0',
+      textShadow: '0 0 20px #e94560',
+    });
+    wrapper.appendChild(title);
 
-    const tiers: Array<{ key: string; label: string; teams: number; time: string }> = [
-      { key: 'casual', label: 'Casual', teams: 8, time: '~15 min' },
-      { key: 'sweet16', label: 'Sweet 16', teams: 16, time: '~30 min' },
-      { key: 'season', label: 'Season', teams: 64, time: 'Multi-session' },
-    ];
+    wrapper.appendChild(this.createPrimaryButton('8 Teams', '', 'tournament-8'));
+    wrapper.appendChild(this.createPrimaryButton('16 Teams', '', 'tournament-16'));
+    wrapper.appendChild(this.createPrimaryButton('64 Teams', '', 'tournament-64'));
+    wrapper.appendChild(this.createSecondaryButton('Back', 'back-to-main'));
 
-    const grid = document.createElement('div');
-    grid.classList.add('menu__tier-grid');
+    this.container.appendChild(wrapper);
+  }
 
-    for (const tier of tiers) {
-      const card = document.createElement('button');
-      card.classList.add('menu__tier-card');
+  private renderFullGameMenu(): void {
+    const wrapper = this.createWrapper();
 
-      const cardTitle = document.createElement('h3');
-      cardTitle.classList.add('menu__tier-title');
-      cardTitle.textContent = tier.label;
-      card.appendChild(cardTitle);
+    const title = document.createElement('h1');
+    title.textContent = 'FULL GAME';
+    Object.assign(title.style, {
+      fontSize: '48px',
+      fontWeight: 'bold',
+      color: '#ffffff',
+      fontFamily: 'sans-serif',
+      margin: '0 0 32px 0',
+      textShadow: '0 0 20px #e94560',
+    });
+    wrapper.appendChild(title);
 
-      const teamsInfo = document.createElement('p');
-      teamsInfo.classList.add('menu__tier-info');
-      teamsInfo.textContent = `${tier.teams} teams`;
-      card.appendChild(teamsInfo);
+    wrapper.appendChild(this.createPrimaryButton('8 Min Quarters', '', 'fullgame-8'));
+    wrapper.appendChild(this.createPrimaryButton('10 Min Quarters', '', 'fullgame-10'));
+    wrapper.appendChild(this.createPrimaryButton('12 Min Quarters', '', 'fullgame-12'));
+    wrapper.appendChild(this.createSecondaryButton('Back', 'back-to-main'));
 
-      const timeInfo = document.createElement('p');
-      timeInfo.classList.add('menu__tier-time');
-      timeInfo.textContent = tier.time;
-      card.appendChild(timeInfo);
-
-      card.addEventListener('click', () => this.onAction('select-tier', tier.key));
-      grid.appendChild(card);
-    }
-
-    wrapper.appendChild(grid);
     this.container.appendChild(wrapper);
   }
 
   private renderSettings(): void {
-    const wrapper = document.createElement('div');
-    wrapper.classList.add('menu', 'menu--settings');
+    const wrapper = this.createWrapper();
 
     const heading = document.createElement('h2');
-    heading.classList.add('menu__heading');
     heading.textContent = 'Settings';
+    Object.assign(heading.style, {
+      fontSize: '36px',
+      fontWeight: 'bold',
+      color: '#ffffff',
+      fontFamily: 'sans-serif',
+      margin: '0 0 24px 0',
+    });
     wrapper.appendChild(heading);
 
     // SFX volume slider
@@ -126,32 +201,40 @@ export class MenuUI {
     // Music volume slider
     wrapper.appendChild(this.createVolumeSlider('Music Volume', 'music-volume'));
 
-    const backBtn = document.createElement('button');
-    backBtn.classList.add('menu__btn', 'menu__btn--secondary');
-    backBtn.textContent = 'Back';
-    backBtn.addEventListener('click', () => this.onAction('back'));
-    wrapper.appendChild(backBtn);
+    wrapper.appendChild(this.createSecondaryButton('Back', 'back'));
 
     this.container.appendChild(wrapper);
   }
 
   private createVolumeSlider(labelText: string, id: string): HTMLElement {
     const group = document.createElement('div');
-    group.classList.add('menu__slider-group');
+    Object.assign(group.style, {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      margin: '8px',
+    });
 
     const label = document.createElement('label');
-    label.classList.add('menu__slider-label');
     label.textContent = labelText;
+    Object.assign(label.style, {
+      color: '#aaa',
+      fontFamily: 'sans-serif',
+      fontSize: '14px',
+      marginBottom: '4px',
+    });
     label.setAttribute('for', id);
     group.appendChild(label);
 
     const slider = document.createElement('input');
     slider.type = 'range';
     slider.id = id;
-    slider.classList.add('menu__slider');
     slider.min = '0';
     slider.max = '100';
     slider.value = '75';
+    Object.assign(slider.style, {
+      pointerEvents: 'auto',
+    });
     group.appendChild(slider);
 
     return group;

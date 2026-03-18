@@ -94,7 +94,7 @@ export class HUD {
 
   updateClock(seconds: number): void {
     const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const secs = Math.floor(seconds % 60);
     const formatted = `${mins}:${String(secs).padStart(2, '0')}`;
     this.clockEl.textContent = formatted;
   }
@@ -170,6 +170,34 @@ export class HUD {
 
     setTimeout(() => { notif.style.opacity = '0'; }, 1500);
     setTimeout(() => { notif.remove(); }, 2000);
+  }
+
+  showSplash(text: string, color = '#ffffff'): void {
+    const splash = document.createElement('div');
+    splash.textContent = text;
+    Object.assign(splash.style, {
+      position: 'absolute',
+      top: '35%',
+      left: '50%',
+      transform: 'translateX(-50%) scale(1)',
+      fontSize: '48px',
+      fontWeight: 'bold',
+      color: color,
+      textShadow: `0 0 20px ${color}, 0 0 40px ${color}`,
+      fontFamily: 'sans-serif',
+      pointerEvents: 'none',
+      zIndex: '20',
+      transition: 'opacity 0.8s, transform 0.8s',
+      opacity: '1',
+    });
+    this.container.appendChild(splash);
+
+    // Animate: scale up then fade
+    requestAnimationFrame(() => {
+      splash.style.transform = 'translateX(-50%) scale(1.3)';
+      splash.style.opacity = '0';
+    });
+    setTimeout(() => splash.remove(), 1000);
   }
 
   destroy(): void {

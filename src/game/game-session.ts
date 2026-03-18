@@ -257,6 +257,7 @@ export class GameSession {
           this.handleMadeShot(team, shotType);
         } else {
           // Miss — ball bounces off rim
+          this.events.emit('splash', { text: 'MISS!', color: '#e74c3c' });
           this.ball.isInFlight = false;
           this.ball.velocity.set(
             (Math.random() - 0.5) * 3,
@@ -291,6 +292,7 @@ export class GameSession {
       const courtHalfLength = this.mode === '5v5' ? 14 : 7;
 
       if (Math.abs(ballPos.x) > courtHalfWidth || Math.abs(ballPos.z) > courtHalfLength) {
+        this.events.emit('splash', { text: 'BALL DROPPED!', color: '#95a5a6' });
         const currentPossession = this.matchEngine.state.possession;
         const otherTeam: 'home' | 'away' = currentPossession === 'home' ? 'away' : 'home';
 
@@ -376,6 +378,13 @@ export class GameSession {
     if (shotType === 'dunk' || shotType === 'alley-oop' || shotType === 'powerup-dunk') {
       this.slamCamRequested = true;
       this.slamCamPosition = scoringHoop.clone();
+    }
+
+    // Splash text for scores
+    if (shotType === 'dunk' || shotType === 'powerup-dunk') {
+      this.events.emit('splash', { text: 'SLAAAAAAMMM DUNK!!!!', color: '#ff4500' });
+    } else {
+      this.events.emit('splash', { text: 'SCORE!!!', color: '#2ecc71' });
     }
 
     this.matchEngine.score(team, shotType);
@@ -948,6 +957,7 @@ export class GameSession {
       ballHolder.loseBall();
       ballHolder.recordStat('turnovers', 1);
       this.setBallHolder(stealer.data.id);
+      this.events.emit('splash', { text: 'STEAL!', color: '#f39c12' });
     } else if (roll < 0.6) {
       const stealerTeam = this.getPlayerTeam(stealer.data.id);
       this.matchEngine.callFoul(stealerTeam);
