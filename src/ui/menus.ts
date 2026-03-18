@@ -11,6 +11,7 @@ export class MenuUI {
 
   show(screen: MenuScreen): void {
     this.hide();
+    this.container.style.pointerEvents = 'auto';
 
     switch (screen) {
       case 'main':
@@ -26,6 +27,7 @@ export class MenuUI {
   }
 
   hide(): void {
+    this.container.style.pointerEvents = 'none';
     while (this.container.firstChild) {
       this.container.removeChild(this.container.firstChild);
     }

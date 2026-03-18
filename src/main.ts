@@ -123,9 +123,27 @@ document.addEventListener('keyup', (e) => keyboardControls.handleKeyUp(e.code));
 
 // --- UI ---
 const uiOverlay = document.getElementById('ui-overlay')!;
-const hud = new HUD(uiOverlay);
-const menuUI = new MenuUI(uiOverlay, handleMenuAction);
-const postGameUI = new PostGameUI(uiOverlay, handlePostGameAction);
+
+// Create separate containers for each UI layer
+const menuContainer = document.createElement('div');
+menuContainer.id = 'menu-container';
+menuContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+uiOverlay.appendChild(menuContainer);
+
+const hudContainer = document.createElement('div');
+hudContainer.id = 'hud-container';
+hudContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+uiOverlay.appendChild(hudContainer);
+
+const postGameContainer = document.createElement('div');
+postGameContainer.id = 'postgame-container';
+postGameContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+uiOverlay.appendChild(postGameContainer);
+
+// Create UIs with their OWN containers
+const hud = new HUD(hudContainer);
+const menuUI = new MenuUI(menuContainer, handleMenuAction);
+const postGameUI = new PostGameUI(postGameContainer, handlePostGameAction);
 
 function handlePostGameAction(action: string) {
   if (action === 'play-again') {

@@ -12,6 +12,7 @@ export class PostGameUI {
 
   show(data: GameOverData): void {
     this.hide();
+    this.container.style.pointerEvents = 'auto';
 
     this.overlay = document.createElement('div');
     this.overlay.dataset.role = 'post-game-overlay';
@@ -171,6 +172,7 @@ export class PostGameUI {
   }
 
   hide(): void {
+    this.container.style.pointerEvents = 'none';
     while (this.container.firstChild) {
       this.container.removeChild(this.container.firstChild);
     }
