@@ -297,18 +297,20 @@ function animate() {
     }
   }
 
-  // Handle dunk ball release
+  // Handle dunk ball release + body swing
   if (currentAnim === 'dunk') {
     const dunkTimer = (player as unknown as { dunkTimer: number }).dunkTimer;
-    // Release ball at SLAM point (progress ~0.4, dunkTimer ~0.72)
-    // Dunk duration is 1.2s, slam phase is progress 0.35-0.45 = timer 0.78-0.66
-    if (!dunkReleased && dunkTimer > 0 && dunkTimer < 0.72) {
+    const dunkDuration2 = 1.2;
+    const dunkProg = 1 - (dunkTimer / dunkDuration2);
+
+    // Release ball at SLAM point — animate it going UP and INTO the hoop
+    if (!dunkReleased && dunkProg > 0.38) {
       dunkReleased = true;
       player.hasBall = false;
       ball.release();
-      // Ball goes through the hoop — position at rim and drop
-      ball.mesh.position.set(0, 3.05, 2.5);
-      ball.velocity.set(0, -5, 0);
+      // Start ball at player's hand height, above the rim
+      ball.mesh.position.set(0, 3.2, 2.5); // just above rim
+      ball.velocity.set(0, -4, 0); // drop through
     }
 
     if (!ball.heldBy && dunkReleased) {
@@ -317,6 +319,18 @@ function animate() {
       ball.followHolder(player.group, false);
     }
     ball.mesh.visible = true;
+
+    // Body swing during rim hang (0.45-0.65) — swing forward and back on the arm
+    if (dunkProg >= 0.45 && dunkProg < 0.65) {
+      const hangT = (dunkProg - 0.45) / 0.2; // 0 to 1
+      // Swing: forward, back, settle — like pendulum
+      const swing = Math.sin(hangT * Math.PI * 2) * 0.25; // one full swing cycle
+      player.group.rotation.x = swing; // rotate whole body around X (forward/back tilt)
+    } else {
+      player.group.rotation.x = 0;
+    }
+  } else {
+    player.group.rotation.x = 0; // ensure no leftover rotation
   }
 
   // Ball visibility and position for dribble animations
