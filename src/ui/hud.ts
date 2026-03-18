@@ -118,6 +118,30 @@ export class HUD {
     this.subInEl.textContent = '';
   }
 
+  showPowerupPickup(type: string): void {
+    // Create a floating notification that auto-removes after 2 seconds
+    const notif = document.createElement('div');
+    notif.textContent = type.toUpperCase().replace('-', ' ') + '!';
+    // Style: centered, big bold text, colored based on type, fades out
+    Object.assign(notif.style, {
+      position: 'absolute',
+      top: '40%',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      fontSize: '28px',
+      fontWeight: 'bold',
+      color: '#ffd700',
+      textShadow: '0 0 10px rgba(255,215,0,0.8)',
+      pointerEvents: 'none',
+      transition: 'opacity 0.5s',
+      zIndex: '100',
+    });
+    this.container.appendChild(notif);
+
+    setTimeout(() => { notif.style.opacity = '0'; }, 1500);
+    setTimeout(() => { notif.remove(); }, 2000);
+  }
+
   destroy(): void {
     this.container.removeChild(this.scoreEl);
     this.container.removeChild(this.clockEl);

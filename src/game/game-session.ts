@@ -13,6 +13,8 @@ import { COURT_DIMENSIONS } from './court';
 import { FULL_COURT_DIMENSIONS } from './full-court';
 import { getFormation5v5 } from '@/ai/formations-5v5';
 import { ProgressionSystem } from '@/meta/progression';
+import { PowerupSystem } from '@/systems/powerups';
+import { PowerupVisuals } from './powerup-visuals';
 
 interface CameraInfo {
   mode: CameraMode;
@@ -47,6 +49,9 @@ export class GameSession {
   private autoSwitchCooldown = 0;
   private slamCamRequested = false;
   private slamCamPosition: THREE.Vector3 | null = null;
+  private powerupSystem: PowerupSystem;
+  private powerupVisuals = new PowerupVisuals();
+  lastPowerupPickup: string | null = null;
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
     this.events = events;
@@ -54,6 +59,7 @@ export class GameSession {
     this.humanPlayerId = humanPlayerId;
     this.ball = new Ball(new THREE.Vector3(0, 1, 2));
     this.matchEngine = new MatchEngine(events, homeTeam, awayTeam);
+    this.powerupSystem = new PowerupSystem(events);
     this.homeTeamAI = new TeamAI(homeTeam.archetype);
     this.awayTeamAI = new TeamAI(awayTeam.archetype);
 
@@ -137,6 +143,11 @@ export class GameSession {
     scene.remove(this.ball.getTrailGroup());
     for (const p of this.getAllPlayers()) {
       scene.remove(p.group);
+    }
+    const orbMesh = this.powerupVisuals.getOrbMesh();
+    if (orbMesh) {
+      scene.remove(orbMesh);
+      this.powerupVisuals.removeOrb();
     }
     this.scene = null;
   }
@@ -246,6 +257,40 @@ export class GameSession {
     // Update match engine clock
     if (this.matchEngine.state.phase === 'playing') {
       this.matchEngine.tickClock(dt);
+    }
+
+    // Powerup system
+    this.powerupSystem.tick(dt);
+    const diff = this.matchEngine.getScoreDifferential();
+    if (diff) {
+      this.powerupSystem.update(diff.deficit, dt);
+    }
+
+    // Spawn visual orb when powerup system has one
+    if (this.powerupSystem.activeOrb && !this.powerupVisuals.hasActiveOrb()) {
+      const orb = this.powerupSystem.activeOrb;
+      this.powerupVisuals.spawnOrb(orb.type, orb.position);
+      if (this.scene) this.scene.add(this.powerupVisuals.getOrbMesh()!);
+    }
+
+    // Animate orb
+    this.powerupVisuals.update(dt);
+
+    // Check pickup by losing team players
+    if (this.powerupVisuals.hasActiveOrb() && diff) {
+      const losingPlayers = diff.losingTeam === 'home' ? this.homePlayers : this.awayPlayers;
+      for (const p of losingPlayers) {
+        if (this.powerupVisuals.checkPickup(p.position)) {
+          const type = this.powerupSystem.activeOrb?.type ?? null;
+          this.powerupSystem.pickupOrb(diff.losingTeam);
+          const orbMesh = this.powerupVisuals.getOrbMesh();
+          if (orbMesh && this.scene) this.scene.remove(orbMesh);
+          this.powerupVisuals.removeOrb();
+          // Store last picked up powerup for HUD
+          this.lastPowerupPickup = type;
+          break;
+        }
+      }
     }
   }
 

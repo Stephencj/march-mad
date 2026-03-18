@@ -10,7 +10,6 @@ import type { ControlInput } from './game/controls';
 import { CameraSystem } from './game/camera';
 import { TouchControls } from './game/controls';
 import { KeyboardControls } from './game/keyboard-controls';
-import { PowerupSystem } from './systems/powerups';
 import { CrowdSystem } from './systems/crowd';
 import { SubInSystem } from './systems/sub-in';
 import { BettingSystem } from './meta/betting';
@@ -80,7 +79,6 @@ let session: GameSession | null = null;
 
 // --- Game Systems ---
 const cameraSystem = new CameraSystem(camera);
-const powerupSystem = new PowerupSystem(gameEvents);
 const crowdSystem = new CrowdSystem(gameEvents);
 const subInSystem = new SubInSystem();
 const bettingSystem = new BettingSystem();
@@ -264,12 +262,16 @@ function update(dt: number): void {
     hud.updateClock(session.matchEngine.state.clockSeconds);
     hud.updateCrowdLevel(crowdSystem.getLevel());
 
+    // Powerup HUD notification
+    if (session.lastPowerupPickup) {
+      hud.showPowerupPickup(session.lastPowerupPickup);
+      session.lastPowerupPickup = null;
+    }
+
     // Systems
-    powerupSystem.tick(dt);
     crowdSystem.tick(dt);
     const diff = session.matchEngine.getScoreDifferential();
     if (diff) {
-      powerupSystem.update(diff.deficit, dt);
       crowdSystem.updateScoreDiff(diff.deficit);
     }
   }
@@ -283,7 +285,7 @@ const loop = new GameLoop({ fixedStep: 1 / 60, update, render });
 loop.start();
 
 export { scene, camera, renderer, gameEvents, loop };
-export { cameraSystem, powerupSystem, crowdSystem, subInSystem, bettingSystem };
+export { cameraSystem, crowdSystem, subInSystem, bettingSystem };
 
 // Suppress unused-variable warnings for systems used later in game flow
 void Tournament;
