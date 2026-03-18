@@ -200,6 +200,50 @@ export class GameSession {
       this.checkBallPickup();
     }
 
+    // Ball out of bounds detection (in-flight going way out)
+    if (this.ball.isInFlight) {
+      const ballPos = this.ball.mesh.position;
+      const courtHalfWidth = 7.5;
+      const courtHalfLength = this.mode === '5v5' ? 14 : 7;
+
+      if (Math.abs(ballPos.x) > courtHalfWidth + 5 || Math.abs(ballPos.z) > courtHalfLength + 5 || ballPos.y < -1) {
+        // Ball went way out — cancel flight and treat as out of bounds
+        this.ball.isInFlight = false;
+        this.ball.velocity.set(0, 0, 0);
+        // Will be caught by the loose ball OOB check next frame
+      }
+    }
+
+    // Ball out of bounds detection (loose ball)
+    if (!this.ball.heldBy && !this.ball.isInFlight) {
+      const ballPos = this.ball.mesh.position;
+      const courtHalfWidth = 7.5;
+      const courtHalfLength = this.mode === '5v5' ? 14 : 7;
+
+      if (Math.abs(ballPos.x) > courtHalfWidth || Math.abs(ballPos.z) > courtHalfLength) {
+        // Ball went out of bounds — give to the other team
+        const currentPossession = this.matchEngine.state.possession;
+        const otherTeam: 'home' | 'away' = currentPossession === 'home' ? 'away' : 'home';
+
+        // Reset ball to sideline
+        const inboundX = THREE.MathUtils.clamp(ballPos.x, -courtHalfWidth + 1, courtHalfWidth - 1);
+        const inboundZ = THREE.MathUtils.clamp(ballPos.z, -courtHalfLength + 1, courtHalfLength - 1);
+        this.ball.mesh.position.set(inboundX, 1, inboundZ);
+        this.ball.velocity.set(0, 0, 0);
+
+        // Give to other team's nearest player
+        const otherPlayers = otherTeam === 'home' ? this.homePlayers : this.awayPlayers;
+        let nearest = otherPlayers[0];
+        let nearestDist = Infinity;
+        for (const p of otherPlayers) {
+          const d = p.distanceTo(this.ball.mesh.position);
+          if (d < nearestDist) { nearestDist = d; nearest = p; }
+        }
+        this.setBallHolder(nearest.data.id);
+        this.matchEngine.state.possession = otherTeam;
+      }
+    }
+
     // AI decisions run every AI_DECISION_INTERVAL seconds
     this.aiDecisionTimer += dt;
     if (this.aiDecisionTimer >= this.AI_DECISION_INTERVAL) {
@@ -470,7 +514,7 @@ export class GameSession {
         break;
 
       case 'swipe-down':
-        if (hasBall && human.distanceTo(this.attackingHoop) < 3) {
+        if (hasBall && human.distanceTo(this.attackingHoop) < 4.5) {
           // Dunk attempt
           human.loseBall();
           human.triggerShoot();
@@ -545,6 +589,29 @@ export class GameSession {
         p.aiMovementState = 'holding';
         p.aiHoldTimer = 0.5 + Math.random() * 1.5;
       }
+    }
+
+    // Reset player positions to starting formation
+    if (this.mode === '5v5') {
+      const homePositions = [
+        new THREE.Vector3(0, 0, -8), new THREE.Vector3(-4, 0, -5),
+        new THREE.Vector3(4, 0, -5), new THREE.Vector3(-2, 0, -3), new THREE.Vector3(2, 0, -3),
+      ];
+      const awayPositions = [
+        new THREE.Vector3(0, 0, 8), new THREE.Vector3(-4, 0, 5),
+        new THREE.Vector3(4, 0, 5), new THREE.Vector3(-2, 0, 3), new THREE.Vector3(2, 0, 3),
+      ];
+      this.homePlayers.forEach((p, i) => {
+        if (homePositions[i]) p.group.position.copy(homePositions[i]);
+      });
+      this.awayPlayers.forEach((p, i) => {
+        if (awayPositions[i]) p.group.position.copy(awayPositions[i]);
+      });
+    } else {
+      const homePos = [new THREE.Vector3(-3, 0, 2), new THREE.Vector3(3, 0, 2), new THREE.Vector3(0, 0, 5)];
+      const awayPos = [new THREE.Vector3(-2, 0, -2), new THREE.Vector3(2, 0, -2), new THREE.Vector3(0, 0, -4)];
+      this.homePlayers.forEach((p, i) => { if (homePos[i]) p.group.position.copy(homePos[i]); });
+      this.awayPlayers.forEach((p, i) => { if (awayPos[i]) p.group.position.copy(awayPos[i]); });
     }
   }
 
@@ -786,7 +853,7 @@ export class GameSession {
             player.aiMovementState = 'moving';
             break;
           case 'dunk':
-            if (player.distanceTo(this.attackingHoop) < 3) {
+            if (player.distanceTo(this.attackingHoop) < 4.5) {
               player.loseBall();
               player.triggerShoot();
               this.lastShooterId = player.data.id;
