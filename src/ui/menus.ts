@@ -131,6 +131,7 @@ export class MenuUI {
     wrapper.appendChild(this.createPrimaryButton('Quick Game', '3 Minute Game', 'quick-game'));
     wrapper.appendChild(this.createPrimaryButton('Tournament', 'Bracket Play', 'tournament'));
     wrapper.appendChild(this.createPrimaryButton('Full Game', 'Quarter-Based', 'full-game'));
+    wrapper.appendChild(this.createSecondaryButton('Controls', 'settings'));
 
     this.container.appendChild(wrapper);
   }
@@ -185,20 +186,58 @@ export class MenuUI {
     const wrapper = this.createWrapper();
 
     const heading = document.createElement('h2');
-    heading.textContent = 'Settings';
+    heading.textContent = 'CONTROLS';
     Object.assign(heading.style, {
       fontSize: '36px',
       fontWeight: 'bold',
       color: '#ffffff',
       fontFamily: 'sans-serif',
       margin: '0 0 24px 0',
+      textShadow: '0 0 10px #e94560',
     });
     wrapper.appendChild(heading);
 
-    // SFX volume slider
-    wrapper.appendChild(this.createVolumeSlider('SFX Volume', 'sfx-volume'));
+    // Controls reference
+    const controls: [string, string][] = [
+      ['Movement', 'WASD / Left Stick'],
+      ['Shoot (charge)', 'SPACE (hold & release)'],
+      ['Pass', 'E / Horizontal Swipe'],
+      ['Steal / Block', 'Q / Tap'],
+      ['Jump', 'F'],
+      ['Dunk', 'G / Swipe Down'],
+      ['Sprint', 'SHIFT (hold)'],
+    ];
 
-    // Music volume slider
+    for (const [action, key] of controls) {
+      const row = document.createElement('div');
+      Object.assign(row.style, {
+        display: 'flex', justifyContent: 'space-between',
+        width: '100%', maxWidth: '320px',
+        padding: '6px 0', fontFamily: 'monospace', fontSize: '14px',
+        color: '#cccccc',
+      });
+      const labelEl = document.createElement('span');
+      labelEl.textContent = action;
+      labelEl.style.color = '#ffffff';
+      const keyEl = document.createElement('span');
+      keyEl.textContent = key;
+      keyEl.style.color = '#aaaaaa';
+      row.appendChild(labelEl);
+      row.appendChild(keyEl);
+      wrapper.appendChild(row);
+    }
+
+    // Divider
+    const divider = document.createElement('hr');
+    Object.assign(divider.style, {
+      width: '100%', maxWidth: '320px',
+      border: 'none', borderTop: '1px solid #444',
+      margin: '16px 0',
+    });
+    wrapper.appendChild(divider);
+
+    // Volume sliders (keep existing)
+    wrapper.appendChild(this.createVolumeSlider('SFX Volume', 'sfx-volume'));
     wrapper.appendChild(this.createVolumeSlider('Music Volume', 'music-volume'));
 
     wrapper.appendChild(this.createSecondaryButton('Back', 'back'));
