@@ -1,5 +1,18 @@
 type MenuScreen = 'main' | 'tournament-select' | 'full-game-select' | 'settings';
 
+export const CONTROLS_DATA: [string, string][] = [
+  ['Movement', 'WASD / Left Stick'],
+  ['Shoot / Dunk', 'SPACE (hold to charge; dunk near hoop)'],
+  ['Pass', 'E / Horizontal Swipe'],
+  ['Steal', 'Q / Tap'],
+  ['Guard', 'G'],
+  ['Jump', 'F'],
+  ['Jump Block', 'SHIFT + F'],
+  ['Sprint', 'SHIFT (hold, uses stamina)'],
+  ['Switch Player', 'TAB'],
+  ['Pause', 'ESC'],
+];
+
 export class MenuUI {
   private container: HTMLElement;
   private onAction: (action: string, data?: unknown) => void;
@@ -197,18 +210,7 @@ export class MenuUI {
     });
     wrapper.appendChild(heading);
 
-    // Controls reference
-    const controls: [string, string][] = [
-      ['Movement', 'WASD / Left Stick'],
-      ['Shoot (charge)', 'SPACE (hold & release)'],
-      ['Pass', 'E / Horizontal Swipe'],
-      ['Steal / Block', 'Q / Tap'],
-      ['Jump', 'F'],
-      ['Dunk', 'G / Swipe Down'],
-      ['Sprint', 'SHIFT (hold)'],
-    ];
-
-    for (const [action, key] of controls) {
+    for (const [action, key] of CONTROLS_DATA) {
       const row = document.createElement('div');
       Object.assign(row.style, {
         display: 'flex', justifyContent: 'space-between',

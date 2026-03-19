@@ -25,6 +25,7 @@ import { BettingUI } from './ui/betting-ui';
 import { PlayerCreatorUI } from './ui/player-creator';
 import { DraftUI } from './ui/draft-ui';
 import { PostGameUI } from './ui/post-game';
+import { PauseMenu } from '@/ui/pause-menu';
 
 // --- Renderer Setup ---
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -121,7 +122,18 @@ document.addEventListener('touchend', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Tab' || e.code === 'Escape') e.preventDefault();
-  keyboardControls.handleKeyDown(e.code);
+  if (e.code === 'Escape' && stateMachine.current === 'YourGame') {
+    isPaused = !isPaused;
+    if (isPaused) {
+      pauseMenu.show();
+    } else {
+      pauseMenu.hide();
+    }
+    return;
+  }
+  if (!isPaused) {
+    keyboardControls.handleKeyDown(e.code);
+  }
 });
 document.addEventListener('keyup', (e) => keyboardControls.handleKeyUp(e.code));
 
@@ -139,6 +151,11 @@ hudContainer.id = 'hud-container';
 hudContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
 uiOverlay.appendChild(hudContainer);
 
+const pauseContainer = document.createElement('div');
+pauseContainer.id = 'pause-container';
+pauseContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+uiOverlay.appendChild(pauseContainer);
+
 const postGameContainer = document.createElement('div');
 postGameContainer.id = 'postgame-container';
 postGameContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
@@ -148,6 +165,24 @@ uiOverlay.appendChild(postGameContainer);
 const hud = new HUD(hudContainer);
 const menuUI = new MenuUI(menuContainer, handleMenuAction);
 const postGameUI = new PostGameUI(postGameContainer, handlePostGameAction);
+
+let isPaused = false;
+const pauseMenu = new PauseMenu(pauseContainer, (action) => {
+  if (action === 'resume') {
+    isPaused = false;
+    pauseMenu.hide();
+  } else if (action === 'quit') {
+    isPaused = false;
+    pauseMenu.hide();
+    if (session) {
+      session.removeFromScene(scene);
+      session = null;
+    }
+    stateMachine.transition('MainMenu');
+    menuUI.show('main');
+    hud.hide();
+  }
+});
 
 function handlePostGameAction(action: string) {
   if (action === 'play-again') {
@@ -271,7 +306,7 @@ menuUI.show('main');
 
 // --- Game Loop ---
 function update(dt: number): void {
-  if (session && stateMachine.current === 'YourGame') {
+  if (session && stateMachine.current === 'YourGame' && !isPaused) {
     // Get combined input
     const touchInput = touchControls.getInput();
     const kbInput = keyboardControls.getInput();
