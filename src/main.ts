@@ -56,6 +56,7 @@ const transitions: StateTransition[] = [
   { from: 'BracketView', to: 'YourGame' },
   { from: 'BracketView', to: 'Spectating' },
   { from: 'YourGame', to: 'PostGame' },
+  { from: 'YourGame', to: 'MainMenu' },
   { from: 'Spectating', to: 'BettingOverlay' },
   { from: 'Spectating', to: 'BracketView' },
   { from: 'Spectating', to: 'SubInCinematic' },
@@ -118,7 +119,10 @@ document.addEventListener('touchend', (e) => {
   });
 }, { passive: true });
 
-document.addEventListener('keydown', (e) => keyboardControls.handleKeyDown(e.code));
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Tab' || e.code === 'Escape') e.preventDefault();
+  keyboardControls.handleKeyDown(e.code);
+});
 document.addEventListener('keyup', (e) => keyboardControls.handleKeyUp(e.code));
 
 // --- UI ---
@@ -277,6 +281,7 @@ function update(dt: number): void {
         y: touchInput.joystick.y || kbInput.joystick.y,
       },
       gesture: touchInput.gesture ?? kbInput.gesture,
+      sprinting: kbInput.sprinting,
     };
 
     session.processInput(input, dt);

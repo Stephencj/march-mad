@@ -20,11 +20,16 @@ export class KeyboardControls {
     } else if (code === 'KeyQ') {
       this.emitGesture({ type: 'tap', power: 0, direction: { x: 0, y: 0 } });
     } else if (code === 'KeyF') {
-      this.emitGesture({ type: 'jump', power: 1, direction: { x: 0, y: 0 } });
+      // Shift+F = jump-block, F alone = jump
+      if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) {
+        this.emitGesture({ type: 'jump-block', power: 1, direction: { x: 0, y: 0 } });
+      } else {
+        this.emitGesture({ type: 'jump', power: 1, direction: { x: 0, y: 0 } });
+      }
     } else if (code === 'KeyG') {
-      this.emitGesture({ type: 'swipe-down', power: 1, direction: { x: 0, y: 1 } });
-    } else if (code === 'ShiftLeft' || code === 'ShiftRight') {
-      // Sprint toggle handled via key state, not gesture
+      this.emitGesture({ type: 'block', power: 0, direction: { x: 0, y: 0 } });
+    } else if (code === 'Tab') {
+      this.emitGesture({ type: 'cycle-player', power: 0, direction: { x: 0, y: 0 } });
     }
   }
 
