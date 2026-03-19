@@ -55,7 +55,7 @@ export class GameSession {
   private inboundTimer = 0;
   private inbounderId: string | null = null;
   private inboundTargetId: string | null = null;
-  private passProtectionTimer = 0;
+
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
     this.events = events;
@@ -70,6 +70,10 @@ export class GameSession {
       const receivingTeam: 'home' | 'away' = data.violatingTeam === 'home' ? 'away' : 'home';
       this.enterDeadBall(receivingTeam);
       this.events.emit('splash', { text: 'SHOT CLOCK!', color: '#ff6600' });
+    });
+
+    this.events.on('foul', () => {
+      this.events.emit('splash', { text: 'FOUL!', color: '#ffaa00' });
     });
 
     if (mode === '5v5') {
@@ -199,11 +203,6 @@ export class GameSession {
         this.inbounderId = null;
         this.inboundTargetId = null;
       }
-    }
-
-    // Pass protection timer
-    if (this.passProtectionTimer > 0) {
-      this.passProtectionTimer -= dt;
     }
 
     // GLOBAL DESYNC CHECK: runs every frame, not just during runAI
@@ -611,7 +610,6 @@ export class GameSession {
             human.loseBall();
             this.ball.passTo(teammate.position);
             this.pendingPassTarget = teammate.data.id;
-            this.passProtectionTimer = 0.3;
 
             this.switchHumanControl(teammate.data.id);
           }
@@ -909,7 +907,6 @@ export class GameSession {
         player.loseBall();
         this.ball.passTo(openMate.position);
         this.pendingPassTarget = openMate.data.id;
-        this.passProtectionTimer = 0.3;
         // DO NOT reset aiShootTimer here — let it accumulate
       }
       return;
@@ -975,11 +972,11 @@ export class GameSession {
     for (const p of this.getAllPlayers()) {
       const d = p.distanceTo(ballPos);
       if (d < closestDist) {
-        // During pass protection, only same-team players can pick up
-        if (this.passProtectionTimer > 0 && this.pendingPassTarget) {
+        // While a pass is pending, only same-team players can pick up
+        if (this.pendingPassTarget) {
           const passTeam = this.getPlayerTeam(this.pendingPassTarget);
           const playerTeam = this.getPlayerTeam(p.data.id);
-          if (playerTeam !== passTeam) continue; // skip opponents during protection
+          if (playerTeam !== passTeam) continue;
         }
         closestDist = d;
         closest = p;
@@ -1004,11 +1001,26 @@ export class GameSession {
       if (this.pendingPassTarget === closest.data.id) {
         this.pendingPassTarget = null;
       }
-      this.passProtectionTimer = 0;
     }
   }
 
   private attemptSteal(stealer: GamePlayer): void {
+    // BRANCH 1: Deflect an in-flight pass
+    if (!this.ball.heldBy && this.pendingPassTarget && this.ball.isInFlight) {
+      if (stealer.distanceTo(this.ball.mesh.position) > 1.5) return;
+      stealer.triggerSteal();
+      if (Math.random() < 0.4) {
+        // Deflected — ball becomes loose
+        this.ball.isInFlight = false;
+        this.ball.clearPassTarget();
+        this.ball.velocity.set((Math.random() - 0.5) * 4, 2, (Math.random() - 0.5) * 4);
+        this.pendingPassTarget = null;
+        this.events.emit('splash', { text: 'DEFLECTED!', color: '#f39c12' });
+      }
+      return;
+    }
+
+    // BRANCH 2: Normal steal from ball holder
     const ballHolder = this.getAllPlayers().find(p => p.hasBall);
     if (!ballHolder) return;
     if (stealer.distanceTo(ballHolder.position) > 2) return;
@@ -1020,7 +1032,6 @@ export class GameSession {
       ballHolder.loseBall();
       ballHolder.recordStat('turnovers', 1);
       this.setBallHolder(stealer.data.id);
-      // Update possession on steal
       const stealerTeam = this.getPlayerTeam(stealer.data.id);
       if (this.matchEngine.state.possession !== stealerTeam) {
         this.changePossession(stealerTeam, `steal by ${stealer.data.id}`);
@@ -1029,7 +1040,6 @@ export class GameSession {
     } else if (roll < 0.6) {
       const stealerTeam = this.getPlayerTeam(stealer.data.id);
       this.matchEngine.callFoul(stealerTeam);
-      // Foul results in dead ball — receiving team inbounds
       const receivingTeam: 'home' | 'away' = stealerTeam === 'home' ? 'away' : 'home';
       this.enterDeadBall(receivingTeam);
     }

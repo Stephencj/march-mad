@@ -10,7 +10,7 @@ export class Ball {
   private arcIndex = 0;
   private arcSpeed = 60;
   private passTarget: THREE.Vector3 | null = null;
-  private passSpeed = 12;
+  private passSpeed = 20;
 
   private trail: THREE.Mesh[] = [];
   private trailGroup: THREE.Group;
@@ -148,6 +148,10 @@ export class Ball {
     this.release();
   }
 
+  clearPassTarget(): void {
+    this.passTarget = null;
+  }
+
   passTo(target: THREE.Vector3): void {
     this.passTarget = target.clone();
     this.isInFlight = true;
@@ -183,7 +187,7 @@ export class Ball {
     if (this.passTarget) {
       const toTarget = new THREE.Vector3().subVectors(this.passTarget, this.mesh.position);
       const dist = toTarget.length();
-      if (dist < 0.5) {
+      if (dist < 1.0) {
         this.isInFlight = false;
         this.passTarget = null;
         this.velocity.set(0, 0, 0);

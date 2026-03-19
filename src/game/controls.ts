@@ -6,7 +6,7 @@ export const TAP_DURATION = 200;
 export const DOUBLE_TAP_WINDOW = 300;
 
 // Types
-export type GestureType = 'swipe-up' | 'pass' | 'tap' | 'swipe-down' | 'double-tap' | 'jump';
+export type GestureType = 'swipe-up' | 'pass' | 'tap' | 'swipe-down' | 'double-tap' | 'jump' | 'charge-start';
 
 export interface TouchPoint {
   x: number;
