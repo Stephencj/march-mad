@@ -72,6 +72,11 @@ export class GamePlayer {
   isSprinting = false;
   isCharging = false;
   chargeTimer = 0;
+  stamina = 1.0;
+  isExhausted = false;
+  isGuarding = false;
+  isBlocking = false;
+  guardTimer = 0;
   private fallTimer = 0;
   private dunkTimer = 0;
   private passTimer = 0;
@@ -404,6 +409,23 @@ export class GamePlayer {
     this.animTime += dt;
     const isMoving = this.velocity.lengthSq() > 0.01;
 
+    // Guard timer
+    if (this.isGuarding) {
+      this.guardTimer -= dt;
+      if (this.guardTimer <= 0) {
+        this.isGuarding = false;
+        this.guardTimer = 0;
+        // Hide block-screen mesh if it exists
+        const blockScreen = this.group.getObjectByName('block-screen');
+        if (blockScreen) blockScreen.visible = false;
+      }
+    }
+
+    // Clear blocking flag on landing
+    if (this.isBlocking && !this.isJumping) {
+      this.isBlocking = false;
+    }
+
     // Determine animation state (forced state overrides auto-detection)
     if (this.forcedAnimState) {
       this.animState = this.forcedAnimState as typeof this.animState;
@@ -440,6 +462,8 @@ export class GamePlayer {
       this.animState = 'sprint';
     } else if (isMoving) {
       this.animState = 'walk';
+    } else if (this.isGuarding) {
+      this.animState = 'guard';
     } else {
       this.animState = 'idle';
     }
@@ -1648,6 +1672,13 @@ export class GamePlayer {
     this.shootTimer = 0.4;
   }
 
+  triggerGuard(): void {
+    this.isGuarding = true;
+    this.guardTimer = 1.0;
+    this.animState = 'guard';
+    this.animTime = 0;
+  }
+
   triggerFall(): void {
     this.fallTimer = 0.8;
   }
@@ -1724,7 +1755,7 @@ export class GamePlayer {
       return;
     }
     const direction = new THREE.Vector3(inputX, 0, inputZ).normalize();
-    const speed = this.isSprinting ? this.moveSpeed * 1.6 : this.moveSpeed;
+    const speed = this.isSprinting ? this.moveSpeed * 2.0 : this.moveSpeed;
     const step = speed * dt;
     this.velocity.copy(direction).multiplyScalar(step / dt);
     this.group.position.addScaledVector(direction, step);
