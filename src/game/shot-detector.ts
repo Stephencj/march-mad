@@ -40,7 +40,12 @@ export class ShotDetector {
 
     // Ball must be within 0.4 units horizontally and 0.5 units vertically of hoop,
     // and must be descending (velocity.y < 0)
-    if (horizontalDist <= 0.4 && verticalDist <= 0.5 && ballVelocity.y < 0) {
+    // Log when ball is near hoop for debugging
+    if (horizontalDist < 3) {
+      console.log(`[SHOT] hDist=${horizontalDist.toFixed(2)} vDist=${verticalDist.toFixed(2)} velY=${ballVelocity.y.toFixed(2)} descending=${ballVelocity.y < 0}`);
+    }
+
+    if (horizontalDist <= 0.8 && verticalDist <= 1.0 && ballVelocity.y < 0) {
       this.cooldown = 1;
       return { made: true };
     }

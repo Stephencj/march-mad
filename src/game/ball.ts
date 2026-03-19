@@ -55,7 +55,7 @@ export class Ball {
 
   calculateArc(start: THREE.Vector3, target: THREE.Vector3, power: number): THREE.Vector3[] {
     const points: THREE.Vector3[] = [];
-    const steps = 30;
+    const steps = 60;
     const distance = start.distanceTo(target);
     const peakHeight = start.y + distance * 0.3 * (0.5 + power * 0.5);
 
@@ -174,6 +174,14 @@ export class Ball {
       const stepsThisFrame = Math.max(1, Math.round(this.arcSpeed * dt));
       this.arcIndex = Math.min(this.arcIndex + stepsThisFrame, this.arc.length - 1);
       this.mesh.position.copy(this.arc[this.arcIndex]);
+
+      // Compute synthetic velocity from arc movement (needed for shot detection)
+      if (this.arcIndex > 0) {
+        const prev = this.arc[Math.max(0, this.arcIndex - 1)];
+        const curr = this.arc[this.arcIndex];
+        this.velocity.subVectors(curr, prev).multiplyScalar(60); // per-second velocity
+      }
+
       if (this.arcIndex >= this.arc.length - 1) {
         this.isInFlight = false;
         this.arc = [];

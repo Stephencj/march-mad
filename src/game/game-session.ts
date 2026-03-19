@@ -52,6 +52,7 @@ export class GameSession {
   private powerupVisuals = new PowerupVisuals();
   lastPowerupPickup: string | null = null;
   private aiShootTimer = 0;
+  private lastChargeMultiplier = 1.0;
   private inboundTimer = 0;
   private inbounderId: string | null = null;
   private inboundTargetId: string | null = null;
@@ -270,7 +271,9 @@ export class GameSession {
           shootingStat: shooter?.data.stats.shooting ?? 5,
           defenderDistance: defDist,
           shotType,
+          chargeMultiplier: this.lastChargeMultiplier,
         });
+        this.lastChargeMultiplier = 1.0; // reset after use
 
         if (goesIn) {
           this.handleMadeShot(team, shotType);
@@ -380,6 +383,17 @@ export class GameSession {
     if (this.matchEngine.state.phase === 'transitioning') return;
     const human = this.getHumanPlayer();
     if (!human) return;
+
+    // Charge-up: lock in place while charging
+    if (human.isCharging) {
+      human.chargeTimer = Math.min(human.chargeTimer + dt, 1.5);
+      // Still process gesture (for release), but zero movement
+      if (input.gesture) {
+        this.handleGesture(input.gesture, human);
+        input.gesture = null;
+      }
+      return; // skip all movement
+    }
 
     // Transform joystick input to camera-relative world space
     let worldX = input.joystick.x;
@@ -539,13 +553,33 @@ export class GameSession {
     const hasBall = human.hasBall;
 
     switch (gesture.type) {
+      case 'charge-start':
+        if (hasBall) {
+          human.isCharging = true;
+          human.chargeTimer = 0;
+        }
+        break;
+
       case 'swipe-up':
         if (hasBall) {
           const humanTeam = this.getPlayerTeam(this.humanPlayerId);
           const targetHoop = this.getTeamAttackHoop(humanTeam);
+          // Calculate charge multiplier
+          const chargeLevel = human.chargeTimer / 1.5;
+          let chargeMultiplier = 1.0;
+          if (chargeLevel < 0.5) {
+            chargeMultiplier = 0.5 + chargeLevel; // 0→0.5, 0.5→1.0
+          } else if (chargeLevel >= 0.8) {
+            chargeMultiplier = 1.5; // green zone
+          } else {
+            chargeMultiplier = 1.0 + (chargeLevel - 0.5) / 0.3 * 0.5; // 0.5→1.0, 0.8→1.5
+          }
+          human.isCharging = false;
+          human.chargeTimer = 0;
           human.loseBall();
           human.triggerShoot();
           this.lastShooterId = human.data.id;
+          this.lastChargeMultiplier = chargeMultiplier;
           this.ball.shootAt(targetHoop, gesture.power);
         }
         break;
@@ -774,6 +808,15 @@ export class GameSession {
       } else {
         // DEFENSE: zone-based positioning near defending hoop
         target = this.getZoneDefensePosition(player, defendHoop);
+
+        // React to human charging — jump to block
+        const humanPlayer = this.getHumanPlayer();
+        if (humanPlayer?.isCharging && humanPlayer.chargeTimer > 0.75) {
+          const distToShooter = player.distanceTo(humanPlayer.position);
+          if (distToShooter < 5) {
+            player.jump();
+          }
+        }
       }
 
       player.aiTarget = target;

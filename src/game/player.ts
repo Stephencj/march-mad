@@ -70,6 +70,8 @@ export class GamePlayer {
   private jumpHeight = 0;
   isJumping = false;
   isSprinting = false;
+  isCharging = false;
+  chargeTimer = 0;
   private fallTimer = 0;
   private dunkTimer = 0;
   private passTimer = 0;

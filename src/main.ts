@@ -309,6 +309,12 @@ function update(dt: number): void {
     hud.updateShotClock(session.matchEngine.state.shotClockSeconds);
     hud.updateCrowdLevel(crowdSystem.getLevel());
 
+    // Charge bar
+    const human = session.getHumanPlayer();
+    if (human) {
+      hud.updateChargeBar(human.isCharging, human.chargeTimer / 1.5);
+    }
+
     // Powerup HUD notification
     if (session.lastPowerupPickup) {
       hud.showPowerupPickup(session.lastPowerupPickup);

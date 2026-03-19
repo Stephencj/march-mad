@@ -14,6 +14,7 @@ export class KeyboardControls {
     this.keys.add(code);
     if (code === 'Space') {
       this.spaceDownTime = performance.now();
+      this.emitGesture({ type: 'charge-start', power: 0, direction: { x: 0, y: 0 } });
     } else if (code === 'KeyE') {
       this.emitGesture({ type: 'pass', power: 0, direction: { x: 0, y: -1 } });
     } else if (code === 'KeyQ') {
@@ -31,7 +32,7 @@ export class KeyboardControls {
     this.keys.delete(code);
     if (code === 'Space') {
       const holdTime = performance.now() - this.spaceDownTime;
-      const power = Math.min(holdTime / 500, 1);
+      const power = Math.min(holdTime / 1500, 1);
       this.emitGesture({ type: 'swipe-up', power, direction: { x: 0, y: -1 } });
     }
   }

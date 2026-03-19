@@ -24,6 +24,8 @@ export class HUD {
   private powerupEl: HTMLElement;
   private crowdEl: HTMLElement;
   private subInEl: HTMLElement;
+  private chargeBarContainer: HTMLElement;
+  private chargeBarFill: HTMLElement;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -73,6 +75,23 @@ export class HUD {
     this.container.appendChild(this.powerupEl);
     this.container.appendChild(this.crowdEl);
     this.container.appendChild(this.subInEl);
+
+    this.chargeBarContainer = document.createElement('div');
+    Object.assign(this.chargeBarContainer.style, {
+      position: 'absolute', bottom: '60px', left: '50%',
+      transform: 'translateX(-50%)', width: '200px', height: '16px',
+      backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: '8px',
+      border: '2px solid rgba(255,255,255,0.4)',
+      overflow: 'hidden', zIndex: '10', display: 'none',
+    });
+
+    this.chargeBarFill = document.createElement('div');
+    Object.assign(this.chargeBarFill.style, {
+      height: '100%', width: '0%', borderRadius: '6px',
+      transition: 'width 0.05s linear',
+    });
+    this.chargeBarContainer.appendChild(this.chargeBarFill);
+    container.appendChild(this.chargeBarContainer);
   }
 
   updateScore(home: number, away: number): void {
@@ -103,6 +122,21 @@ export class HUD {
     const display = Math.ceil(seconds);
     this.shotClockEl.textContent = String(display);
     this.shotClockEl.style.color = seconds < 5 ? '#f44336' : '';
+  }
+
+  updateChargeBar(isCharging: boolean, chargeLevel: number): void {
+    if (!isCharging) {
+      this.chargeBarContainer.style.display = 'none';
+      return;
+    }
+    this.chargeBarContainer.style.display = 'block';
+    const pct = Math.min(chargeLevel * 100, 100);
+    this.chargeBarFill.style.width = `${pct}%`;
+    if (chargeLevel >= 0.8) {
+      this.chargeBarFill.style.backgroundColor = '#4caf50';
+    } else {
+      this.chargeBarFill.style.backgroundColor = '#ff9800';
+    }
   }
 
   showPowerup(type: string, remaining: number): void {
