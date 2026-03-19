@@ -318,6 +318,7 @@ function update(dt: number): void {
     const human = session.getHumanPlayer();
     if (human) {
       hud.updateChargeBar(human.isCharging, human.chargeTimer / 1.5);
+      hud.updateStaminaBar(human.stamina);
     }
 
     // Powerup HUD notification

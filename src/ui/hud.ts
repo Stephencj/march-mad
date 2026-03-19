@@ -26,6 +26,8 @@ export class HUD {
   private subInEl: HTMLElement;
   private chargeBarContainer: HTMLElement;
   private chargeBarFill: HTMLElement;
+  private staminaBarContainer: HTMLElement;
+  private staminaBarFill: HTMLElement;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -92,6 +94,24 @@ export class HUD {
     });
     this.chargeBarContainer.appendChild(this.chargeBarFill);
     container.appendChild(this.chargeBarContainer);
+
+    this.staminaBarContainer = document.createElement('div');
+    Object.assign(this.staminaBarContainer.style, {
+      position: 'absolute', bottom: '20px', left: '20px',
+      width: '120px', height: '12px',
+      backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: '6px',
+      border: '2px solid rgba(255,255,255,0.3)',
+      overflow: 'hidden', zIndex: '10',
+    });
+
+    this.staminaBarFill = document.createElement('div');
+    Object.assign(this.staminaBarFill.style, {
+      height: '100%', width: '100%', borderRadius: '4px',
+      backgroundColor: '#4caf50',
+      transition: 'width 0.1s linear',
+    });
+    this.staminaBarContainer.appendChild(this.staminaBarFill);
+    container.appendChild(this.staminaBarContainer);
   }
 
   updateScore(home: number, away: number): void {
@@ -136,6 +156,18 @@ export class HUD {
       this.chargeBarFill.style.backgroundColor = '#4caf50';
     } else {
       this.chargeBarFill.style.backgroundColor = '#ff9800';
+    }
+  }
+
+  updateStaminaBar(stamina: number): void {
+    const pct = Math.min(stamina * 100, 100);
+    this.staminaBarFill.style.width = `${pct}%`;
+    if (stamina > 0.5) {
+      this.staminaBarFill.style.backgroundColor = '#4caf50';
+    } else if (stamina > 0.2) {
+      this.staminaBarFill.style.backgroundColor = '#ffeb3b';
+    } else {
+      this.staminaBarFill.style.backgroundColor = '#f44336';
     }
   }
 
