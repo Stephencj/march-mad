@@ -14,8 +14,9 @@ import { ProgressionSystem } from '@/meta/progression';
 import { PowerupSystem } from '@/systems/powerups';
 import { PowerupVisuals } from './powerup-visuals';
 import { calculateShotSuccess } from './shot-accuracy';
-import { findBestPassTarget } from './pass-targeting';
+import { findBestPassTarget, isInPassLane } from './pass-targeting';
 import type { HapticManager } from '@/systems/haptics';
+import { clampShotTarget } from './shot-range';
 
 interface CameraInfo {
   mode: CameraMode;
@@ -324,6 +325,27 @@ export class GameSession {
           );
 
           this.events.emit('splash', { text: 'MISS!', color: '#e74c3c' });
+        }
+      }
+    }
+
+    // Pass lane interception: defenders in the path auto-deflect
+    if (this.ball.isInFlight && this.pendingPassTarget && this.ball.passTarget) {
+      const opponents = this.matchEngine.state.possession === 'home' ? this.awayPlayers : this.homePlayers;
+      const ballPos = { x: this.ball.mesh.position.x, z: this.ball.mesh.position.z };
+      const targetPos = { x: this.ball.passTarget.x, z: this.ball.passTarget.z };
+
+      for (const def of opponents) {
+        if (def.distanceTo(this.ball.mesh.position) > 1.5) continue;
+        if (isInPassLane(ballPos, targetPos, { x: def.position.x, z: def.position.z }, 1.0)) {
+          if (Math.random() < 0.30) {
+            this.ball.isInFlight = false;
+            this.ball.clearPassTarget();
+            this.ball.velocity.set((Math.random() - 0.5) * 4, 2, (Math.random() - 0.5) * 4);
+            this.pendingPassTarget = null;
+            this.events.emit('splash', { text: 'DEFLECTED!', color: '#f39c12' });
+            break;
+          }
         }
       }
     }

@@ -44,3 +44,26 @@ export function findBestPassTarget(
 
   return best;
 }
+
+export function isInPassLane(
+  ballPos: { x: number; z: number },
+  targetPos: { x: number; z: number },
+  defenderPos: { x: number; z: number },
+  laneWidth: number
+): boolean {
+  const dx = targetPos.x - ballPos.x;
+  const dz = targetPos.z - ballPos.z;
+  const lenSq = dx * dx + dz * dz;
+  if (lenSq < 0.01) return false;
+
+  const t = ((defenderPos.x - ballPos.x) * dx + (defenderPos.z - ballPos.z) * dz) / lenSq;
+  if (t < 0 || t > 1) return false;
+
+  const closestX = ballPos.x + t * dx;
+  const closestZ = ballPos.z + t * dz;
+  const perpDx = defenderPos.x - closestX;
+  const perpDz = defenderPos.z - closestZ;
+  const perpDist = Math.sqrt(perpDx * perpDx + perpDz * perpDz);
+
+  return perpDist < laneWidth;
+}
