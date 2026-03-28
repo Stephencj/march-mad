@@ -14,6 +14,7 @@ import { ProgressionSystem } from '@/meta/progression';
 import { PowerupSystem } from '@/systems/powerups';
 import { PowerupVisuals } from './powerup-visuals';
 import { calculateShotSuccess } from './shot-accuracy';
+import type { HapticManager } from '@/systems/haptics';
 
 interface CameraInfo {
   mode: CameraMode;
@@ -57,6 +58,7 @@ export class GameSession {
   private inboundTimer = 0;
   private inbounderId: string | null = null;
   private inboundTargetId: string | null = null;
+  private hapticManager: HapticManager | null = null;
 
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
@@ -158,6 +160,10 @@ export class GameSession {
 
   setCameraRef(camera: THREE.Camera): void {
     this.cameraRef = camera;
+  }
+
+  setHapticManager(haptics: HapticManager): void {
+    this.hapticManager = haptics;
   }
 
   addToScene(scene: THREE.Scene): void {
@@ -440,6 +446,7 @@ export class GameSession {
     // Charge-up: lock in place while charging
     if (human.isCharging) {
       human.chargeTimer = Math.min(human.chargeTimer + dt, 1.5);
+      this.hapticManager?.onCharge(human.chargeTimer / 1.5);
       // Still process gesture (for release), but zero movement
       if (input.gesture) {
         this.handleGesture(input.gesture, human);
@@ -667,6 +674,7 @@ export class GameSession {
       case 'block':
         if (!hasBall) {
           human.triggerGuard();
+          this.hapticManager?.onBlock();
         }
         break;
 
@@ -683,6 +691,7 @@ export class GameSession {
 
       case 'swipe-up':
         if (hasBall) {
+          this.hapticManager?.onShoot();
           const humanTeam = this.getPlayerTeam(this.humanPlayerId);
           const targetHoop = this.getTeamAttackHoop(humanTeam);
           const dist = human.distanceTo(targetHoop);
@@ -763,6 +772,7 @@ export class GameSession {
       case 'tap':
         if (!hasBall) {
           this.attemptSteal(human);
+          this.hapticManager?.onSteal();
         }
         break;
 

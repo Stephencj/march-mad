@@ -8,6 +8,7 @@ import { GameSession } from './game/game-session';
 import { GamePlayer } from './game/player';
 import { CameraSystem } from './game/camera';
 import { InputManager } from './game/input-manager';
+import { HapticManager } from './systems/haptics';
 import { CrowdSystem } from './systems/crowd';
 import { SubInSystem } from './systems/sub-in';
 import { BettingSystem } from './meta/betting';
@@ -87,6 +88,7 @@ const saveSystem = new SaveSystem();
 
 // --- Controls ---
 const inputManager = new InputManager();
+const hapticManager = new HapticManager();
 
 // Touch event listeners
 document.addEventListener('touchstart', (e) => {
@@ -133,7 +135,13 @@ document.addEventListener('keydown', (e) => {
   }
 });
 document.addEventListener('keyup', (e) => inputManager.keyboardControls.handleKeyUp(e.code));
-window.addEventListener('gamepadconnected', (e) => inputManager.handleGamepadConnected(e));
+window.addEventListener('gamepadconnected', (e) => {
+  inputManager.handleGamepadConnected(e);
+  const pad = navigator.getGamepads()[e.gamepad.index];
+  if (pad?.vibrationActuator) {
+    hapticManager.setVibrationActuator(pad.vibrationActuator);
+  }
+});
 window.addEventListener('gamepaddisconnected', (e) => inputManager.handleGamepadDisconnected(e));
 
 // --- UI ---
@@ -212,6 +220,7 @@ function startQuickGame(): void {
   session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id);
   session.addToScene(scene);
   session.setCameraRef(camera);
+  session.setHapticManager(hapticManager);
   session.start();
   stateMachine.transition('YourGame');
   hud.updateScore(0, 0);
@@ -234,6 +243,7 @@ function startMainGame(clockSeconds = 300): void {
   session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id, '5v5');
   session.addToScene(scene);
   session.setCameraRef(camera);
+  session.setHapticManager(hapticManager);
   session.start();
   stateMachine.transition('YourGame');
   hud.updateScore(0, 0);
@@ -292,6 +302,11 @@ stateMachine.onEnter('PostGame', () => {
 gameEvents.on('splash', (data: { text: string; color: string }) => {
   hud.showSplash(data.text, data.color);
 });
+
+// Haptic feedback for game events
+gameEvents.on('score', () => hapticManager.onScore());
+gameEvents.on('foul', () => hapticManager.onFoul());
+gameEvents.on('powerup', () => hapticManager.onPowerupPickup());
 
 gameEvents.on('game-over', () => {
   if (!session) return;
