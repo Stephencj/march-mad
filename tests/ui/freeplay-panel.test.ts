@@ -33,9 +33,9 @@ describe('FreeplayPanel', () => {
     expect(onToggle).toHaveBeenCalledWith('h2', false);
   });
 
-  it('should render bulk toggles', () => {
+  it('should render bulk toggles (AI + visibility)', () => {
     const bulkBtns = container.querySelectorAll('[data-bulk]');
-    expect(bulkBtns.length).toBe(2);
+    expect(bulkBtns.length).toBe(4); // AI teammates, AI opponents, hide teammates, hide opponents
   });
 
   it('should toggle visibility', () => {

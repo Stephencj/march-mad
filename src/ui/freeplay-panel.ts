@@ -10,13 +10,20 @@ export class FreeplayPanel {
   private container: HTMLElement;
   private panel: HTMLDivElement | null = null;
   private onToggle: (playerId: string, enabled: boolean) => void;
+  private onVisibility: (playerId: string, visible: boolean) => void;
   private playerStates = new Map<string, boolean>();
+  private playerVisibility = new Map<string, boolean>();
   private humanId = '';
   private players: PlayerInfo[] = [];
 
-  constructor(container: HTMLElement, onToggle: (playerId: string, enabled: boolean) => void) {
+  constructor(
+    container: HTMLElement,
+    onToggle: (playerId: string, enabled: boolean) => void,
+    onVisibility?: (playerId: string, visible: boolean) => void,
+  ) {
     this.container = container;
     this.onToggle = onToggle;
+    this.onVisibility = onVisibility ?? (() => {});
   }
 
   setup(players: PlayerInfo[], humanPlayerId: string): void {
@@ -26,6 +33,7 @@ export class FreeplayPanel {
     for (const p of players) {
       if (p.id !== humanPlayerId) {
         this.playerStates.set(p.id, true);
+        this.playerVisibility.set(p.id, true);
       }
     }
     this.render();
@@ -53,6 +61,8 @@ export class FreeplayPanel {
 
     this.panel.appendChild(this.createBulkToggle('All Teammates AI', 'teammates', teammates));
     this.panel.appendChild(this.createBulkToggle('All Opponents AI', 'opponents', opponents));
+    this.panel.appendChild(this.createBulkVisToggle('Hide Teammates', 'hide-teammates', teammates));
+    this.panel.appendChild(this.createBulkVisToggle('Hide Opponents', 'hide-opponents', opponents));
 
     const sep = document.createElement('hr');
     Object.assign(sep.style, { border: 'none', borderTop: '1px solid #333', margin: '8px 0' });
@@ -108,32 +118,84 @@ export class FreeplayPanel {
     return row;
   }
 
-  private createPlayerRow(player: PlayerInfo): HTMLElement {
+  private createBulkVisToggle(label: string, type: string, players: PlayerInfo[]): HTMLElement {
     const row = document.createElement('div');
-    row.dataset.playerId = player.id;
-    Object.assign(row.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0' });
+    Object.assign(row.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' });
 
     const lbl = document.createElement('span');
-    lbl.textContent = `${player.position} ${player.name}`;
-    Object.assign(lbl.style, { color: '#aaa', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '160px' });
+    lbl.textContent = label;
+    lbl.style.color = '#ccc';
 
     const btn = document.createElement('button');
-    btn.dataset.aiToggle = player.id;
-    const isOn = this.playerStates.get(player.id) ?? true;
-    btn.textContent = isOn ? 'ON' : 'OFF';
-    Object.assign(btn.style, { background: isOn ? '#2ecc71' : '#e74c3c', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', minWidth: '36px' });
+    btn.dataset.bulk = type;
+    btn.textContent = 'SHOW';
+    Object.assign(btn.style, { background: '#3498db', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', minWidth: '44px' });
 
+    let allVisible = true;
     btn.addEventListener('click', () => {
-      const current = this.playerStates.get(player.id) ?? true;
-      const newState = !current;
-      this.playerStates.set(player.id, newState);
-      this.onToggle(player.id, newState);
-      btn.textContent = newState ? 'ON' : 'OFF';
-      btn.style.background = newState ? '#2ecc71' : '#e74c3c';
+      allVisible = !allVisible;
+      for (const p of players) {
+        this.playerVisibility.set(p.id, allVisible);
+        this.onVisibility(p.id, allVisible);
+      }
+      btn.textContent = allVisible ? 'SHOW' : 'HIDE';
+      btn.style.background = allVisible ? '#3498db' : '#7f8c8d';
+      this.updateVisButtons();
     });
 
     row.appendChild(lbl);
     row.appendChild(btn);
+    return row;
+  }
+
+  private createPlayerRow(player: PlayerInfo): HTMLElement {
+    const row = document.createElement('div');
+    row.dataset.playerId = player.id;
+    Object.assign(row.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0', gap: '4px' });
+
+    const lbl = document.createElement('span');
+    lbl.textContent = `${player.position} ${player.name}`;
+    Object.assign(lbl.style, { color: '#aaa', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: '1' });
+
+    const btnGroup = document.createElement('div');
+    Object.assign(btnGroup.style, { display: 'flex', gap: '3px' });
+
+    // AI toggle button
+    const aiBtn = document.createElement('button');
+    aiBtn.dataset.aiToggle = player.id;
+    const isOn = this.playerStates.get(player.id) ?? true;
+    aiBtn.textContent = isOn ? 'AI' : 'OFF';
+    Object.assign(aiBtn.style, { background: isOn ? '#2ecc71' : '#e74c3c', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold', minWidth: '30px' });
+
+    aiBtn.addEventListener('click', () => {
+      const current = this.playerStates.get(player.id) ?? true;
+      const newState = !current;
+      this.playerStates.set(player.id, newState);
+      this.onToggle(player.id, newState);
+      aiBtn.textContent = newState ? 'AI' : 'OFF';
+      aiBtn.style.background = newState ? '#2ecc71' : '#e74c3c';
+    });
+
+    // Visibility toggle button
+    const visBtn = document.createElement('button');
+    visBtn.dataset.visToggle = player.id;
+    const isVis = this.playerVisibility.get(player.id) ?? true;
+    visBtn.textContent = isVis ? 'VIS' : 'HID';
+    Object.assign(visBtn.style, { background: isVis ? '#3498db' : '#7f8c8d', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold', minWidth: '30px' });
+
+    visBtn.addEventListener('click', () => {
+      const current = this.playerVisibility.get(player.id) ?? true;
+      const newState = !current;
+      this.playerVisibility.set(player.id, newState);
+      this.onVisibility(player.id, newState);
+      visBtn.textContent = newState ? 'VIS' : 'HID';
+      visBtn.style.background = newState ? '#3498db' : '#7f8c8d';
+    });
+
+    btnGroup.appendChild(aiBtn);
+    btnGroup.appendChild(visBtn);
+    row.appendChild(lbl);
+    row.appendChild(btnGroup);
     return row;
   }
 
@@ -143,8 +205,19 @@ export class FreeplayPanel {
     for (const btn of toggles) {
       const id = btn.dataset.aiToggle!;
       const isOn = this.playerStates.get(id) ?? true;
-      btn.textContent = isOn ? 'ON' : 'OFF';
+      btn.textContent = isOn ? 'AI' : 'OFF';
       btn.style.background = isOn ? '#2ecc71' : '#e74c3c';
+    }
+  }
+
+  private updateVisButtons(): void {
+    if (!this.panel) return;
+    const toggles = this.panel.querySelectorAll('[data-vis-toggle]') as NodeListOf<HTMLButtonElement>;
+    for (const btn of toggles) {
+      const id = btn.dataset.visToggle!;
+      const isVis = this.playerVisibility.get(id) ?? true;
+      btn.textContent = isVis ? 'VIS' : 'HID';
+      btn.style.background = isVis ? '#3498db' : '#7f8c8d';
     }
   }
 

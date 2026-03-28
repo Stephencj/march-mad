@@ -308,10 +308,17 @@ function startFreeplay(): void {
     fpContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
     uiOverlay.appendChild(fpContainer);
   }
-  freeplayPanel = new FreeplayPanel(fpContainer, (playerId, enabled) => {
-    if (enabled) session!.enableAI(playerId);
-    else session!.disableAI(playerId);
-  });
+  freeplayPanel = new FreeplayPanel(
+    fpContainer,
+    (playerId, enabled) => {
+      if (enabled) session!.enableAI(playerId);
+      else session!.disableAI(playerId);
+    },
+    (playerId, isVisible) => {
+      const player = session!.getAllPlayers().find(p => p.data.id === playerId);
+      if (player) player.group.visible = isVisible;
+    },
+  );
   freeplayPanel.setup(playerInfos, teams[0].players[0].id);
   freeplayPanel.show();
 
