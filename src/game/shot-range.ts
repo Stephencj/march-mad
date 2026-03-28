@@ -7,7 +7,7 @@ export interface ShotClampResult {
 
 const PAINT_HALF_WIDTH = 1.8;
 const PAINT_LENGTH = 5.8;
-const DUNK_ZONE_DEPTH = PAINT_LENGTH / 3; // ~1.93 units from hoop
+const DUNK_ZONE_DEPTH = PAINT_LENGTH; // full paint depth (5.8 units from hoop)
 
 export function isInDunkZone(
   playerPos: THREE.Vector3,

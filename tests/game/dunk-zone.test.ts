@@ -14,6 +14,10 @@ describe('isInDunkZone', () => {
     expect(isInDunkZone(new THREE.Vector3(0, 0, 12), hoopAway)).toBe(true);
   });
 
+  it('should return true at paint edge near hoop (full paint depth)', () => {
+    expect(isInDunkZone(new THREE.Vector3(0, 0, -7.5), hoopHome)).toBe(true);
+  });
+
   it('should return false at mid-court', () => {
     expect(isInDunkZone(new THREE.Vector3(0, 0, 0), hoopHome)).toBe(false);
   });
@@ -22,11 +26,11 @@ describe('isInDunkZone', () => {
     expect(isInDunkZone(new THREE.Vector3(3, 0, -12), hoopHome)).toBe(false);
   });
 
-  it('should return false at paint edge far from hoop', () => {
-    expect(isInDunkZone(new THREE.Vector3(0, 0, -9), hoopHome)).toBe(false);
+  it('should return false just outside paint depth', () => {
+    expect(isInDunkZone(new THREE.Vector3(0, 0, -6), hoopHome)).toBe(false);
   });
 
-  it('should return true at edge of dunk zone', () => {
-    expect(isInDunkZone(new THREE.Vector3(1.5, 0, -11.5), hoopHome)).toBe(true);
+  it('should return true at edge of paint width', () => {
+    expect(isInDunkZone(new THREE.Vector3(1.7, 0, -11), hoopHome)).toBe(true);
   });
 });
