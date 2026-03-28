@@ -3,8 +3,8 @@ import * as THREE from 'three';
 export type CameraMode = 'broadcast' | 'slam' | 'spectator';
 
 // Broadcast camera: fixed side-view that follows the action along the court
-const HALF_COURT = { sideDistance: 14, height: 8 };
-const FULL_COURT = { sideDistance: 16, height: 9 };
+const HALF_COURT = { sideDistance: 10, height: 6 };
+const FULL_COURT = { sideDistance: 12, height: 7 };
 
 const LERP_SPEED = 4.0;
 const SLAM_DURATION = 2.5; // seconds
@@ -80,10 +80,10 @@ export class CameraSystem {
 
       // Dynamic zoom based on player spread
       const spreadFactor = Math.max(this.playerSpreadZ / 20, this.playerSpreadX / 12);
-      const minDist = 8;  // closest zoom (tight on action)
-      const maxDist = 16; // furthest zoom (full court spread)
+      const minDist = 6;  // closest zoom (tight on action)
+      const maxDist = 12; // furthest zoom (full court spread)
       const dynamicDist = minDist + (maxDist - minDist) * Math.max(0.05, Math.min(1, spreadFactor));
-      const dynamicHeight = dynamicDist * 0.6; // proportional height
+      const dynamicHeight = dynamicDist * 0.55; // proportional height
 
       this.targetPosition.set(dynamicDist, dynamicHeight, clampedZ);
 

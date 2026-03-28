@@ -14,9 +14,9 @@ describe('CameraSystem', () => {
     const cam = makeCam();
     const cs = new CameraSystem(cam);
     cs.fullCourt = false;
-    // Default spread (28/15) gives spreadFactor ≥ 1 → dynamicDist=16
+    // Default spread (28/15) gives spreadFactor ≥ 1 → dynamicDist=12
     cs.update(new THREE.Vector3(2, 0, 3), new THREE.Vector3(0, 3, -6), 1 / 60);
-    expect(cam.position.x).toBe(16);
+    expect(cam.position.x).toBe(12);
 
     // Tight spread → closer zoom target; lerp moves camera toward it
     cs.setPlayerBounds(0, 5, -2, 2);
@@ -24,18 +24,18 @@ describe('CameraSystem', () => {
     for (let i = 0; i < 300; i++) {
       cs.update(new THREE.Vector3(2, 0, 3), new THREE.Vector3(0, 3, -6), 1 / 60);
     }
-    // spreadFactor = max(5/20, 4/12) ≈ 0.333 → dynamicDist ≈ 10.67
-    expect(cam.position.x).toBeGreaterThan(9);
-    expect(cam.position.x).toBeLessThan(12);
+    // spreadFactor = max(5/20, 4/12) ≈ 0.333 → dynamicDist ≈ 8
+    expect(cam.position.x).toBeGreaterThan(7);
+    expect(cam.position.x).toBeLessThan(9);
   });
 
   it('camera X uses dynamic zoom based on player spread (full court)', () => {
     const cam = makeCam();
     const cs = new CameraSystem(cam);
     cs.fullCourt = true;
-    // Default spread → dynamicDist=16
+    // Default spread → dynamicDist=12
     cs.update(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 3, -6), 1 / 60);
-    expect(cam.position.x).toBe(16);
+    expect(cam.position.x).toBe(12);
   });
 
   it('camera Z follows trackPosition.z', () => {
@@ -65,9 +65,9 @@ describe('CameraSystem', () => {
     const cam = makeCam();
     const cs = new CameraSystem(cam);
     cs.fullCourt = false;
-    // Default spread → dynamicDist=16 → height=16*0.6=9.6
+    // Default spread → dynamicDist=12 → height=12*0.55=6.6
     cs.update(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 3, -6), 1 / 60);
-    expect(cam.position.y).toBeCloseTo(9.6, 1);
+    expect(cam.position.y).toBeCloseTo(6.6, 1);
   });
 
   it('slam cam activates and auto-reverts to broadcast', () => {
