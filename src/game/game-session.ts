@@ -278,6 +278,7 @@ export class GameSession {
           const team = this.getPlayerTeam(this.pendingDunkShooterId);
           const hoop = this.getTeamAttackHoop(team);
           dunker.loseBall();
+          this.ball.release(); // clear ball.heldBy so it stops following the player
           // Place ball just below rim and let it drop through
           this.ball.mesh.position.set(hoop.x, hoop.y - 0.1, hoop.z);
           this.ball.velocity.set(0, -2, 0); // gentle drop downward
@@ -292,6 +293,7 @@ export class GameSession {
           const team = this.getPlayerTeam(this.pendingDunkShooterId);
           const hoop = this.getTeamAttackHoop(team);
           dunker.loseBall();
+          this.ball.release();
           this.ball.mesh.position.set(hoop.x, hoop.y - 0.1, hoop.z);
           this.ball.velocity.set(0, -2, 0);
           this.ball.isInFlight = true;
@@ -819,7 +821,7 @@ export class GameSession {
             human.triggerDunk({ x: targetHoop.x, z: targetHoop.z });
             this.lastShooterId = human.data.id;
             this.pendingDunkShooterId = human.data.id;
-            this.events.emit('splash', { text: 'SLAM DUNK!', color: '#2ecc71' });
+            // Splash emitted in handleMadeShot when ball goes through hoop
           } else {
             // SHOT PATH: normal charge-up shot
             human.loseBall();
