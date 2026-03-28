@@ -53,6 +53,7 @@ export class GameSession {
   lastPowerupPickup: string | null = null;
   private aiShootTimer = 0;
   private lastChargeMultiplier = 1.0;
+  private tabCycleIndex = 0;
   private inboundTimer = 0;
   private inbounderId: string | null = null;
   private inboundTargetId: string | null = null;
@@ -266,12 +267,27 @@ export class GameSession {
         const distance = shooter ? shooter.distanceTo(targetHoop) : 10;
         const defDist = shooter ? this.getNearestOpponentDist(shooter) : 5;
 
+        // Compute active contest bonus from guarding/blocking defenders
+        let contestBonus = 0;
+        const shooterPos = shooter?.position ?? this.ball.mesh.position;
+        const defTeam = this.getPlayerTeam(this.lastShooterId) === 'home' ? this.awayPlayers : this.homePlayers;
+        for (const def of defTeam) {
+          const d = def.distanceTo(shooterPos);
+          if (def.isGuarding && d < 2) {
+            contestBonus = Math.max(contestBonus, 0.2);
+          }
+          if (def.isJumping && def.isBlocking && d < 3) {
+            contestBonus = Math.max(contestBonus, 0.3);
+          }
+        }
+
         const goesIn = calculateShotSuccess({
           distance,
           shootingStat: shooter?.data.stats.shooting ?? 5,
           defenderDistance: defDist,
           shotType,
           chargeMultiplier: this.lastChargeMultiplier,
+          contestBonus,
         });
         this.lastChargeMultiplier = 1.0; // reset after use
 
@@ -350,6 +366,25 @@ export class GameSession {
       }
     }
 
+    // Jump catch: airborne player (not blocking) can catch ball passing nearby
+    if (this.ball.isInFlight && !this.pendingPassTarget) {
+      for (const p of this.getAllPlayers()) {
+        if (p.isJumping && !p.isBlocking && p.distanceTo(this.ball.mesh.position) < 1.0) {
+          if (Math.random() < 0.15) {
+            this.ball.isInFlight = false;
+            this.ball.velocity.set(0, 0, 0);
+            this.setBallHolder(p.data.id);
+            const catchTeam = this.getPlayerTeam(p.data.id);
+            if (this.matchEngine.state.possession !== catchTeam) {
+              this.changePossession(catchTeam, `jump catch by ${p.data.id}`);
+            }
+            this.events.emit('splash', { text: 'INTERCEPTED!', color: '#f39c12' });
+            break;
+          }
+        }
+      }
+    }
+
     // Loose ball — everyone chases
     if (!this.ball.heldBy && !this.ball.isInFlight) {
       for (const p of this.getAllPlayers()) {
@@ -377,6 +412,24 @@ export class GameSession {
 
     // Powerup system
     this.updatePowerups(dt);
+
+    // AI stamina management
+    for (const player of this.getAllPlayers()) {
+      if (player.data.id === this.humanPlayerId) continue;
+      if (player.isSprinting && player.stamina > 0 && !player.isExhausted) {
+        player.stamina -= 0.3 * dt;
+        if (player.stamina <= 0) {
+          player.stamina = 0;
+          player.isExhausted = true;
+          player.isSprinting = false;
+        }
+      } else if (!player.isSprinting) {
+        player.stamina = Math.min(1.0, player.stamina + 0.2 * dt);
+        if (player.isExhausted && player.stamina >= 0.3) {
+          player.isExhausted = false;
+        }
+      }
+    }
   }
 
   processInput(input: ControlInput, dt: number): void {
@@ -411,7 +464,23 @@ export class GameSession {
       worldZ = right.z * input.joystick.x + forward.z * (-input.joystick.y);
     }
 
-    human.isSprinting = input.sprinting ?? false;
+    // Stamina-gated sprinting
+    const wantsSprint = input.sprinting ?? false;
+    if (wantsSprint && human.stamina > 0 && !human.isExhausted) {
+      human.isSprinting = true;
+      human.stamina -= 0.3 * dt;
+      if (human.stamina <= 0) {
+        human.stamina = 0;
+        human.isExhausted = true;
+        human.isSprinting = false;
+      }
+    } else {
+      human.isSprinting = false;
+      human.stamina = Math.min(1.0, human.stamina + 0.2 * dt);
+      if (human.isExhausted && human.stamina >= 0.3) {
+        human.isExhausted = false;
+      }
+    }
     human.moveByInput(worldX, worldZ, dt);
 
     if (input.gesture) {
@@ -502,6 +571,7 @@ export class GameSession {
     this.matchEngine.state.possession = newTeam;
     this.matchEngine.resetShotClock();
     this.aiShootTimer = 0;
+    this.tabCycleIndex = 0;
   }
 
   getGameOverData(): GameOverData {
@@ -547,6 +617,40 @@ export class GameSession {
     this.playerAIs.delete(newPlayerId);
   }
 
+  private cyclePlayerControl(): void {
+    const humanTeam = this.getPlayerTeam(this.humanPlayerId);
+    const teamPlayers = humanTeam === 'home' ? this.homePlayers : this.awayPlayers;
+    const possession = this.matchEngine.state.possession;
+    const onOffense = possession === humanTeam;
+    const humanHasBall = this.getHumanPlayer()?.hasBall ?? false;
+
+    if (onOffense && !humanHasBall) {
+      // On offense without ball: switch to ball carrier
+      const carrier = teamPlayers.find(p => p.hasBall);
+      if (carrier && carrier.data.id !== this.humanPlayerId) {
+        this.switchHumanControl(carrier.data.id);
+        this.tabCycleIndex = 0;
+      }
+      return;
+    }
+
+    // Defense, loose ball, or offense with ball: cycle through teammates
+    const ballPos = this.ball.heldBy
+      ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
+      : this.ball.mesh.position;
+
+    const candidates = teamPlayers
+      .filter(p => p.data.id !== this.humanPlayerId)
+      .sort((a, b) => a.distanceTo(ballPos) - b.distanceTo(ballPos));
+
+    if (candidates.length === 0) return;
+
+    this.tabCycleIndex = this.tabCycleIndex % candidates.length;
+    const target = candidates[this.tabCycleIndex];
+    this.switchHumanControl(target.data.id);
+    this.tabCycleIndex = (this.tabCycleIndex + 1) % candidates.length;
+  }
+
   // --- Private methods ---
 
   private handleGesture(gesture: GestureResult, human: GamePlayer): void {
@@ -560,82 +664,88 @@ export class GameSession {
         }
         break;
 
+      case 'block':
+        if (!hasBall) {
+          human.triggerGuard();
+        }
+        break;
+
+      case 'jump-block':
+        if (!hasBall) {
+          human.jump();
+          human.isBlocking = true;
+        }
+        break;
+
+      case 'cycle-player':
+        this.cyclePlayerControl();
+        break;
+
       case 'swipe-up':
         if (hasBall) {
           const humanTeam = this.getPlayerTeam(this.humanPlayerId);
           const targetHoop = this.getTeamAttackHoop(humanTeam);
-          // Calculate charge multiplier
+          const dist = human.distanceTo(targetHoop);
           const chargeLevel = human.chargeTimer / 1.5;
+
+          // Calculate charge multiplier
           let chargeMultiplier = 1.0;
           if (chargeLevel < 0.5) {
-            chargeMultiplier = 0.5 + chargeLevel; // 0→0.5, 0.5→1.0
+            chargeMultiplier = 0.5 + chargeLevel;
           } else if (chargeLevel >= 0.8) {
-            chargeMultiplier = 1.5; // green zone
+            chargeMultiplier = 1.5;
           } else {
-            chargeMultiplier = 1.0 + (chargeLevel - 0.5) / 0.3 * 0.5; // 0.5→1.0, 0.8→1.5
+            chargeMultiplier = 1.0 + (chargeLevel - 0.5) / 0.3 * 0.5;
           }
+
           human.isCharging = false;
           human.chargeTimer = 0;
-          human.loseBall();
-          human.triggerShoot();
-          this.lastShooterId = human.data.id;
-          this.lastChargeMultiplier = chargeMultiplier;
-          this.ball.shootAt(targetHoop, gesture.power);
-        }
-        break;
 
-      case 'swipe-down': {
-        const humanTeam = this.getPlayerTeam(this.humanPlayerId);
-        const targetHoop = this.getTeamAttackHoop(humanTeam);
-        const dist = human.distanceTo(targetHoop);
+          // DUNK PATH: in the paint + high stamina
+          if (dist < 5 && human.stamina >= 0.8) {
+            let successRate: number;
+            if (dist < 3) successRate = 0.9;
+            else if (dist < 5) successRate = 0.7;
+            else successRate = 0.4;
+            successRate += (human.data.stats.dunkPower - 5) * 0.03;
+            successRate = Math.max(0.1, Math.min(0.95, successRate));
 
-        if (hasBall && dist < 8) {
-          // Success rate based on distance
-          let successRate: number;
-          if (dist < 3) successRate = 0.9;
-          else if (dist < 5) successRate = 0.7;
-          else successRate = 0.4;
+            const opponents = humanTeam === 'home' ? this.awayPlayers : this.homePlayers;
+            let contested = false;
+            for (const def of opponents) {
+              const defDist = def.distanceTo(targetHoop);
+              const isInPath = defDist < dist && def.distanceTo(human.position) < 3;
+              if (isInPath && def.isJumping) { contested = true; break; }
+            }
 
-          // Modify by dunkPower stat (±15%)
-          successRate += (human.data.stats.dunkPower - 5) * 0.03;
-          successRate = Math.max(0.1, Math.min(0.95, successRate));
-
-          // Check for contest — defender in path AND jumping
-          const opponents = humanTeam === 'home' ? this.awayPlayers : this.homePlayers;
-          let contested = false;
-          for (const def of opponents) {
-            const defDist = def.distanceTo(targetHoop);
-            const isInPath = defDist < dist && def.distanceTo(human.position) < 3;
-            if (isInPath && def.isJumping) {
-              contested = true;
+            if (contested && Math.random() < 0.6) {
+              human.loseBall();
+              human.triggerFall();
+              this.ball.release();
+              this.ball.velocity.set((Math.random() - 0.5) * 5, 3, (Math.random() - 0.5) * 5);
               break;
             }
-          }
 
-          if (contested && Math.random() < 0.6) {
-            // BLOCKED — ball knocked loose, dunker falls
-            human.loseBall();
-            human.triggerFall();
-            this.ball.release();
-            this.ball.velocity.set((Math.random() - 0.5) * 5, 3, (Math.random() - 0.5) * 5);
-            break;
-          }
-
-          if (Math.random() < successRate) {
-            // Dunk succeeds
-            human.loseBall();
-            human.triggerDunk();
-            this.lastShooterId = human.data.id;
-            this.ball.shootAt(targetHoop, 1.0);
+            if (Math.random() < successRate) {
+              human.loseBall();
+              human.triggerDunk();
+              this.lastShooterId = human.data.id;
+              this.ball.shootAt(targetHoop, 1.0);
+            } else {
+              human.loseBall();
+              this.lastShooterId = human.data.id;
+              this.ball.shootAt(targetHoop, 0.8);
+            }
           } else {
-            // Missed dunk — ball bounces off rim
+            // SHOT PATH: normal charge-up shot
             human.loseBall();
+            human.triggerShoot();
             this.lastShooterId = human.data.id;
-            this.ball.shootAt(targetHoop, 0.8);
+            this.lastChargeMultiplier = chargeMultiplier;
+            this.ball.shootAt(targetHoop, gesture.power);
           }
         }
         break;
-      }
 
       case 'pass':
         if (hasBall) {
@@ -760,7 +870,7 @@ export class GameSession {
       if (onOffense) {
         if (player.hasBall) {
           // BALL HANDLER: always sprint toward attacking hoop
-          player.isSprinting = true;
+          player.isSprinting = player.stamina > 0 && !player.isExhausted;
           const distToHoop = player.distanceTo(attackHoop);
           if (distToHoop > 4) {
             // Drive toward hoop
@@ -977,7 +1087,11 @@ export class GameSession {
     this.powerupSystem.tick(dt);
     const diff = this.matchEngine.getScoreDifferential();
     if (diff) {
-      this.powerupSystem.update(diff.deficit, dt);
+      const playerPositions = this.getAllPlayers().map((p) => ({
+        x: p.position.x,
+        z: p.position.z,
+      }));
+      this.powerupSystem.update(diff.deficit, dt, playerPositions);
     }
 
     // Spawn visual orb when powerup system has one

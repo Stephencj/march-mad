@@ -23,6 +23,34 @@ const POWERUP_DURATIONS: Record<PowerupType, number> = {
   'force-field': 10,
 };
 
+export function findValidSpawnPosition(
+  players: { x: number; z: number }[]
+): { x: number; z: number } {
+  let candidate = { x: 0, z: 0 };
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    candidate = {
+      x: Math.random() * 13 - 6.5,
+      z: Math.random() * 24 - 12,
+    };
+
+    const tooCloseToPlayer = players.some((p) => {
+      const dx = candidate.x - p.x;
+      const dz = candidate.z - p.z;
+      return Math.sqrt(dx * dx + dz * dz) < 2.0;
+    });
+    if (tooCloseToPlayer) continue;
+
+    if (Math.abs(candidate.z) > 11) continue;
+
+    if (Math.abs(candidate.x) < 1.8 && Math.abs(candidate.z) > 8.2) continue;
+
+    return candidate;
+  }
+
+  return candidate;
+}
+
 export class PowerupSystem {
   activeOrb: PowerupOrb | null = null;
   private meter = 0;
@@ -56,16 +84,13 @@ export class PowerupSystem {
     return this.meter;
   }
 
-  update(deficit: number, dt: number): void {
+  update(deficit: number, dt: number, playerPositions: { x: number; z: number }[] = []): void {
     if (this.meter >= 100 && !this.activeOrb && deficit > 0) {
       const type = this.selectPowerup(deficit);
       if (type) {
         this.activeOrb = {
           type,
-          position: {
-            x: Math.random() * 13 - 6.5,    // court width: [-6.5, 6.5]
-            z: Math.random() * 24 - 12,      // court length: [-12, 12]
-          },
+          position: findValidSpawnPosition(playerPositions),
         };
         this.meter = 0;
       }

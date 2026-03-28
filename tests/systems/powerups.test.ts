@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { PowerupSystem } from '@/systems/powerups';
+import { PowerupSystem, findValidSpawnPosition } from '@/systems/powerups';
 import { PowerupType, POWERUP_TIERS } from '@/core/types';
 import { EventBus } from '@/core/events';
 
@@ -102,6 +102,48 @@ describe('PowerupSystem', () => {
           system.chargeMeter(100);
         }
       }
+    });
+  });
+
+  describe('findValidSpawnPosition', () => {
+    it('should not spawn within 2.0 units of any player', () => {
+      const players = [{ x: 0, z: 0 }];
+      for (let i = 0; i < 50; i++) {
+        const pos = findValidSpawnPosition(players);
+        const dist = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+        expect(dist).toBeGreaterThanOrEqual(2.0);
+      }
+    });
+
+    it('should not spawn within 3.0 units of hoops (|z| > 11)', () => {
+      for (let i = 0; i < 50; i++) {
+        const pos = findValidSpawnPosition([]);
+        if (Math.abs(pos.z) > 11) {
+          expect(Math.abs(pos.z)).toBeLessThanOrEqual(11);
+        }
+      }
+    });
+
+    it('should not spawn inside paint area', () => {
+      for (let i = 0; i < 50; i++) {
+        const pos = findValidSpawnPosition([]);
+        const inPaint = Math.abs(pos.x) < 1.8 && Math.abs(pos.z) > 8.2;
+        expect(inPaint).toBe(false);
+      }
+    });
+
+    it('should always return a position within court bounds', () => {
+      const players = [];
+      for (let px = -6; px <= 6; px += 2) {
+        for (let pz = -10; pz <= 10; pz += 2) {
+          players.push({ x: px, z: pz });
+        }
+      }
+      const pos = findValidSpawnPosition(players);
+      expect(pos.x).toBeGreaterThanOrEqual(-6.5);
+      expect(pos.x).toBeLessThanOrEqual(6.5);
+      expect(pos.z).toBeGreaterThanOrEqual(-12);
+      expect(pos.z).toBeLessThanOrEqual(12);
     });
   });
 
