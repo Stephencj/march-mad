@@ -16,7 +16,7 @@ import { PowerupVisuals } from './powerup-visuals';
 import { calculateShotSuccess } from './shot-accuracy';
 import { findBestPassTarget, isInPassLane } from './pass-targeting';
 import type { HapticManager } from '@/systems/haptics';
-import { clampShotTarget } from './shot-range';
+import { clampShotTarget, isInDunkZone } from './shot-range';
 
 interface CameraInfo {
   mode: CameraMode;
@@ -719,12 +719,12 @@ export class GameSession {
           human.isCharging = false;
           human.chargeTimer = 0;
 
-          // DUNK PATH: in the paint + high stamina
-          if (dist < 5 && human.stamina >= 0.8) {
+          // DUNK PATH: in the paint close to hoop + stamina threshold
+          if (isInDunkZone(human.position, targetHoop) && human.stamina >= 0.3) {
+            const distToHoop = human.distanceTo(targetHoop);
             let successRate: number;
-            if (dist < 3) successRate = 0.9;
-            else if (dist < 5) successRate = 0.7;
-            else successRate = 0.4;
+            if (distToHoop < 1.5) successRate = 0.9;
+            else successRate = 0.7;
             successRate += (human.data.stats.dunkPower - 5) * 0.03;
             successRate = Math.max(0.1, Math.min(0.95, successRate));
 
@@ -732,7 +732,7 @@ export class GameSession {
             let contested = false;
             for (const def of opponents) {
               const defDist = def.distanceTo(targetHoop);
-              const isInPath = defDist < dist && def.distanceTo(human.position) < 3;
+              const isInPath = defDist < distToHoop && def.distanceTo(human.position) < 3;
               if (isInPath && def.isJumping) { contested = true; break; }
             }
 
