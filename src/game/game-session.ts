@@ -345,6 +345,11 @@ export class GameSession {
       this.checkBallPickup();
     }
 
+    // Also check pickup during in-flight passes (receiver catches in stride)
+    if (!this.ball.heldBy && this.ball.isInFlight && this.pendingPassTarget) {
+      this.checkBallPickup();
+    }
+
     // Ball out of bounds detection (loose ball)
     if (!this.ball.heldBy && !this.ball.isInFlight) {
       const ballPos = this.ball.mesh.position;
@@ -370,25 +375,6 @@ export class GameSession {
         }
         this.setBallHolder(nearest.data.id);
         this.changePossession(otherTeam, 'ball out of bounds');
-      }
-    }
-
-    // Jump catch: airborne player (not blocking) can catch ball passing nearby
-    if (this.ball.isInFlight && !this.pendingPassTarget) {
-      for (const p of this.getAllPlayers()) {
-        if (p.isJumping && !p.isBlocking && p.distanceTo(this.ball.mesh.position) < 1.0) {
-          if (Math.random() < 0.15) {
-            this.ball.isInFlight = false;
-            this.ball.velocity.set(0, 0, 0);
-            this.setBallHolder(p.data.id);
-            const catchTeam = this.getPlayerTeam(p.data.id);
-            if (this.matchEngine.state.possession !== catchTeam) {
-              this.changePossession(catchTeam, `jump catch by ${p.data.id}`);
-            }
-            this.events.emit('splash', { text: 'INTERCEPTED!', color: '#f39c12' });
-            break;
-          }
-        }
       }
     }
 

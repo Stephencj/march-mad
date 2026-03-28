@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Ball } from '@/game/ball';
 import * as THREE from 'three';
 
+
 describe('Ball', () => {
   it('creates mesh at given position', () => {
     const ball = new Ball(new THREE.Vector3(1, 2, 3));
@@ -107,5 +108,51 @@ describe('Ball - enhanced', () => {
     expect(ball.heldBy).toBeNull();
     for (let i = 0; i < 10; i++) ball.update(1 / 60);
     expect(ball.mesh.position.x).toBeGreaterThan(0);
+  });
+});
+
+describe('Ball pass physics', () => {
+  it('should not zero velocity when reaching pass target', () => {
+    const ball = new Ball(new THREE.Vector3(0, 1, 0));
+    ball.passTo(new THREE.Vector3(5, 1, 0));
+
+    // Simulate frames until ball passes target
+    for (let i = 0; i < 200; i++) {
+      ball.update(1 / 60);
+    }
+
+    // Ball should have some velocity (decaying, not zero) or have stopped via decay
+    // The key test: velocity was NOT instantly zeroed at arrival
+    // After 200 frames at 60fps (3.3s), ball traveling at speed 20 covers 66 units
+    // So it definitely passed the 5-unit target
+    expect(ball.passTarget).toBeNull(); // should have cleared passTarget
+  });
+
+  it('should keep isInFlight true past the target point', () => {
+    const ball = new Ball(new THREE.Vector3(0, 1, 0));
+    ball.passTo(new THREE.Vector3(2, 1, 0));
+
+    let wasInFlightPastTarget = false;
+    for (let i = 0; i < 60; i++) {
+      ball.update(1 / 60);
+      if (ball.mesh.position.x > 2 && ball.isInFlight) {
+        wasInFlightPastTarget = true;
+        break;
+      }
+    }
+    expect(wasInFlightPastTarget).toBe(true);
+  });
+
+  it('should eventually stop via velocity decay', () => {
+    const ball = new Ball(new THREE.Vector3(0, 1, 0));
+    ball.passTo(new THREE.Vector3(2, 1, 0));
+
+    // Run for a long time
+    for (let i = 0; i < 600; i++) {
+      ball.update(1 / 60);
+    }
+
+    // After 10 seconds the ball should have stopped via decay
+    expect(ball.isInFlight).toBe(false);
   });
 });

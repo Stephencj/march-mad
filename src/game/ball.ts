@@ -9,7 +9,7 @@ export class Ball {
   private arc: THREE.Vector3[] = [];
   private arcIndex = 0;
   private arcSpeed = 60;
-  private passTarget: THREE.Vector3 | null = null;
+  passTarget: THREE.Vector3 | null = null;
   private passSpeed = 20;
 
   private trail: THREE.Mesh[] = [];
@@ -196,9 +196,9 @@ export class Ball {
       const toTarget = new THREE.Vector3().subVectors(this.passTarget, this.mesh.position);
       const dist = toTarget.length();
       if (dist < 1.0) {
-        this.isInFlight = false;
+        // Past target — enter decay mode (keep flying, slow down)
         this.passTarget = null;
-        this.velocity.set(0, 0, 0);
+        // Don't zero velocity or clear isInFlight — ball continues
         this.updateTrail(dt);
         return;
       }
@@ -206,6 +206,17 @@ export class Ball {
       const direction = toTarget.normalize();
       this.velocity.copy(direction.multiplyScalar(this.passSpeed));
       this.mesh.position.addScaledVector(this.velocity, dt);
+      this.updateTrail(dt);
+      return;
+    }
+
+    // State 3b: pass overshot target — decay velocity until pickup or out of bounds
+    if (this.isInFlight && this.arc.length === 0 && !this.passTarget) {
+      this.velocity.multiplyScalar(0.95); // decay each frame
+      this.mesh.position.addScaledVector(this.velocity, dt);
+      if (this.velocity.length() < 0.5) {
+        this.isInFlight = false;
+      }
       this.updateTrail(dt);
       return;
     }
