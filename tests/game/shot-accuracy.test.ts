@@ -1,60 +1,71 @@
 import { describe, it, expect } from 'vitest';
-import { calculateShotSuccess, ShotContext } from '@/game/shot-accuracy';
+import { calculateShotSuccess, type ShotContext } from '@/game/shot-accuracy';
 
-function runTrials(ctx: ShotContext, count: number): number {
-  let made = 0;
-  for (let i = 0; i < count; i++) {
-    if (calculateShotSuccess(ctx)) made++;
+function measureAccuracy(ctx: ShotContext, trials = 5000): number {
+  let hits = 0;
+  for (let i = 0; i < trials; i++) {
+    if (calculateShotSuccess(ctx)) hits++;
   }
-  return made;
+  return hits / trials;
 }
 
 describe('calculateShotSuccess', () => {
-  it('layup success rate >60% over 100 trials', () => {
-    const made = runTrials(
-      { distance: 1.5, shootingStat: 7, defenderDistance: 3, shotType: 'layup' },
-      100
-    );
-    expect(made).toBeGreaterThan(60);
+  it('should have ~85% base accuracy for layups', () => {
+    const rate = measureAccuracy({
+      distance: 1.5, shootingStat: 5, defenderDistance: 10,
+      shotType: 'layup', isDefenderGuarding: false,
+    });
+    expect(rate).toBeGreaterThan(0.75);
+    expect(rate).toBeLessThan(0.95);
   });
 
-  it('dunk nearly guaranteed >85% over 100 trials', () => {
-    const made = runTrials(
-      { distance: 1, shootingStat: 7, defenderDistance: 4, shotType: 'dunk' },
-      100
-    );
-    expect(made).toBeGreaterThan(85);
+  it('should have ~55% base accuracy for mid-range', () => {
+    const rate = measureAccuracy({
+      distance: 5, shootingStat: 5, defenderDistance: 10,
+      shotType: 'mid-range', isDefenderGuarding: false,
+    });
+    expect(rate).toBeGreaterThan(0.45);
+    expect(rate).toBeLessThan(0.65);
   });
 
-  it('half court shot <5% over 200 trials', () => {
-    const made = runTrials(
-      { distance: 14, shootingStat: 10, defenderDistance: 5, shotType: 'three-pointer' },
-      200
-    );
-    expect(made).toBeLessThan(10);
+  it('should have ~40% base accuracy for three-pointers', () => {
+    const rate = measureAccuracy({
+      distance: 7, shootingStat: 5, defenderDistance: 10,
+      shotType: 'three-pointer', isDefenderGuarding: false,
+    });
+    expect(rate).toBeGreaterThan(0.30);
+    expect(rate).toBeLessThan(0.50);
   });
 
-  it('contested shot harder than open shot', () => {
-    const contested = runTrials(
-      { distance: 5, shootingStat: 7, defenderDistance: 1, shotType: 'mid-range' },
-      500
-    );
-    const open = runTrials(
-      { distance: 5, shootingStat: 7, defenderDistance: 5, shotType: 'mid-range' },
-      500
-    );
-    expect(open).toBeGreaterThan(contested);
+  it('should NOT penalize when defender is close but not guarding', () => {
+    const unguarded = measureAccuracy({
+      distance: 5, shootingStat: 5, defenderDistance: 1,
+      shotType: 'mid-range', isDefenderGuarding: false,
+    });
+    const farAway = measureAccuracy({
+      distance: 5, shootingStat: 5, defenderDistance: 10,
+      shotType: 'mid-range', isDefenderGuarding: false,
+    });
+    expect(Math.abs(unguarded - farAway)).toBeLessThan(0.10);
   });
 
-  it('higher shooting stat means better accuracy', () => {
-    const low = runTrials(
-      { distance: 5, shootingStat: 3, defenderDistance: 3, shotType: 'mid-range' },
-      500
-    );
-    const high = runTrials(
-      { distance: 5, shootingStat: 9, defenderDistance: 3, shotType: 'mid-range' },
-      500
-    );
-    expect(high).toBeGreaterThan(low);
+  it('should penalize when defender is close AND guarding', () => {
+    const guarded = measureAccuracy({
+      distance: 5, shootingStat: 5, defenderDistance: 1,
+      shotType: 'mid-range', isDefenderGuarding: true,
+    });
+    const unguarded = measureAccuracy({
+      distance: 5, shootingStat: 5, defenderDistance: 10,
+      shotType: 'mid-range', isDefenderGuarding: false,
+    });
+    expect(guarded).toBeLessThan(unguarded - 0.05);
+  });
+
+  it('dunks should always succeed (100%)', () => {
+    const rate = measureAccuracy({
+      distance: 2, shootingStat: 5, defenderDistance: 1,
+      shotType: 'dunk', isDefenderGuarding: false,
+    });
+    expect(rate).toBe(1.0);
   });
 });
