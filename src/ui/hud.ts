@@ -28,6 +28,7 @@ export class HUD {
   private chargeBarFill: HTMLElement;
   private staminaBarContainer: HTMLElement;
   private staminaBarFill: HTMLElement;
+  private controllerIcon: HTMLElement;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -112,6 +113,19 @@ export class HUD {
     });
     this.staminaBarContainer.appendChild(this.staminaBarFill);
     container.appendChild(this.staminaBarContainer);
+
+    this.controllerIcon = document.createElement('div');
+    Object.assign(this.controllerIcon.style, {
+      position: 'absolute',
+      bottom: '10px',
+      right: '10px',
+      fontSize: '12px',
+      fontFamily: 'monospace',
+      color: '#888888',
+      display: 'none',
+      zIndex: '10',
+    });
+    container.appendChild(this.controllerIcon);
   }
 
   updateScore(home: number, away: number): void {
@@ -265,6 +279,28 @@ export class HUD {
     }, 1000);
     // Remove after 2 seconds total
     setTimeout(() => splash.remove(), 2000);
+  }
+
+  updateControllerIcon(type: 'xbox' | 'playstation' | 'nintendo' | null): void {
+    if (!type) {
+      this.controllerIcon.style.display = 'none';
+      return;
+    }
+    this.controllerIcon.style.display = 'block';
+    const labels: Record<string, string> = {
+      xbox: '🎮 Xbox',
+      playstation: '🎮 PlayStation',
+      nintendo: '🎮 Nintendo',
+    };
+    this.controllerIcon.textContent = labels[type] ?? '';
+  }
+
+  hide(): void {
+    this.container.style.display = 'none';
+  }
+
+  show(): void {
+    this.container.style.display = '';
   }
 
   destroy(): void {

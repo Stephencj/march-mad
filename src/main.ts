@@ -332,6 +332,7 @@ function update(dt: number): void {
 
   if (session && stateMachine.current === 'YourGame' && !isPaused) {
     const input = inputManager.getInput();
+    hud.updateControllerIcon(inputManager.getControllerType());
 
     session.processInput(input, dt);
     session.update(dt);

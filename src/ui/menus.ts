@@ -1,16 +1,17 @@
 type MenuScreen = 'main' | 'tournament-select' | 'full-game-select' | 'settings';
 
-export const CONTROLS_DATA: [string, string][] = [
-  ['Movement', 'WASD / Left Stick'],
-  ['Shoot / Dunk', 'SPACE (hold to charge; dunk near hoop)'],
-  ['Pass', 'E / Horizontal Swipe'],
-  ['Steal', 'Q / Tap'],
-  ['Guard', 'G'],
-  ['Jump', 'F'],
-  ['Jump Block', 'SHIFT + F'],
-  ['Sprint', 'SHIFT (hold, uses stamina)'],
-  ['Switch Player', 'TAB'],
-  ['Pause', 'ESC'],
+export const CONTROLS_DATA: [string, string, string, string, string][] = [
+  // [Action, Keyboard, Xbox, PlayStation, Nintendo]
+  ['Movement',      'WASD',          'Left Stick',  'Left Stick',  'Left Stick'],
+  ['Shoot / Dunk',  'SPACE (hold)',  'A (hold)',    '× (hold)',    'B (hold)'],
+  ['Pass',          'E',             'X',           '□',           'Y'],
+  ['Steal',         'Q',             'B',           '○',           'A'],
+  ['Guard',         'G',             'LT',          'L2',          'ZL'],
+  ['Jump',          'F',             'Y',           '△',           'X'],
+  ['Jump Block',    'SHIFT + F',     'LB',          'L1',          'L'],
+  ['Sprint',        'SHIFT (hold)',  'RT (hold)',   'R2 (hold)',   'ZR (hold)'],
+  ['Switch Player', 'TAB',           'RB',          'R1',          'R'],
+  ['Pause',         'ESC',           'Menu',        'Options',     '+'],
 ];
 
 export class MenuUI {
@@ -210,7 +211,9 @@ export class MenuUI {
     });
     wrapper.appendChild(heading);
 
-    for (const [action, key] of CONTROLS_DATA) {
+    for (const entry of CONTROLS_DATA) {
+      const action = entry[0];
+      const key = entry[1];
       const row = document.createElement('div');
       Object.assign(row.style, {
         display: 'flex', justifyContent: 'space-between',

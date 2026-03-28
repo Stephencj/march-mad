@@ -1,4 +1,5 @@
 import { CONTROLS_DATA } from './menus';
+import type { ControllerType } from '@/game/gamepad-controls';
 
 export class PauseMenu {
   private container: HTMLElement;
@@ -89,7 +90,7 @@ export class PauseMenu {
     this.overlay.appendChild(this.createButton('Main Menu', false, () => this.renderConfirmQuit()));
   }
 
-  renderControlsView(): void {
+  renderControlsView(controllerType: ControllerType = null): void {
     this.clearOverlay();
     if (!this.overlay) return;
 
@@ -104,13 +105,22 @@ export class PauseMenu {
     });
     this.overlay.appendChild(title);
 
-    for (const [action, key] of CONTROLS_DATA) {
+    const colIndex = controllerType === 'xbox' ? 2
+      : controllerType === 'playstation' ? 3
+      : controllerType === 'nintendo' ? 4
+      : -1;
+
+    const maxWidth = controllerType ? '480px' : '320px';
+
+    for (const entry of CONTROLS_DATA) {
+      const action = entry[0];
+      const key = entry[1];
       const row = document.createElement('div');
       Object.assign(row.style, {
         display: 'flex',
         justifyContent: 'space-between',
         width: '100%',
-        maxWidth: '320px',
+        maxWidth,
         padding: '6px 0',
         fontFamily: 'monospace',
         fontSize: '14px',
@@ -124,6 +134,12 @@ export class PauseMenu {
       keyEl.style.color = '#aaaaaa';
       row.appendChild(labelEl);
       row.appendChild(keyEl);
+      if (colIndex !== -1) {
+        const padEl = document.createElement('span');
+        padEl.textContent = entry[colIndex as 2 | 3 | 4];
+        padEl.style.color = '#88ccff';
+        row.appendChild(padEl);
+      }
       this.overlay.appendChild(row);
     }
 
