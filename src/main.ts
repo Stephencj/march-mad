@@ -25,6 +25,7 @@ import { PlayerCreatorUI } from './ui/player-creator';
 import { DraftUI } from './ui/draft-ui';
 import { PostGameUI } from './ui/post-game';
 import { PauseMenu } from '@/ui/pause-menu';
+import { MenuNavigator } from './ui/menu-navigator';
 
 const focusStyle = document.createElement('style');
 focusStyle.textContent = `.menu-focused { outline: 2px solid #e94560 !important; outline-offset: 4px; box-shadow: 0 0 10px rgba(233, 69, 96, 0.5); }`;
@@ -93,6 +94,7 @@ const saveSystem = new SaveSystem();
 // --- Controls ---
 const inputManager = new InputManager();
 const hapticManager = new HapticManager();
+const menuNavigator = new MenuNavigator();
 
 // Touch event listeners
 document.addEventListener('touchstart', (e) => {
@@ -175,7 +177,9 @@ uiOverlay.appendChild(postGameContainer);
 // Create UIs with their OWN containers
 const hud = new HUD(hudContainer);
 const menuUI = new MenuUI(menuContainer, handleMenuAction);
+menuUI.setNavigator(menuNavigator);
 const postGameUI = new PostGameUI(postGameContainer, handlePostGameAction);
+postGameUI.setNavigator(menuNavigator);
 
 let isPaused = false;
 const pauseMenu = new PauseMenu(pauseContainer, (action) => {
@@ -194,6 +198,7 @@ const pauseMenu = new PauseMenu(pauseContainer, (action) => {
     hud.hide();
   }
 });
+pauseMenu.setNavigator(menuNavigator);
 
 function handlePostGameAction(action: string) {
   if (action === 'play-again') {
@@ -324,6 +329,13 @@ menuUI.show('main');
 
 // --- Game Loop ---
 function update(dt: number): void {
+  // Menu navigation polling
+  if (menuNavigator.active) {
+    const gpIdx = inputManager.gamepadIndex;
+    const pad = gpIdx !== null ? (navigator.getGamepads?.()[gpIdx] ?? null) : null;
+    menuNavigator.update(pad);
+  }
+
   // Check gamepad pause (must run outside isPaused guard so gamepad can unpause)
   if (session && stateMachine.current === 'YourGame' && inputManager.checkPause()) {
     isPaused = !isPaused;

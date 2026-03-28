@@ -1,13 +1,19 @@
 import type { GameOverData } from '@/core/types';
+import { MenuNavigator } from './menu-navigator';
 
 export class PostGameUI {
   private container: HTMLElement;
   private onAction: (action: string) => void;
   private overlay: HTMLElement | null = null;
+  private navigator: MenuNavigator | null = null;
 
   constructor(container: HTMLElement, onAction: (action: string) => void) {
     this.container = container;
     this.onAction = onAction;
+  }
+
+  setNavigator(nav: MenuNavigator): void {
+    this.navigator = nav;
   }
 
   show(data: GameOverData): void {
@@ -169,9 +175,13 @@ export class PostGameUI {
 
     this.overlay.appendChild(buttonRow);
     this.container.appendChild(this.overlay);
+
+    const buttons = this.container.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
   }
 
   hide(): void {
+    this.navigator?.clear();
     this.container.style.pointerEvents = 'none';
     while (this.container.firstChild) {
       this.container.removeChild(this.container.firstChild);

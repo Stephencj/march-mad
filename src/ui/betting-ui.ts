@@ -1,4 +1,5 @@
 import { TeamData } from '@/core/types';
+import { MenuNavigator } from './menu-navigator';
 
 export interface BetSelection {
   teamId: string;
@@ -10,6 +11,7 @@ export class BettingUI {
   private container: HTMLElement;
   private onBet: (bet: BetSelection) => void;
   private onCashOut: () => void;
+  private navigator: MenuNavigator | null = null;
 
   constructor(
     container: HTMLElement,
@@ -19,6 +21,10 @@ export class BettingUI {
     this.container = container;
     this.onBet = onBet;
     this.onCashOut = onCashOut;
+  }
+
+  setNavigator(nav: MenuNavigator): void {
+    this.navigator = nav;
   }
 
   showMatchup(
@@ -81,6 +87,9 @@ export class BettingUI {
 
     wrapper.appendChild(btnRow);
     this.container.appendChild(wrapper);
+
+    const buttons = this.container.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
   }
 
   showCashOut(amount: number): void {
@@ -101,9 +110,13 @@ export class BettingUI {
     wrapper.appendChild(btn);
 
     this.container.appendChild(wrapper);
+
+    const buttons = this.container.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
   }
 
   hide(): void {
+    this.navigator?.clear();
     while (this.container.firstChild) {
       this.container.removeChild(this.container.firstChild);
     }

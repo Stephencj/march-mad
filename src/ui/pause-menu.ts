@@ -1,14 +1,20 @@
 import { CONTROLS_DATA } from './menus';
 import type { ControllerType } from '@/game/gamepad-controls';
+import { MenuNavigator } from './menu-navigator';
 
 export class PauseMenu {
   private container: HTMLElement;
   private onAction: (action: string) => void;
   private overlay: HTMLDivElement | null = null;
+  private navigator: MenuNavigator | null = null;
 
   constructor(container: HTMLElement, onAction: (action: string) => void) {
     this.container = container;
     this.onAction = onAction;
+  }
+
+  setNavigator(nav: MenuNavigator): void {
+    this.navigator = nav;
   }
 
   show(): void {
@@ -34,6 +40,7 @@ export class PauseMenu {
   }
 
   hide(): void {
+    this.navigator?.clear();
     if (this.overlay) {
       this.container.removeChild(this.overlay);
       this.overlay = null;
@@ -88,6 +95,10 @@ export class PauseMenu {
     this.overlay.appendChild(this.createButton('Resume', true, () => this.onAction('resume')));
     this.overlay.appendChild(this.createButton('Controls', false, () => this.renderControlsView()));
     this.overlay.appendChild(this.createButton('Main Menu', false, () => this.renderConfirmQuit()));
+
+    const buttons = this.overlay!.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
+    this.navigator?.setBackHandler(() => { this.onAction('resume'); });
   }
 
   renderControlsView(controllerType: ControllerType = null): void {
@@ -148,6 +159,10 @@ export class PauseMenu {
     this.overlay.appendChild(spacer);
 
     this.overlay.appendChild(this.createButton('Back', false, () => this.renderPauseView()));
+
+    const buttons = this.overlay!.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
+    this.navigator?.setBackHandler(() => this.renderPauseView());
   }
 
   renderConfirmQuit(): void {
@@ -166,5 +181,9 @@ export class PauseMenu {
 
     this.overlay.appendChild(this.createButton('Quit', true, () => this.onAction('quit')));
     this.overlay.appendChild(this.createButton('Cancel', false, () => this.renderPauseView()));
+
+    const buttons = this.overlay!.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
+    this.navigator?.setBackHandler(() => this.renderPauseView());
   }
 }

@@ -9,7 +9,7 @@ export class InputManager {
   readonly gamepadControls: GamepadControls;
 
   lastUsedDevice: 'keyboard' | 'gamepad' | 'touch' = 'keyboard';
-  private gamepadIndex: number | null = null;
+  gamepadIndex: number | null = null;
 
   constructor(
     touch?: TouchControls,

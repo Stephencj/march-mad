@@ -1,3 +1,5 @@
+import { MenuNavigator } from './menu-navigator';
+
 type MenuScreen = 'main' | 'tournament-select' | 'full-game-select' | 'settings';
 
 export const CONTROLS_DATA: [string, string, string, string, string][] = [
@@ -17,10 +19,15 @@ export const CONTROLS_DATA: [string, string, string, string, string][] = [
 export class MenuUI {
   private container: HTMLElement;
   private onAction: (action: string, data?: unknown) => void;
+  private navigator: MenuNavigator | null = null;
 
   constructor(container: HTMLElement, onAction: (action: string, data?: unknown) => void) {
     this.container = container;
     this.onAction = onAction;
+  }
+
+  setNavigator(nav: MenuNavigator): void {
+    this.navigator = nav;
   }
 
   show(screen: MenuScreen): void {
@@ -44,6 +51,7 @@ export class MenuUI {
   }
 
   hide(): void {
+    this.navigator?.clear();
     this.container.style.pointerEvents = 'none';
     while (this.container.firstChild) {
       this.container.removeChild(this.container.firstChild);
@@ -148,6 +156,9 @@ export class MenuUI {
     wrapper.appendChild(this.createSecondaryButton('Controls', 'settings'));
 
     this.container.appendChild(wrapper);
+
+    const buttons = wrapper.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
   }
 
   private renderTournamentMenu(): void {
@@ -171,6 +182,10 @@ export class MenuUI {
     wrapper.appendChild(this.createSecondaryButton('Back', 'back-to-main'));
 
     this.container.appendChild(wrapper);
+
+    const buttons = wrapper.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
+    this.navigator?.setBackHandler(() => this.show('main'));
   }
 
   private renderFullGameMenu(): void {
@@ -194,6 +209,10 @@ export class MenuUI {
     wrapper.appendChild(this.createSecondaryButton('Back', 'back-to-main'));
 
     this.container.appendChild(wrapper);
+
+    const buttons = wrapper.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
+    this.navigator?.setBackHandler(() => this.show('main'));
   }
 
   private renderSettings(): void {
@@ -248,6 +267,10 @@ export class MenuUI {
     wrapper.appendChild(this.createSecondaryButton('Back', 'back'));
 
     this.container.appendChild(wrapper);
+
+    const buttons = wrapper.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
+    this.navigator?.setBackHandler(() => this.show('main'));
   }
 
   private createVolumeSlider(labelText: string, id: string): HTMLElement {

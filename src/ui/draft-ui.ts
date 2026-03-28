@@ -1,9 +1,11 @@
 import { PlayerData } from '@/core/types';
+import { MenuNavigator } from './menu-navigator';
 
 export class DraftUI {
   private container: HTMLElement;
   private onPick: (player: PlayerData) => void;
   private onReroll: () => void;
+  private navigator: MenuNavigator | null = null;
 
   constructor(
     container: HTMLElement,
@@ -13,6 +15,10 @@ export class DraftUI {
     this.container = container;
     this.onPick = onPick;
     this.onReroll = onReroll;
+  }
+
+  setNavigator(nav: MenuNavigator): void {
+    this.navigator = nav;
   }
 
   render(pool: PlayerData[], picks: PlayerData[], rerollsLeft: number): void {
@@ -97,9 +103,13 @@ export class DraftUI {
 
     wrapper.appendChild(grid);
     this.container.appendChild(wrapper);
+
+    const cards = this.container.querySelectorAll('button');
+    this.navigator?.register(Array.from(cards), 3);
   }
 
   hide(): void {
+    this.navigator?.clear();
     while (this.container.firstChild) {
       this.container.removeChild(this.container.firstChild);
     }

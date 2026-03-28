@@ -1,12 +1,18 @@
 import { BracketMatch } from '@/meta/tournament';
+import { MenuNavigator } from './menu-navigator';
 
 export class BracketViewUI {
   private container: HTMLElement;
   private onMatchClick: (match: BracketMatch) => void;
+  private navigator: MenuNavigator | null = null;
 
   constructor(container: HTMLElement, onMatchClick: (match: BracketMatch) => void) {
     this.container = container;
     this.onMatchClick = onMatchClick;
+  }
+
+  setNavigator(nav: MenuNavigator): void {
+    this.navigator = nav;
   }
 
   render(matches: BracketMatch[], currentRound: number): void {
@@ -75,9 +81,13 @@ export class BracketViewUI {
     }
 
     this.container.appendChild(wrapper);
+
+    const buttons = this.container.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
   }
 
   hide(): void {
+    this.navigator?.clear();
     while (this.container.firstChild) {
       this.container.removeChild(this.container.firstChild);
     }
