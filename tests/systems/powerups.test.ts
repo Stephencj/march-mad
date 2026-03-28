@@ -83,6 +83,28 @@ describe('PowerupSystem', () => {
     expect(system.getActiveForTeam('home')).not.toBe('on-fire');
   });
 
+  describe('spawn bounds', () => {
+    it('should spawn orbs within court bounds', () => {
+      const system = new PowerupSystem(new EventBus());
+      // Force meter full
+      system.chargeMeter(100);
+
+      for (let i = 0; i < 100; i++) {
+        system.update(5, 0);
+        if (system.activeOrb) {
+          const { x, z } = system.activeOrb.position;
+          expect(x).toBeGreaterThanOrEqual(-6.5);
+          expect(x).toBeLessThanOrEqual(6.5);
+          expect(z).toBeGreaterThanOrEqual(-12);
+          expect(z).toBeLessThanOrEqual(12);
+          // Reset for next iteration
+          system.activeOrb = null;
+          system.chargeMeter(100);
+        }
+      }
+    });
+  });
+
   it('deactivates powerup after duration expires (speed-burst=5s, simulate 6s)', () => {
     const bus = new EventBus();
     const system = new PowerupSystem(bus);

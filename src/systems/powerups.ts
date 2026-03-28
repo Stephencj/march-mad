@@ -63,8 +63,8 @@ export class PowerupSystem {
         this.activeOrb = {
           type,
           position: {
-            x: Math.random() * 28 - 14, // random position on court
-            z: Math.random() * 15 - 7.5,
+            x: Math.random() * 13 - 6.5,    // court width: [-6.5, 6.5]
+            z: Math.random() * 24 - 12,      // court length: [-12, 12]
           },
         };
         this.meter = 0;
