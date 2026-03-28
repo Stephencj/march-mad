@@ -6,7 +6,6 @@ import { createCourt } from './game/court';
 import { createFullCourt, FULL_COURT_DIMENSIONS } from './game/full-court';
 import { GameSession } from './game/game-session';
 import { GamePlayer } from './game/player';
-import type { ControlInput } from './game/controls';
 import { CameraSystem } from './game/camera';
 import { InputManager } from './game/input-manager';
 import { CrowdSystem } from './systems/crowd';
