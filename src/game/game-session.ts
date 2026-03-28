@@ -760,7 +760,15 @@ export class GameSession {
             human.triggerShoot();
             this.lastShooterId = human.data.id;
             this.lastChargeMultiplier = chargeMultiplier;
-            this.ball.shootAt(targetHoop, gesture.power);
+
+            const { target: shotTarget, clamped } = clampShotTarget(
+              human.position, targetHoop, 12
+            );
+            this.ball.shootAt(shotTarget, gesture.power);
+
+            if (clamped) {
+              this.events.emit('splash', { text: 'AIR BALL!', color: '#95a5a6' });
+            }
           }
         }
         break;
