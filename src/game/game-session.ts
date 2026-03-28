@@ -14,6 +14,7 @@ import { ProgressionSystem } from '@/meta/progression';
 import { PowerupSystem } from '@/systems/powerups';
 import { PowerupVisuals } from './powerup-visuals';
 import { calculateShotSuccess } from './shot-accuracy';
+import { findBestPassTarget } from './pass-targeting';
 import type { HapticManager } from '@/systems/haptics';
 
 interface CameraInfo {
@@ -758,7 +759,13 @@ export class GameSession {
 
       case 'pass':
         if (hasBall) {
-          const teammate = this.findNearestTeammate(human);
+          const teammates = this.getTeammates(human);
+          const candidates = teammates.map(t => ({ id: t.data.id, x: t.position.x, z: t.position.z }));
+          const passTarget = findBestPassTarget(
+            { x: human.position.x, z: human.position.z, facingAngle: human.group.rotation.y },
+            candidates
+          );
+          const teammate = passTarget ? teammates.find(t => t.data.id === passTarget.id) ?? null : null;
           if (teammate) {
             human.loseBall();
             this.ball.passTo(teammate.position);
