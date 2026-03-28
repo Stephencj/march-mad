@@ -295,12 +295,13 @@ export class GameSession {
 
         // Compute active contest bonus from guarding/blocking defenders
         let contestBonus = 0;
+        let isDefenderGuarding = false;
         const shooterPos = shooter?.position ?? this.ball.mesh.position;
         const defTeam = this.getPlayerTeam(this.lastShooterId) === 'home' ? this.awayPlayers : this.homePlayers;
         for (const def of defTeam) {
           const d = def.distanceTo(shooterPos);
           if (def.isGuarding && d < 2) {
-            contestBonus = Math.max(contestBonus, 0.2);
+            isDefenderGuarding = true;
           }
           if (def.isJumping && def.isBlocking && d < 3) {
             contestBonus = Math.max(contestBonus, 0.3);
@@ -314,6 +315,7 @@ export class GameSession {
           shotType,
           chargeMultiplier: this.lastChargeMultiplier,
           contestBonus,
+          isDefenderGuarding,
         });
         this.lastChargeMultiplier = 1.0; // reset after use
 
@@ -738,40 +740,40 @@ export class GameSession {
           human.chargeTimer = 0;
 
           // DUNK PATH: in the paint close to hoop + stamina threshold
-          if (isInDunkZone(human.position, targetHoop) && human.stamina >= 0.3) {
-            const distToHoop = human.distanceTo(targetHoop);
-            let successRate: number;
-            if (distToHoop < 1.5) successRate = 0.9;
-            else successRate = 0.7;
-            successRate += (human.data.stats.dunkPower - 5) * 0.03;
-            successRate = Math.max(0.1, Math.min(0.95, successRate));
-
+          if (isInDunkZone(human.position, targetHoop) && human.stamina >= 0.1) {
             const opponents = humanTeam === 'home' ? this.awayPlayers : this.homePlayers;
-            let contested = false;
+
+            // Only a jump-block can contest a dunk
+            let jumpBlocked = false;
             for (const def of opponents) {
-              const defDist = def.distanceTo(targetHoop);
-              const isInPath = defDist < distToHoop && def.distanceTo(human.position) < 3;
-              if (isInPath && def.isJumping) { contested = true; break; }
+              if (def.isJumping && def.isBlocking && def.distanceTo(targetHoop) < 3) {
+                jumpBlocked = true;
+                break;
+              }
             }
 
-            if (contested && Math.random() < 0.6) {
+            if (jumpBlocked) {
               human.loseBall();
               human.triggerFall();
               this.ball.release();
               this.ball.velocity.set((Math.random() - 0.5) * 5, 3, (Math.random() - 0.5) * 5);
+              this.events.emit('splash', { text: 'BLOCKED!', color: '#e74c3c' });
               break;
             }
 
-            if (Math.random() < successRate) {
-              human.loseBall();
-              human.triggerDunk();
-              this.lastShooterId = human.data.id;
-              this.ball.shootAt(targetHoop, 1.0);
-            } else {
-              human.loseBall();
-              this.lastShooterId = human.data.id;
-              this.ball.shootAt(targetHoop, 0.8);
+            // Knock down any standing defender near the dunker
+            for (const def of opponents) {
+              if (!def.isJumping && def.distanceTo(human.position) < 2) {
+                def.triggerFall();
+              }
             }
+
+            // Dunk always succeeds when uncontested
+            human.loseBall();
+            human.triggerDunk();
+            this.lastShooterId = human.data.id;
+            this.ball.shootAt(targetHoop, 1.0);
+            this.events.emit('splash', { text: 'SLAM DUNK!', color: '#2ecc71' });
           } else {
             // SHOT PATH: normal charge-up shot
             human.loseBall();
