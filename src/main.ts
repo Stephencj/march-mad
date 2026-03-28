@@ -300,7 +300,15 @@ function startFreeplay(): void {
     team: (session!.isHomePlayer(p) ? 'home' : 'away') as 'home' | 'away',
   }));
 
-  freeplayPanel = new FreeplayPanel(hudContainer, (playerId, enabled) => {
+  // Use a dedicated container for the freeplay panel so pointer-events work
+  let fpContainer = document.getElementById('freeplay-container');
+  if (!fpContainer) {
+    fpContainer = document.createElement('div');
+    fpContainer.id = 'freeplay-container';
+    fpContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+    uiOverlay.appendChild(fpContainer);
+  }
+  freeplayPanel = new FreeplayPanel(fpContainer, (playerId, enabled) => {
     if (enabled) session!.enableAI(playerId);
     else session!.disableAI(playerId);
   });

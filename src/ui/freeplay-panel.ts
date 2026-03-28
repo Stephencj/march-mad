@@ -22,6 +22,7 @@ export class FreeplayPanel {
   setup(players: PlayerInfo[], humanPlayerId: string): void {
     this.humanId = humanPlayerId;
     this.players = players;
+    this.visible = true; // show immediately on setup
     for (const p of players) {
       if (p.id !== humanPlayerId) {
         this.playerStates.set(p.id, true);
@@ -147,9 +148,20 @@ export class FreeplayPanel {
     }
   }
 
-  show(): void { this.visible = true; if (this.panel) this.panel.style.display = 'block'; }
-  hide(): void { this.visible = false; if (this.panel) this.panel.style.display = 'none'; }
-  toggle(): void { if (this.visible) this.hide(); else this.show(); }
+  show(): void {
+    this.visible = true;
+    if (this.panel) this.panel.style.display = 'block';
+  }
+
+  hide(): void {
+    this.visible = false;
+    if (this.panel) this.panel.style.display = 'none';
+  }
+
+  toggle(): void {
+    if (this.visible) this.hide();
+    else this.show();
+  }
 
   destroy(): void {
     if (this.panel) { this.container.removeChild(this.panel); this.panel = null; }
