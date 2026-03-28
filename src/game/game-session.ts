@@ -319,9 +319,12 @@ export class GameSession {
         const shooterId = this.lastShooterId;
         const team = this.getPlayerTeam(shooterId);
         const shooter = shooterId ? this.getPlayerById(shooterId) : undefined;
-        const shotType = this.shotDetector.classifyShot(
-          shooter?.position ?? this.ball.mesh.position
-        );
+        // If this was a dunk, force the shot type — don't re-classify
+        const shotType = this.pendingDunkShooterId
+          ? 'dunk' as import('@/core/types').ShotType
+          : this.shotDetector.classifyShot(
+              shooter?.position ?? this.ball.mesh.position
+            );
 
         const distance = shooter ? shooter.distanceTo(targetHoop) : 10;
         const defDist = shooter ? this.getNearestOpponentDist(shooter) : 5;
@@ -583,10 +586,8 @@ export class GameSession {
     this.matchEngine.score(team, shotType);
     this.ball.isInFlight = false;
 
-    // In freeplay, skip inbound — just give ball back to human
+    // In freeplay, skip inbound — let ball fall on court
     if (this.matchEngine.freeplay) {
-      this.ball.velocity.set(0, 0, 0);
-      this.setBallHolder(this.humanPlayerId);
       return;
     }
 
