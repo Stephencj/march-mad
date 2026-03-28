@@ -4,6 +4,7 @@ export interface ShotContext {
   defenderDistance: number;  // nearest defender distance (units)
   shotType: string;         // 'layup', 'mid-range', 'three-pointer', 'dunk', etc.
   chargeMultiplier?: number;
+  contestBonus?: number;
 }
 
 export function calculateShotSuccess(ctx: ShotContext): boolean {
@@ -45,6 +46,10 @@ export function calculateShotSuccess(ctx: ShotContext): boolean {
   // Charge multiplier (default 1.0 for AI, variable for human)
   const charge = ctx.chargeMultiplier ?? 1.0;
   baseAccuracy *= charge;
+
+  // Active contest bonus (guard/jump-block)
+  const bonus = ctx.contestBonus ?? 0;
+  baseAccuracy *= (1 - bonus);
 
   baseAccuracy = Math.max(0.02, Math.min(0.98, baseAccuracy));
   return Math.random() < baseAccuracy;
