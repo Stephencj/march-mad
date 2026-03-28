@@ -269,29 +269,34 @@ export class GameSession {
       this.ball.update(dt);
     }
 
-    // Mid-dunk ball release: at the slam phase, release ball directly into hoop
+    // Mid-dunk ball release: at the slam phase, drop ball through the hoop
     if (this.pendingDunkShooterId) {
       const dunker = this.getPlayerById(this.pendingDunkShooterId);
-      if (dunker && !dunker.isDunking) {
-        // Dunk animation finished — release ball if still held
-        if (this.ball.heldBy === this.pendingDunkShooterId) {
-          const team = this.getPlayerTeam(this.pendingDunkShooterId);
-          const hoop = this.getTeamAttackHoop(team);
-          dunker.loseBall();
-          this.ball.shootAt(hoop, 1.0);
-        }
-        this.pendingDunkShooterId = null;
-      } else if (dunker && dunker.isDunking) {
-        // Check if we're past the slam phase (35% = 0.42s elapsed, timer < 0.78)
-        // Release ball at slam point so it goes straight down into hoop
+      if (dunker && dunker.isDunking) {
+        // At slam phase (35% through = timer < 0.78): release ball INTO the hoop
         if (dunker.dunkTimer < 0.78 && this.ball.heldBy === this.pendingDunkShooterId) {
           const team = this.getPlayerTeam(this.pendingDunkShooterId);
           const hoop = this.getTeamAttackHoop(team);
           dunker.loseBall();
-          // Ball drops straight into hoop from above
-          this.ball.mesh.position.set(hoop.x, hoop.y + 0.5, hoop.z);
-          this.ball.shootAt(hoop, 0.3);
+          // Place ball just below rim and let it drop through
+          this.ball.mesh.position.set(hoop.x, hoop.y - 0.1, hoop.z);
+          this.ball.velocity.set(0, -2, 0); // gentle drop downward
+          this.ball.isInFlight = true;
+          this.ball.passTarget = null;
         }
+      }
+      if (dunker && !dunker.isDunking) {
+        // Dunk animation finished — clean up
+        if (this.ball.heldBy === this.pendingDunkShooterId) {
+          // Failsafe: if ball somehow still held, force release
+          const team = this.getPlayerTeam(this.pendingDunkShooterId);
+          const hoop = this.getTeamAttackHoop(team);
+          dunker.loseBall();
+          this.ball.mesh.position.set(hoop.x, hoop.y - 0.1, hoop.z);
+          this.ball.velocity.set(0, -2, 0);
+          this.ball.isInFlight = true;
+        }
+        this.pendingDunkShooterId = null;
       }
     }
 
@@ -577,6 +582,13 @@ export class GameSession {
 
     this.matchEngine.score(team, shotType);
     this.ball.isInFlight = false;
+
+    // In freeplay, skip inbound — just give ball back to human
+    if (this.matchEngine.freeplay) {
+      this.ball.velocity.set(0, 0, 0);
+      this.setBallHolder(this.humanPlayerId);
+      return;
+    }
 
     // Enter dead ball phase — NO HOOP SWAP
     const receivingTeam: 'home' | 'away' = team === 'home' ? 'away' : 'home';
