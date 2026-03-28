@@ -8,8 +8,7 @@ import { GameSession } from './game/game-session';
 import { GamePlayer } from './game/player';
 import type { ControlInput } from './game/controls';
 import { CameraSystem } from './game/camera';
-import { TouchControls } from './game/controls';
-import { KeyboardControls } from './game/keyboard-controls';
+import { InputManager } from './game/input-manager';
 import { CrowdSystem } from './systems/crowd';
 import { SubInSystem } from './systems/sub-in';
 import { BettingSystem } from './meta/betting';
@@ -88,14 +87,13 @@ const progressionSystem = new ProgressionSystem();
 const saveSystem = new SaveSystem();
 
 // --- Controls ---
-const touchControls = new TouchControls();
-const keyboardControls = new KeyboardControls();
+const inputManager = new InputManager();
 
 // Touch event listeners
 document.addEventListener('touchstart', (e) => {
   const touch = e.changedTouches[0];
   const isLeft = touch.clientX < window.innerWidth / 2;
-  touchControls.handleTouchStart({
+  inputManager.touchControls.handleTouchStart({
     x: touch.clientX, y: touch.clientY, id: touch.identifier,
     isLeftHalf: isLeft, timestamp: e.timeStamp,
   });
@@ -104,7 +102,7 @@ document.addEventListener('touchstart', (e) => {
 document.addEventListener('touchmove', (e) => {
   const touch = e.changedTouches[0];
   const isLeft = touch.clientX < window.innerWidth / 2;
-  touchControls.handleTouchMove({
+  inputManager.touchControls.handleTouchMove({
     x: touch.clientX, y: touch.clientY, id: touch.identifier,
     isLeftHalf: isLeft, timestamp: e.timeStamp,
   });
@@ -113,7 +111,7 @@ document.addEventListener('touchmove', (e) => {
 document.addEventListener('touchend', (e) => {
   const touch = e.changedTouches[0];
   const isLeft = touch.clientX < window.innerWidth / 2;
-  touchControls.handleTouchEnd({
+  inputManager.touchControls.handleTouchEnd({
     x: touch.clientX, y: touch.clientY, id: touch.identifier,
     isLeftHalf: isLeft, timestamp: e.timeStamp,
     startX: touch.clientX, startY: touch.clientY, startTimestamp: e.timeStamp,
@@ -132,10 +130,12 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (!isPaused) {
-    keyboardControls.handleKeyDown(e.code);
+    inputManager.keyboardControls.handleKeyDown(e.code);
   }
 });
-document.addEventListener('keyup', (e) => keyboardControls.handleKeyUp(e.code));
+document.addEventListener('keyup', (e) => inputManager.keyboardControls.handleKeyUp(e.code));
+window.addEventListener('gamepadconnected', (e) => inputManager.handleGamepadConnected(e));
+window.addEventListener('gamepaddisconnected', (e) => inputManager.handleGamepadDisconnected(e));
 
 // --- UI ---
 const uiOverlay = document.getElementById('ui-overlay')!;
@@ -307,17 +307,17 @@ menuUI.show('main');
 // --- Game Loop ---
 function update(dt: number): void {
   if (session && stateMachine.current === 'YourGame' && !isPaused) {
-    // Get combined input
-    const touchInput = touchControls.getInput();
-    const kbInput = keyboardControls.getInput();
-    const input: ControlInput = {
-      joystick: {
-        x: touchInput.joystick.x || kbInput.joystick.x,
-        y: touchInput.joystick.y || kbInput.joystick.y,
-      },
-      gesture: touchInput.gesture ?? kbInput.gesture,
-      sprinting: kbInput.sprinting,
-    };
+    // Check gamepad pause
+    if (inputManager.checkPause()) {
+      isPaused = !isPaused;
+      if (isPaused) {
+        pauseMenu.show();
+      } else {
+        pauseMenu.hide();
+      }
+    }
+
+    const input = inputManager.getInput();
 
     session.processInput(input, dt);
     session.update(dt);
