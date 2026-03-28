@@ -12,6 +12,7 @@ interface OnFireState {
 
 export class MatchEngine {
   public state: MatchState;
+  public freeplay = false;
   private events: EventBus;
   private onFire: Record<Possession, OnFireState> = {
     home: { active: false, timer: 0 },
@@ -55,7 +56,7 @@ export class MatchEngine {
       this.state.awayScore += points;
     }
 
-    this.state.shotClockSeconds = 24;
+    if (!this.freeplay) this.state.shotClockSeconds = 24;
 
     this.events.emit('score', { team, points, shotType });
 
@@ -72,6 +73,7 @@ export class MatchEngine {
   tickClock(dt: number): void {
     // Only tick during active play — not during transitions, check-ball, or post-game
     if (this.state.phase !== 'playing') return;
+    if (this.freeplay) return; // no clock in freeplay
 
     this.state.clockSeconds -= dt;
 
@@ -123,11 +125,11 @@ export class MatchEngine {
   checkBallComplete(team: Possession): void {
     this.state.possession = team;
     this.state.phase = 'playing';
-    this.state.shotClockSeconds = 24;
+    if (!this.freeplay) this.state.shotClockSeconds = 24;
   }
 
   resetShotClock(): void {
-    this.state.shotClockSeconds = 24;
+    if (!this.freeplay) this.state.shotClockSeconds = 24;
   }
 
   getScoreDifferential(): { losingTeam: Possession; deficit: number } | null {

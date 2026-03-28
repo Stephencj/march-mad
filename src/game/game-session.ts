@@ -182,6 +182,7 @@ export class GameSession {
   }
 
   setFreeplayMode(): void {
+    this.matchEngine.freeplay = true;
     this.matchEngine.state.clockSeconds = 99999;
     this.matchEngine.state.shotClockSeconds = 99999;
   }
