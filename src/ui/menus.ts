@@ -154,6 +154,7 @@ export class MenuUI {
     wrapper.appendChild(this.createPrimaryButton('Tournament', 'Bracket Play', 'tournament'));
     wrapper.appendChild(this.createPrimaryButton('Full Game', 'Quarter-Based', 'full-game'));
     wrapper.appendChild(this.createSecondaryButton('Controls', 'settings'));
+    wrapper.appendChild(this.createSecondaryButton('Freeplay', 'freeplay'));
 
     this.container.appendChild(wrapper);
 

@@ -26,6 +26,7 @@ import { DraftUI } from './ui/draft-ui';
 import { PostGameUI } from './ui/post-game';
 import { PauseMenu } from '@/ui/pause-menu';
 import { MenuNavigator } from './ui/menu-navigator';
+import { FreeplayPanel } from './ui/freeplay-panel';
 
 const focusStyle = document.createElement('style');
 focusStyle.textContent = `.menu-focused { outline: 2px solid #e94560 !important; outline-offset: 4px; box-shadow: 0 0 10px rgba(233, 69, 96, 0.5); }`;
@@ -72,6 +73,8 @@ const transitions: StateTransition[] = [
   { from: 'PostGame', to: 'MainMenu' },
   { from: 'PostGame', to: 'YourGame' },
   { from: 'TournamentEnd', to: 'MainMenu' },
+  { from: 'MainMenu', to: 'Freeplay' },
+  { from: 'Freeplay', to: 'MainMenu' },
 ];
 
 export const stateMachine = new GameStateMachine(transitions);
@@ -127,6 +130,10 @@ document.addEventListener('touchend', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Tab' || e.code === 'Escape') e.preventDefault();
+  if (e.code === 'Backquote' && stateMachine.current === 'Freeplay') {
+    freeplayPanel?.toggle();
+    return;
+  }
   if (e.code === 'Escape' && stateMachine.current === 'YourGame') {
     isPaused = !isPaused;
     if (isPaused) {
@@ -193,12 +200,18 @@ const pauseMenu = new PauseMenu(pauseContainer, (action) => {
       session.removeFromScene(scene);
       session = null;
     }
+    if (freeplayPanel) {
+      freeplayPanel.destroy();
+      freeplayPanel = null;
+    }
     stateMachine.transition('MainMenu');
     menuUI.show('main');
     hud.hide();
   }
 });
 pauseMenu.setNavigator(menuNavigator);
+
+let freeplayPanel: FreeplayPanel | null = null;
 
 function handlePostGameAction(action: string) {
   if (action === 'play-again') {
@@ -260,6 +273,45 @@ function startMainGame(clockSeconds = 300): void {
   session.matchEngine.state.clockSeconds = clockSeconds;
 }
 
+function startFreeplay(): void {
+  if (session) {
+    session.removeFromScene(scene);
+  }
+  scene.remove(currentCourt);
+  const fullCourt = createFullCourt(0xe94560, 0x3498db);
+  scene.add(fullCourt);
+  currentCourt = fullCourt;
+  GamePlayer.courtBoundsZ = [-13.5, 13.5];
+  cameraSystem.fullCourt = true;
+
+  const teams = generateTeams(5);
+  session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id, '5v5');
+  session.addToScene(scene);
+  session.setCameraRef(camera);
+  session.setHapticManager(hapticManager);
+  session.setFreeplayMode();
+  session.start();
+
+  const allPlayers = session.getAllPlayers();
+  const playerInfos = allPlayers.map(p => ({
+    id: p.data.id,
+    name: p.data.name,
+    position: p.data.position ?? '',
+    team: (session!.isHomePlayer(p) ? 'home' : 'away') as 'home' | 'away',
+  }));
+
+  freeplayPanel = new FreeplayPanel(hudContainer, (playerId, enabled) => {
+    if (enabled) session!.enableAI(playerId);
+    else session!.disableAI(playerId);
+  });
+  freeplayPanel.setup(playerInfos, teams[0].players[0].id);
+  freeplayPanel.show();
+
+  stateMachine.transition('Freeplay');
+  hud.updateScore(0, 0);
+  hud.updateClock(99999);
+}
+
 function handleMenuAction(action: string, _data?: unknown) {
   if (action === 'play' || action === 'quick-play' || action === 'quick-game') {
     startMainGame(180); // 3 minutes
@@ -276,6 +328,9 @@ function handleMenuAction(action: string, _data?: unknown) {
   if (action === 'back-to-main') menuUI.show('main');
   if (action === 'back') menuUI.show('main');
   if (action === 'settings') { /* settings */ }
+  if (action === 'freeplay') {
+    startFreeplay();
+  }
   // Tournament actions can be stubs for now
   if (action.startsWith('tournament-')) {
     // TODO: wire tournament flow
@@ -302,6 +357,13 @@ stateMachine.onExit('TournamentSelect', () => {
 
 stateMachine.onEnter('YourGame', () => {
   menuUI.hide();
+});
+
+stateMachine.onExit('Freeplay', () => {
+  if (freeplayPanel) {
+    freeplayPanel.destroy();
+    freeplayPanel = null;
+  }
 });
 
 stateMachine.onEnter('PostGame', () => {
@@ -336,8 +398,10 @@ function update(dt: number): void {
     menuNavigator.update(pad);
   }
 
+  const isPlaying = stateMachine.current === 'YourGame' || stateMachine.current === 'Freeplay';
+
   // Check gamepad pause (must run outside isPaused guard so gamepad can unpause)
-  if (session && stateMachine.current === 'YourGame' && inputManager.checkPause()) {
+  if (session && isPlaying && inputManager.checkPause()) {
     isPaused = !isPaused;
     if (isPaused) {
       pauseMenu.show();
@@ -346,7 +410,7 @@ function update(dt: number): void {
     }
   }
 
-  if (session && stateMachine.current === 'YourGame' && !isPaused) {
+  if (session && isPlaying && !isPaused) {
     const input = inputManager.getInput();
     hud.updateControllerIcon(inputManager.getControllerType());
 
