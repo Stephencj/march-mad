@@ -306,17 +306,17 @@ menuUI.show('main');
 
 // --- Game Loop ---
 function update(dt: number): void {
-  if (session && stateMachine.current === 'YourGame' && !isPaused) {
-    // Check gamepad pause
-    if (inputManager.checkPause()) {
-      isPaused = !isPaused;
-      if (isPaused) {
-        pauseMenu.show();
-      } else {
-        pauseMenu.hide();
-      }
+  // Check gamepad pause (must run outside isPaused guard so gamepad can unpause)
+  if (session && stateMachine.current === 'YourGame' && inputManager.checkPause()) {
+    isPaused = !isPaused;
+    if (isPaused) {
+      pauseMenu.show();
+    } else {
+      pauseMenu.hide();
     }
+  }
 
+  if (session && stateMachine.current === 'YourGame' && !isPaused) {
     const input = inputManager.getInput();
 
     session.processInput(input, dt);
