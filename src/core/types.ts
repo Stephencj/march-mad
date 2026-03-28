@@ -139,7 +139,7 @@ export type GameMode = '3v3' | '5v5';
 export type AppState =
   | 'MainMenu' | 'PlayerCreation' | 'TournamentSelect' | 'DraftPhase'
   | 'BracketView' | 'YourGame' | 'Spectating' | 'BettingOverlay'
-  | 'SubInCinematic' | 'PostGame' | 'TournamentEnd';
+  | 'SubInCinematic' | 'PostGame' | 'TournamentEnd' | 'Freeplay';
 
 // --- Scoring ---
 export type ShotType = 'layup' | 'mid-range' | 'three-pointer' | 'dunk' | 'alley-oop' | 'powerup-dunk';

@@ -61,6 +61,7 @@ export class GameSession {
   private inbounderId: string | null = null;
   private inboundTargetId: string | null = null;
   private hapticManager: HapticManager | null = null;
+  private aiDisabledPlayers = new Set<string>();
 
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
@@ -166,6 +167,23 @@ export class GameSession {
 
   setHapticManager(haptics: HapticManager): void {
     this.hapticManager = haptics;
+  }
+
+  disableAI(playerId: string): void {
+    this.aiDisabledPlayers.add(playerId);
+  }
+
+  enableAI(playerId: string): void {
+    this.aiDisabledPlayers.delete(playerId);
+  }
+
+  isAIEnabled(playerId: string): boolean {
+    return !this.aiDisabledPlayers.has(playerId);
+  }
+
+  setFreeplayMode(): void {
+    this.matchEngine.state.clockSeconds = 99999;
+    this.matchEngine.state.shotClockSeconds = 99999;
   }
 
   addToScene(scene: THREE.Scene): void {
@@ -891,6 +909,7 @@ export class GameSession {
 
     for (const player of this.getAllPlayers()) {
       if (player.data.id === this.humanPlayerId) continue;
+      if (this.aiDisabledPlayers.has(player.data.id)) continue;
 
       const isHome = this.isHomePlayer(player);
       const myTeam: 'home' | 'away' = isHome ? 'home' : 'away';
@@ -1249,7 +1268,7 @@ export class GameSession {
     return nearest;
   }
 
-  private isHomePlayer(player: GamePlayer): boolean {
+  isHomePlayer(player: GamePlayer): boolean {
     return this.homePlayers.includes(player);
   }
 
