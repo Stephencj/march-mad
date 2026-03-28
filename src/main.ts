@@ -26,6 +26,10 @@ import { DraftUI } from './ui/draft-ui';
 import { PostGameUI } from './ui/post-game';
 import { PauseMenu } from '@/ui/pause-menu';
 
+const focusStyle = document.createElement('style');
+focusStyle.textContent = `.menu-focused { outline: 2px solid #e94560 !important; outline-offset: 4px; box-shadow: 0 0 10px rgba(233, 69, 96, 0.5); }`;
+document.head.appendChild(focusStyle);
+
 // --- Renderer Setup ---
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
