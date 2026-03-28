@@ -78,7 +78,8 @@ export class GamePlayer {
   isBlocking = false;
   guardTimer = 0;
   private fallTimer = 0;
-  private dunkTimer = 0;
+  dunkTimer = 0;
+  dunkTarget: { x: number; z: number } | null = null;
   private passTimer = 0;
   dribblePhase = 0; // 0-1, exposed for ball sync
 
@@ -1523,9 +1524,25 @@ export class GamePlayer {
           }
         }
 
+        // Move toward hoop during rise and hang phases (progress < 0.45)
+        if (this.dunkTarget && progress < 0.45) {
+          const dx = this.dunkTarget.x - this.group.position.x;
+          const dz = this.dunkTarget.z - this.group.position.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist > 0.3) {
+            const speed = 8; // fast lunge
+            const step = Math.min(speed * dt, dist);
+            this.group.position.x += (dx / dist) * step;
+            this.group.position.z += (dz / dist) * step;
+            // Face the hoop
+            this.group.rotation.y = Math.atan2(dx, dz);
+          }
+        }
+
         if (this.dunkTimer <= 0) {
           this.dunkTimer = 0;
           this.group.position.y = 0;
+          this.dunkTarget = null;
         }
         break;
       }
@@ -1683,8 +1700,13 @@ export class GamePlayer {
     this.fallTimer = 0.8;
   }
 
-  triggerDunk(): void {
+  triggerDunk(target?: { x: number; z: number }): void {
     this.dunkTimer = 1.2; // longer for hang + dramatic landing
+    this.dunkTarget = target ?? null;
+  }
+
+  get isDunking(): boolean {
+    return this.dunkTimer > 0;
   }
 
   triggerPass(): void {

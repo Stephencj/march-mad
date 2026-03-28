@@ -62,6 +62,7 @@ export class GameSession {
   private inboundTargetId: string | null = null;
   private hapticManager: HapticManager | null = null;
   private aiDisabledPlayers = new Set<string>();
+  private pendingDunkShooterId: string | null = null;
 
 
   constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
@@ -268,6 +269,32 @@ export class GameSession {
       this.ball.update(dt);
     }
 
+    // Mid-dunk ball release: at the slam phase, release ball directly into hoop
+    if (this.pendingDunkShooterId) {
+      const dunker = this.getPlayerById(this.pendingDunkShooterId);
+      if (dunker && !dunker.isDunking) {
+        // Dunk animation finished — release ball if still held
+        if (this.ball.heldBy === this.pendingDunkShooterId) {
+          const team = this.getPlayerTeam(this.pendingDunkShooterId);
+          const hoop = this.getTeamAttackHoop(team);
+          dunker.loseBall();
+          this.ball.shootAt(hoop, 1.0);
+        }
+        this.pendingDunkShooterId = null;
+      } else if (dunker && dunker.isDunking) {
+        // Check if we're past the slam phase (35% = 0.42s elapsed, timer < 0.78)
+        // Release ball at slam point so it goes straight down into hoop
+        if (dunker.dunkTimer < 0.78 && this.ball.heldBy === this.pendingDunkShooterId) {
+          const team = this.getPlayerTeam(this.pendingDunkShooterId);
+          const hoop = this.getTeamAttackHoop(team);
+          dunker.loseBall();
+          // Ball drops straight into hoop from above
+          this.ball.mesh.position.set(hoop.x, hoop.y + 0.5, hoop.z);
+          this.ball.shootAt(hoop, 0.3);
+        }
+      }
+    }
+
     // Shot detection: tick cooldown every frame
     this.shotDetector.tick(dt);
 
@@ -472,6 +499,12 @@ export class GameSession {
     if (this.matchEngine.state.phase === 'transitioning') return;
     const human = this.getHumanPlayer();
     if (!human) return;
+
+    // Lock movement during dunk — player moves toward hoop via animation
+    if (human.isDunking) {
+      if (input.gesture) input.gesture = null;
+      return;
+    }
 
     // Charge-up: lock in place while charging
     if (human.isCharging) {
@@ -769,11 +802,10 @@ export class GameSession {
               }
             }
 
-            // Dunk always succeeds when uncontested
-            human.loseBall();
-            human.triggerDunk();
+            // Dunk always succeeds — player carries ball to the rim
+            human.triggerDunk({ x: targetHoop.x, z: targetHoop.z });
             this.lastShooterId = human.data.id;
-            this.ball.shootAt(targetHoop, 1.0);
+            this.pendingDunkShooterId = human.data.id;
             this.events.emit('splash', { text: 'SLAM DUNK!', color: '#2ecc71' });
           } else {
             // SHOT PATH: normal charge-up shot
