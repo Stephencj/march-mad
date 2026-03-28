@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>March Mad - Court Zones Mockup</title>
+<style>
+  body { margin: 0; background: #1a1a2e; display: flex; justify-content: center; align-items: center; min-height: 100vh; font-family: monospace; color: #fff; }
+  .container { text-align: center; }
+  h1 { color: #e94560; margin-bottom: 5px; }
+  h2 { color: #888; font-weight: normal; font-size: 14px; margin-top: 0; }
+  .court { position: relative; width: 400px; height: 750px; border: 2px solid #fff; margin: 20px auto; background: #2c1810; }
+  .zone { position: absolute; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 10px; line-height: 1.3; border: 1px dashed rgba(255,255,255,0.3); }
+  .dunk-zone { background: rgba(0, 255, 0, 0.3); border-color: #0f0; }
+  .paint { background: rgba(255, 165, 0, 0.15); border-color: #f90; }
+  .mid-range { background: rgba(255, 255, 0, 0.1); border-color: #ff0; }
+  .three-pt { background: rgba(100, 100, 255, 0.1); border-color: #66f; }
+  .beyond { background: rgba(255, 0, 0, 0.08); border-color: #f00; }
+  .airball { background: rgba(128, 128, 128, 0.1); border-color: #888; }
+  .hoop { position: absolute; width: 16px; height: 16px; background: #ff6600; border-radius: 50%; border: 2px solid #fff; }
+  .label { position: absolute; font-size: 9px; color: #aaa; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 15px auto; max-width: 500px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+  .legend-color { width: 14px; height: 14px; border: 1px solid rgba(255,255,255,0.3); }
+  .stats-table { margin: 20px auto; border-collapse: collapse; font-size: 12px; }
+  .stats-table th, .stats-table td { padding: 6px 12px; border: 1px solid #444; text-align: center; }
+  .stats-table th { background: #e94560; color: #fff; }
+  .stats-table tr:nth-child(even) { background: rgba(255,255,255,0.05); }
+  .note { font-size: 11px; color: #888; max-width: 500px; margin: 10px auto; }
+  .comparison { display: flex; gap: 40px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+  .column { flex: 1; min-width: 300px; max-width: 500px; }
+  .old { color: #e74c3c; }
+  .new { color: #2ecc71; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>MARCH MAD - Court Zones</h1>
+  <h2>Proposed shooting/dunking accuracy by zone</h2>
+
+  <div class="comparison">
+    <div class="column">
+      <h3 class="old">CURRENT (Broken)</h3>
+      <ul style="text-align:left; font-size:12px; color:#ccc;">
+        <li>Dunk zone: tiny 1.93u sliver, never triggers</li>
+        <li>Dunk success: 70-90% random (should be 100%)</li>
+        <li>All defenders penalize accuracy just by existing nearby</li>
+        <li>Standing defenders count as "contest"</li>
+        <li>defenderDistance penalty: up to 40% at point blank</li>
+      </ul>
+    </div>
+    <div class="column">
+      <h3 class="new">PROPOSED (Fun)</h3>
+      <ul style="text-align:left; font-size:12px; color:#ccc;">
+        <li>Dunk zone: entire paint area (5.8u deep)</li>
+        <li>Dunk success: 100% uncontested, always</li>
+        <li>Only active guard (G key) penalizes accuracy</li>
+        <li>Must be close to shooter AND guarding to contest</li>
+        <li>Dunk over standing defender = knockdown</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Court diagram - showing one half (attack end) -->
+  <div style="position:relative; margin: 0 auto;">
+    <div class="court">
+      <!-- Hoop -->
+      <div class="hoop" style="left: 192px; top: 18px;"></div>
+      <div class="label" style="left: 215px; top: 15px; color: #ff6600;">HOOP</div>
+
+      <!-- Dunk Zone (NEW: full paint depth) -->
+      <div class="zone dunk-zone" style="left: 104px; top: 25px; width: 192px; height: 155px;">
+        <div><b>DUNK ZONE</b><br>100% success<br>Auto-dunk on shoot<br>Knocks over standing defenders<br><span style="color:#aaa;">|x| &lt; 3.6, within paint</span></div>
+      </div>
+
+      <!-- Paint (outside dunk zone - layup area) -->
+      <div class="zone paint" style="left: 104px; top: 180px; width: 192px; height: 80px;">
+        <div><b>LAYUP ZONE</b><br>85% accuracy<br><span style="color:#aaa;">paint area, farther from hoop</span></div>
+      </div>
+
+      <!-- Mid-range (inside 3pt line) -->
+      <div class="zone mid-range" style="left: 30px; top: 25px; width: 74px; height: 310px;">
+        <div><b>MID<br>RANGE</b><br>55%</div>
+      </div>
+      <div class="zone mid-range" style="left: 296px; top: 25px; width: 74px; height: 310px;">
+        <div><b>MID<br>RANGE</b><br>55%</div>
+      </div>
+      <div class="zone mid-range" style="left: 104px; top: 260px; width: 192px; height: 75px;">
+        <div><b>MID-RANGE</b> 55%</div>
+      </div>
+
+      <!-- Three-point arc area -->
+      <div class="zone three-pt" style="left: 0; top: 0; width: 30px; height: 450px;">
+        <div style="writing-mode: vertical-lr;">3PT 40%</div>
+      </div>
+      <div class="zone three-pt" style="left: 370px; top: 0; width: 30px; height: 450px;">
+        <div style="writing-mode: vertical-lr;">3PT 40%</div>
+      </div>
+      <div class="zone three-pt" style="left: 30px; top: 335px; width: 340px; height: 115px;">
+        <div><b>THREE-POINT ZONE</b><br>40% accuracy<br><span style="color:#aaa;">beyond 6.75u from hoop</span></div>
+      </div>
+
+      <!-- Beyond range -->
+      <div class="zone beyond" style="left: 0; top: 450px; width: 400px; height: 150px;">
+        <div><b>LONG RANGE</b><br>25-35% (drops with distance)<br><span style="color:#aaa;">8-12u from hoop</span></div>
+      </div>
+
+      <!-- Air ball zone -->
+      <div class="zone airball" style="left: 0; top: 600px; width: 400px; height: 150px;">
+        <div><b>AIR BALL ZONE</b><br>Ball falls short, never reaches hoop<br><span style="color:#aaa;">&gt;12u from hoop</span></div>
+      </div>
+
+      <!-- Court markings -->
+      <div class="label" style="left: 5px; top: 730px;">HALF COURT LINE</div>
+    </div>
+  </div>
+
+  <table class="stats-table">
+    <tr><th>Zone</th><th>Distance</th><th>Base Accuracy</th><th>Dunk?</th><th>Contest Penalty</th></tr>
+    <tr><td style="color:#2ecc71;">Dunk Zone</td><td>&lt;5.8u (paint)</td><td><b>100%</b></td><td>Always</td><td>Only jump-block</td></tr>
+    <tr><td style="color:#f90;">Layup</td><td>&lt;2u outside paint</td><td>85%</td><td>No</td><td>Guard within 2u</td></tr>
+    <tr><td style="color:#ff0;">Mid-Range</td><td>2-6.75u</td><td>55%</td><td>No</td><td>Guard within 2u</td></tr>
+    <tr><td style="color:#66f;">Three-Pointer</td><td>6.75-8u</td><td>40%</td><td>No</td><td>Guard within 2u</td></tr>
+    <tr><td style="color:#f00;">Long Range</td><td>8-12u</td><td>25-35%</td><td>No</td><td>Guard within 2u</td></tr>
+    <tr><td style="color:#888;">Air Ball</td><td>&gt;12u</td><td>N/A</td><td>No</td><td>Ball falls short</td></tr>
+  </table>
+
+  <div class="note">
+    <b>Key changes from current system:</b><br>
+    - Defender distance penalty REMOVED — only active guard (G key animation) affects accuracy<br>
+    - Guard must be within 2 units of shooter AND actively guarding to contest (-20%)<br>
+    - Jump-block within 3 units AND actively blocking to contest (-30%)<br>
+    - Dunks are ALWAYS 100% unless jump-blocked at the rim<br>
+    - Dunking over a standing defender knocks them down (fall animation)<br>
+    - Base accuracies bumped up to make the game more fun and arcade-y<br>
+    - Layup accuracy raised from 75% to 85%<br>
+    - Mid-range raised from 45% to 55%<br>
+    - Three-pointer raised from 33% to 40%
+  </div>
+</div>
+</body>
+</html>
