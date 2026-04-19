@@ -26,6 +26,7 @@ import {
   resetAnim,
   getDefaults as getAnimDefaults,
 } from './anim-config';
+import { pickSliderRange, type RangeTier } from './shared-ranges';
 
 interface SliderSpec {
   label: string;
@@ -686,74 +687,14 @@ function setAnimValue(path: string[], v: number): void {
   cur[path[path.length - 1]] = v;
 }
 
-function pickAnimRange(path: string[]): { min: number; max: number; step: number } {
+function animSlider(path: string[], label: string, defaultValue: number): SliderSpec {
   // path is one of:
   //   ['durations', field]
   //   ['amplitudes', anim, field]
   //   ['poses', anim, field]
-  const tier = path[0];
+  const tier = path[0] as RangeTier;
   const last = path[path.length - 1];
-  const anim = path.length >= 3 ? path[1] : '';
-
-  if (tier === 'durations') {
-    // Fixed state durations (seconds)
-    if (/Duration$/.test(last)) return { min: 0.05, max: 3.0, step: 0.01 };
-    // Everything else in durations is a cycle multiplier
-    return { min: 0.5, max: 30, step: 0.1 };
-  }
-
-  if (tier === 'amplitudes') {
-    // Guard-specific opacity knobs
-    if (anim === 'guard' && (last === 'blockOpacityMin' || last === 'blockOpacitySwing')) {
-      return { min: 0, max: 1, step: 0.01 };
-    }
-    // Dunk approach speed — a horizontal velocity in units/sec
-    if (anim === 'dunk' && last === 'approachSpeed') {
-      return { min: 0, max: 20, step: 0.5 };
-    }
-    // Apex-style "how high it goes"
-    if (/^apex/i.test(last) || last === 'hopHeight' || last === 'groundDrop') {
-      return { min: 0, max: 5, step: 0.05 };
-    }
-    // Bounce / stride / knee swing
-    if (last === 'bounceHeight' || last === 'strideAmp' || last === 'kneeSwing' || last === 'bob') {
-      return { min: 0, max: 2, step: 0.01 };
-    }
-    // Timing fractions (dunk phase starts) — 0..1
-    if (anim === 'dunk' && /(Start|Time)$/.test(last)) {
-      return { min: 0, max: 1, step: 0.01 };
-    }
-    // Compression (squash/stretch factors) — near 1.0
-    if (/^compression/i.test(last) || /^armScale/i.test(last) || /^armThickness/i.test(last) || /rimHangArmScale/i.test(last)) {
-      return { min: 0.5, max: 2.0, step: 0.01 };
-    }
-    // Default amplitude: scalar magnitude knob
-    return { min: 0, max: 3, step: 0.01 };
-  }
-
-  // tier === 'poses'
-  // Positional Y offsets
-  if (/PosY$/i.test(last) || last === 'stanceDropY') {
-    return { min: -2, max: 2, step: 0.01 };
-  }
-  // Squash/stretch / compression factors
-  if (/Squash/i.test(last) || /squashStretch/i.test(last) || /Compression/i.test(last)) {
-    return { min: 0.5, max: 2.0, step: 0.01 };
-  }
-  // Swing amplitudes on pose fields (used with sin/cos — still radians-ish)
-  if (/Swing$/.test(last) || /Delta$/.test(last) || /Offset$/.test(last)) {
-    return { min: -3.2, max: 3.2, step: 0.01 };
-  }
-  // Factor fields (hipTwistFactor, torsoTwistFactor, etc.)
-  if (/Factor$/.test(last) || /Amount$/.test(last) || /Amp$/.test(last) || /Ratio$/.test(last)) {
-    return { min: -2, max: 2, step: 0.01 };
-  }
-  // Default for pose fields: rotation in radians (roughly ±π)
-  return { min: -3.2, max: 3.2, step: 0.01 };
-}
-
-function animSlider(path: string[], label: string, defaultValue: number): SliderSpec {
-  const range = pickAnimRange(path);
+  const range = pickSliderRange(tier, path, last, defaultValue);
   return {
     label,
     min: range.min,

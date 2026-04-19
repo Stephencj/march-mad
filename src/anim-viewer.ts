@@ -12,6 +12,7 @@ import {
   resetAnim,
   getDefaults as getAnimDefaults,
 } from './dev/anim-config';
+import { pickSliderRange, type RangeTier } from './dev/shared-ranges';
 
 // --- Renderer ---
 const canvas = document.getElementById('viewer-canvas') as HTMLCanvasElement;
@@ -657,56 +658,6 @@ const SHARED_DURATION_KEYS = ['idleBob', 'walkStride', 'walkBounce', 'backwardSt
   'sprintStride', 'sprintBounce', 'dribbleCycle', 'dribbleSprintStride', 'dribbleSprintBounce',
   'guardPulse', 'indicatorBob', 'possessionRingPulse'];
 
-interface SliderRange { min: number; max: number; step: number; }
-
-/** Heuristic range per field based on its name and default value. */
-function rangeFor(fieldName: string, defaultValue: number, kind: 'duration' | 'amplitude' | 'pose'): SliderRange {
-  const lower = fieldName.toLowerCase();
-  if (kind === 'duration') {
-    // Cycle-frequency multipliers use large values (e.g. walkStride=5, sprintBounce=16).
-    if (SHARED_DURATION_KEYS.includes(fieldName)) {
-      return { min: 0.1, max: 30, step: 0.1 };
-    }
-    // Fixed-duration fields in seconds.
-    return { min: 0.05, max: 3.0, step: 0.01 };
-  }
-  // Scale / squash-stretch factors
-  if (lower.includes('squash') || lower.includes('stretch') || lower.includes('scale')
-      || lower.includes('compression') || lower.includes('thickness')) {
-    return { min: 0.3, max: 2.5, step: 0.01 };
-  }
-  // Opacity values stay in [0, 1]
-  if (lower.includes('opacity')) {
-    return { min: 0, max: 1, step: 0.01 };
-  }
-  // Approach distance / speed use larger ranges
-  if (lower === 'approachspeed') return { min: 1, max: 20, step: 0.5 };
-  if (lower === 'approachdist') return { min: 0, max: 3, step: 0.05 };
-  // Phase-timing normalized values in [0, 1]
-  if (lower === 'risetime' || lower === 'hangstart' || lower === 'dropstart' || lower === 'landstart') {
-    return { min: 0, max: 1, step: 0.01 };
-  }
-  // Ratio / factor fields are in [0, 2] typically
-  if (lower.includes('ratio') || lower.includes('factor')) {
-    return { min: -2, max: 2, step: 0.01 };
-  }
-  // Heights / apex / lateral / drop / spread / lower / lean
-  if (lower.includes('height') || lower.includes('apex') || lower.includes('lateral')
-      || lower.includes('drop') || lower.includes('bob') || lower.includes('bounce')
-      || lower.includes('stride') || lower.includes('amp')) {
-    // Positional-ish magnitudes — include negatives to allow inversion
-    return { min: -3, max: 3, step: 0.01 };
-  }
-  // Anything else (rotations, knee/hip/elbow/shoulder/body angles in radians)
-  // covers typical defaults in [-3.0, 3.0].
-  const absDef = Math.abs(defaultValue);
-  if (absDef > 3.1) {
-    const bound = Math.ceil(absDef * 1.25 * 100) / 100;
-    return { min: -bound, max: bound, step: 0.01 };
-  }
-  return { min: -3.2, max: 3.2, step: 0.01 };
-}
-
 interface TuningSection {
   title: string;
   /** Parent object on animConfig to bind against (live, mutated in place). */
@@ -715,8 +666,10 @@ interface TuningSection {
   defaultParent: Record<string, number>;
   /** Restricted to this subset of keys (if null, show all keys on parent). */
   keys: string[] | null;
-  /** How to classify each key for slider-range heuristics. */
-  kind: 'duration' | 'amplitude' | 'pose';
+  /** Which tier of `animConfig` this section targets, for shared range lookup. */
+  tier: RangeTier;
+  /** Sub-key under `amplitudes`/`poses` (e.g. `'jump'`); empty for durations. */
+  animKey: string;
   openByDefault?: boolean;
 }
 
@@ -731,7 +684,8 @@ function buildAnimTuningSections(animId: string): TuningSection[] {
     parent: animConfig.durations as unknown as Record<string, number>,
     defaultParent: defaults.durations as unknown as Record<string, number>,
     keys: SHARED_DURATION_KEYS.slice(),
-    kind: 'duration',
+    tier: 'durations',
+    animKey: '',
     openByDefault: false,
   });
 
@@ -744,7 +698,8 @@ function buildAnimTuningSections(animId: string): TuningSection[] {
       parent: animConfig.durations as unknown as Record<string, number>,
       defaultParent: defaults.durations as unknown as Record<string, number>,
       keys: mapping.durations.slice(),
-      kind: 'duration',
+      tier: 'durations',
+      animKey: '',
       openByDefault: true,
     });
   }
@@ -762,7 +717,8 @@ function buildAnimTuningSections(animId: string): TuningSection[] {
         parent: ampGroup,
         defaultParent: ampDefRoot[key],
         keys: null,
-        kind: 'amplitude',
+        tier: 'amplitudes',
+        animKey: key,
         openByDefault: true,
       });
     }
@@ -779,7 +735,8 @@ function buildAnimTuningSections(animId: string): TuningSection[] {
         parent: poseGroup,
         defaultParent: poseDefRoot[key],
         keys: null,
-        kind: 'pose',
+        tier: 'poses',
+        animKey: key,
         openByDefault: false,
       });
     }
@@ -792,14 +749,16 @@ function buildSlider(
   parent: Record<string, number>,
   defaultParent: Record<string, number> | undefined,
   key: string,
-  kind: 'duration' | 'amplitude' | 'pose',
+  tier: RangeTier,
+  animKey: string,
 ): HTMLElement {
   const row = document.createElement('div');
   row.className = 'at-slider-row';
 
   const currentVal = parent[key];
   const defaultVal = defaultParent ? defaultParent[key] : currentVal;
-  const range = rangeFor(key, defaultVal, kind);
+  const path = tier === 'durations' ? [tier, key] : [tier, animKey, key];
+  const range = pickSliderRange(tier, path, key, defaultVal);
 
   const head = document.createElement('div');
   head.className = 'at-slider-head';
@@ -862,7 +821,7 @@ function rebuildAnimTuning(): void {
     const keys = section.keys ?? Object.keys(section.parent);
     for (const key of keys) {
       if (typeof section.parent[key] !== 'number') continue;
-      details.appendChild(buildSlider(section.parent, section.defaultParent, key, section.kind));
+      details.appendChild(buildSlider(section.parent, section.defaultParent, key, section.tier, section.animKey));
     }
     host.appendChild(details);
   }
