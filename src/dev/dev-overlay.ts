@@ -19,6 +19,13 @@ import {
   resetPlayer,
   getDefaults as getPlayerDefaults,
 } from './player-config';
+import {
+  animConfig,
+  serializeAnim,
+  applyAnimJSON,
+  resetAnim,
+  getDefaults as getAnimDefaults,
+} from './anim-config';
 
 interface SliderSpec {
   label: string;
@@ -111,6 +118,7 @@ export class DevOverlay {
     for (const section of this.buildSections()) {
       panel.appendChild(this.buildSection(section));
     }
+    panel.appendChild(this.buildAnimationSection());
     return panel;
   }
 
@@ -147,6 +155,7 @@ export class DevOverlay {
       resetBalance();
       resetLevel();
       resetPlayer();
+      resetAnim();
       this.syncFromConfig();
     }));
     buttonRow.appendChild(this.makeButton('Export', () => {
@@ -154,6 +163,7 @@ export class DevOverlay {
         balance: JSON.parse(serializeBalance()),
         level: JSON.parse(serializeLevel()),
         player: JSON.parse(serializePlayer()),
+        animConfig: JSON.parse(serializeAnim()),
       }, null, 2);
       const blob = new Blob([combined], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -182,14 +192,17 @@ export class DevOverlay {
           // are accepted by trying balance first then level.
           let parsed: any;
           try { parsed = JSON.parse(text); } catch { throw new Error('Invalid JSON'); }
-          if (parsed && typeof parsed === 'object' && (parsed.balance || parsed.level || parsed.player)) {
+          if (parsed && typeof parsed === 'object' && (parsed.balance || parsed.level || parsed.player || parsed.animConfig)) {
             if (parsed.balance) applyBalanceJSON(JSON.stringify(parsed.balance));
             if (parsed.level) applyLevelJSON(JSON.stringify(parsed.level));
             if (parsed.player) applyPlayerJSON(JSON.stringify(parsed.player));
+            if (parsed.animConfig) applyAnimJSON(JSON.stringify(parsed.animConfig));
           } else {
-            // Legacy single-config import — try balance, then level, then player
+            // Legacy single-config import — try balance, then level, then player, then anim
             try { applyBalanceJSON(text); } catch {
-              try { applyLevelJSON(text); } catch { applyPlayerJSON(text); }
+              try { applyLevelJSON(text); } catch {
+                try { applyPlayerJSON(text); } catch { applyAnimJSON(text); }
+              }
             }
           }
           this.syncFromConfig();
@@ -509,4 +522,201 @@ export class DevOverlay {
       },
     ];
   }
+
+  // ==========================================================================
+  // ANIMATION section — durations / amplitudes / poses. Uses a nested
+  // <details> structure because there are hundreds of scalar fields.
+  // ==========================================================================
+
+  private buildAnimationSection(): HTMLElement {
+    const root = document.createElement('details');
+    root.open = false;
+    Object.assign(root.style, { marginBottom: '12px' });
+
+    const summary = document.createElement('summary');
+    summary.textContent = 'ANIMATION';
+    Object.assign(summary.style, {
+      cursor: 'pointer',
+      fontWeight: 'bold',
+      fontSize: '13px',
+      color: '#aaa',
+      padding: '4px 0',
+      letterSpacing: '1px',
+    });
+    root.appendChild(summary);
+
+    root.appendChild(this.buildAnimDurations());
+    root.appendChild(this.buildAnimAmplitudes());
+    root.appendChild(this.buildAnimPoses());
+    return root;
+  }
+
+  private buildSubSection(title: string, open = false): HTMLDetailsElement {
+    const d = document.createElement('details');
+    d.open = open;
+    Object.assign(d.style, { marginLeft: '8px', marginBottom: '6px' });
+    const s = document.createElement('summary');
+    s.textContent = title;
+    Object.assign(s.style, {
+      cursor: 'pointer',
+      fontWeight: '600',
+      fontSize: '12px',
+      color: '#c8c8c8',
+      padding: '3px 0',
+      letterSpacing: '1px',
+    });
+    d.appendChild(s);
+    return d;
+  }
+
+  private buildAnimDurations(): HTMLElement {
+    const section = this.buildSubSection('Durations', false);
+    const d = getAnimDefaults();
+    const keys = Object.keys(animConfig.durations) as Array<keyof typeof animConfig.durations>;
+    for (const k of keys) {
+      section.appendChild(this.buildSlider(
+        animSlider(['durations', k as string], humanize(k as string), d.durations[k]),
+      ));
+    }
+    return section;
+  }
+
+  private buildAnimAmplitudes(): HTMLElement {
+    const section = this.buildSubSection('Amplitudes', false);
+    const d = getAnimDefaults();
+    const animKeys = Object.keys(animConfig.amplitudes) as Array<keyof typeof animConfig.amplitudes>;
+    for (const anim of animKeys) {
+      const sub = this.buildSubSection(humanize(anim as string), false);
+      const fields = animConfig.amplitudes[anim] as Record<string, number>;
+      const defaultsForAnim = (d.amplitudes as unknown as Record<string, Record<string, number>>)[anim as string];
+      for (const f of Object.keys(fields)) {
+        sub.appendChild(this.buildSlider(
+          animSlider(['amplitudes', anim as string, f], humanize(f), defaultsForAnim[f]),
+        ));
+      }
+      section.appendChild(sub);
+    }
+    return section;
+  }
+
+  private buildAnimPoses(): HTMLElement {
+    const section = this.buildSubSection('Poses', false);
+    const d = getAnimDefaults();
+    const animKeys = Object.keys(animConfig.poses) as Array<keyof typeof animConfig.poses>;
+    for (const anim of animKeys) {
+      const sub = this.buildSubSection(humanize(anim as string), false);
+      const fields = animConfig.poses[anim] as unknown as Record<string, number>;
+      const defaultsForAnim = (d.poses as unknown as Record<string, Record<string, number>>)[anim as string];
+      for (const f of Object.keys(fields)) {
+        sub.appendChild(this.buildSlider(
+          animSlider(['poses', anim as string, f], humanize(f), defaultsForAnim[f]),
+        ));
+      }
+      section.appendChild(sub);
+    }
+    return section;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Helpers for ANIMATION section — field-name classification & dotted-path r/w.
+// ----------------------------------------------------------------------------
+
+function humanize(name: string): string {
+  // idleBob → "Idle Bob"; stealDuration → "Steal Duration"; rotX stays as "Rot X"
+  const withSpaces = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+  return withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1);
+}
+
+function getAnimValue(path: string[]): number {
+  let cur: any = animConfig;
+  for (const p of path) cur = cur[p];
+  return cur as number;
+}
+
+function setAnimValue(path: string[], v: number): void {
+  let cur: any = animConfig;
+  for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
+  cur[path[path.length - 1]] = v;
+}
+
+function pickAnimRange(path: string[]): { min: number; max: number; step: number } {
+  // path is one of:
+  //   ['durations', field]
+  //   ['amplitudes', anim, field]
+  //   ['poses', anim, field]
+  const tier = path[0];
+  const last = path[path.length - 1];
+  const anim = path.length >= 3 ? path[1] : '';
+
+  if (tier === 'durations') {
+    // Fixed state durations (seconds)
+    if (/Duration$/.test(last)) return { min: 0.05, max: 3.0, step: 0.01 };
+    // Everything else in durations is a cycle multiplier
+    return { min: 0.5, max: 30, step: 0.1 };
+  }
+
+  if (tier === 'amplitudes') {
+    // Guard-specific opacity knobs
+    if (anim === 'guard' && (last === 'blockOpacityMin' || last === 'blockOpacitySwing')) {
+      return { min: 0, max: 1, step: 0.01 };
+    }
+    // Dunk approach speed — a horizontal velocity in units/sec
+    if (anim === 'dunk' && last === 'approachSpeed') {
+      return { min: 0, max: 20, step: 0.5 };
+    }
+    // Apex-style "how high it goes"
+    if (/^apex/i.test(last) || last === 'hopHeight' || last === 'groundDrop') {
+      return { min: 0, max: 5, step: 0.05 };
+    }
+    // Bounce / stride / knee swing
+    if (last === 'bounceHeight' || last === 'strideAmp' || last === 'kneeSwing' || last === 'bob') {
+      return { min: 0, max: 2, step: 0.01 };
+    }
+    // Timing fractions (dunk phase starts) — 0..1
+    if (anim === 'dunk' && /(Start|Time)$/.test(last)) {
+      return { min: 0, max: 1, step: 0.01 };
+    }
+    // Compression (squash/stretch factors) — near 1.0
+    if (/^compression/i.test(last) || /^armScale/i.test(last) || /^armThickness/i.test(last) || /rimHangArmScale/i.test(last)) {
+      return { min: 0.5, max: 2.0, step: 0.01 };
+    }
+    // Default amplitude: scalar magnitude knob
+    return { min: 0, max: 3, step: 0.01 };
+  }
+
+  // tier === 'poses'
+  // Positional Y offsets
+  if (/PosY$/i.test(last) || last === 'stanceDropY') {
+    return { min: -2, max: 2, step: 0.01 };
+  }
+  // Squash/stretch / compression factors
+  if (/Squash/i.test(last) || /squashStretch/i.test(last) || /Compression/i.test(last)) {
+    return { min: 0.5, max: 2.0, step: 0.01 };
+  }
+  // Swing amplitudes on pose fields (used with sin/cos — still radians-ish)
+  if (/Swing$/.test(last) || /Delta$/.test(last) || /Offset$/.test(last)) {
+    return { min: -3.2, max: 3.2, step: 0.01 };
+  }
+  // Factor fields (hipTwistFactor, torsoTwistFactor, etc.)
+  if (/Factor$/.test(last) || /Amount$/.test(last) || /Amp$/.test(last) || /Ratio$/.test(last)) {
+    return { min: -2, max: 2, step: 0.01 };
+  }
+  // Default for pose fields: rotation in radians (roughly ±π)
+  return { min: -3.2, max: 3.2, step: 0.01 };
+}
+
+function animSlider(path: string[], label: string, defaultValue: number): SliderSpec {
+  const range = pickAnimRange(path);
+  return {
+    label,
+    min: range.min,
+    max: range.max,
+    step: range.step,
+    get: () => getAnimValue(path),
+    set: (v: number) => { setAnimValue(path, v); },
+    defaultValue,
+  };
 }
