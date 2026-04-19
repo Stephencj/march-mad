@@ -726,22 +726,23 @@ export class GamePlayer {
 
       case 'guard': {
         // Low defensive stance with arms UP HIGH to block
+        const pg = animConfig.poses.guard;
         bodyPivot.scale.set(1, 1, 1);
-        bodyPivot.rotation.x = 0.15; // slight forward lean
-        hipL.rotation.x = 0.15; // wide stance
-        hipR.rotation.x = -0.15;
-        kneeL.rotation.x = 0.4; // deep crouch
-        kneeR.rotation.x = 0.4;
+        bodyPivot.rotation.x = pg.bodyPivotRotX;
+        hipL.rotation.x = pg.hipLRotX;
+        hipR.rotation.x = pg.hipRRotX;
+        kneeL.rotation.x = pg.kneeLRotX;
+        kneeR.rotation.x = pg.kneeRRotX;
 
         // Arms STRAIGHT UP to block — maximum reach
-        shoulderL.rotation.x = -2.8;
-        shoulderL.rotation.z = -0.4; // NEGATIVE = left arm spreads outward
-        shoulderR.rotation.x = -2.8;
-        shoulderR.rotation.z = 0.4; // POSITIVE = right arm spreads outward
-        elbowL.rotation.x = -0.1; // nearly straight
-        elbowR.rotation.x = -0.1;
+        shoulderL.rotation.x = pg.shoulderLRotX;
+        shoulderL.rotation.z = pg.shoulderLRotZ;
+        shoulderR.rotation.x = pg.shoulderRRotX;
+        shoulderR.rotation.z = pg.shoulderRRotZ;
+        elbowL.rotation.x = pg.elbowLRotX;
+        elbowR.rotation.x = pg.elbowRRotX;
 
-        this.group.position.y = -0.08; // lower stance
+        this.group.position.y = pg.stanceDropY;
 
         // Show/create block screen (semi-transparent plane in front)
         let screen = this.group.getObjectByName('block-screen');
