@@ -566,7 +566,8 @@ export class GamePlayer {
           const bouncePhase = (Math.sin(bounceT) + 1) / 2;
           this.group.position.y = Math.pow(bouncePhase, 0.6) * animConfig.amplitudes.walkBackward.bounceHeight;
 
-          bodyPivot.rotation.x = 0; // upright, no lean
+          const pb = animConfig.poses.walkBackward;
+          bodyPivot.rotation.x = pb.bodyPivotRotX;
           bodyPivot.scale.set(1, 1, 1);
 
           const strideRaw = Math.sin(t);
@@ -578,12 +579,12 @@ export class GamePlayer {
           kneeR.rotation.x = animConfig.amplitudes.walkBackward.kneeBase + Math.max(0, -stride) * animConfig.amplitudes.walkBackward.kneeSwing;
 
           // Arms in defensive ready position
-          shoulderL.rotation.x = -0.3;
-          shoulderL.rotation.z = -0.4;
-          shoulderR.rotation.x = -0.3;
-          shoulderR.rotation.z = 0.4;
-          elbowL.rotation.x = -0.3;
-          elbowR.rotation.x = -0.3;
+          shoulderL.rotation.x = pb.shoulderLRotX;
+          shoulderL.rotation.z = pb.shoulderLRotZ;
+          shoulderR.rotation.x = pb.shoulderRRotX;
+          shoulderR.rotation.z = pb.shoulderRRotZ;
+          elbowL.rotation.x = pb.elbowLRotX;
+          elbowR.rotation.x = pb.elbowRRotX;
           break;
         }
 
@@ -594,15 +595,16 @@ export class GamePlayer {
         this.group.position.y = Math.pow(bouncePhase, 0.6) * animConfig.amplitudes.walk.bounceHeight;
 
         // Squash-stretch on body pivot
+        const pw = animConfig.poses.walk;
         const squashStretch = bouncePhase; // 0 = ground contact, 1 = peak
         bodyPivot.scale.set(
-          1 + (1 - squashStretch) * 0.03,   // wider at ground
-          1 - (1 - squashStretch) * 0.03 + squashStretch * 0.03, // shorter at ground, taller at peak
-          1 + (1 - squashStretch) * 0.03    // wider at ground
+          1 + (1 - squashStretch) * pw.squashStretchAmount,   // wider at ground
+          1 - (1 - squashStretch) * pw.squashStretchAmount + squashStretch * pw.squashStretchAmount, // shorter at ground, taller at peak
+          1 + (1 - squashStretch) * pw.squashStretchAmount    // wider at ground
         );
 
         // Forward lean
-        bodyPivot.rotation.x = 0.12;
+        bodyPivot.rotation.x = pw.bodyPivotRotX;
 
         // Leg stride — floaty power curve
         const strideRaw = Math.sin(t);
