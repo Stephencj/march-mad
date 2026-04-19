@@ -665,6 +665,8 @@ export class GamePlayer {
           shoulderPump = -0.6 + t * 0.4; // -0.6 to -0.2
         }
 
+        const pd = animConfig.poses.dribble;
+        const pds = animConfig.poses.dribbleStationary;
         if (this.velocity.lengthSq() > 0.01) {
           // Moving with ball — walk legs + phase-based dribble arm
           const bounceT = this.animTime * animConfig.durations.walkBounce; // match walk double-bounce
@@ -674,12 +676,12 @@ export class GamePlayer {
           // Squash-stretch on body pivot (subtle)
           const squashStretch = bouncePhase;
           bodyPivot.scale.set(
-            1 + (1 - squashStretch) * 0.03,
-            1 - (1 - squashStretch) * 0.03 + squashStretch * 0.03,
-            1 + (1 - squashStretch) * 0.03
+            1 + (1 - squashStretch) * pd.squashStretchAmount,
+            1 - (1 - squashStretch) * pd.squashStretchAmount + squashStretch * pd.squashStretchAmount,
+            1 + (1 - squashStretch) * pd.squashStretchAmount
           );
 
-          bodyPivot.rotation.x = 0.15; // slight crouch
+          bodyPivot.rotation.x = pd.bodyPivotRotX;
 
           const strideRaw = Math.sin(t);
           const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * animConfig.amplitudes.dribble.strideAmp;
@@ -696,18 +698,18 @@ export class GamePlayer {
           const torso = this.group.getObjectByName('torso');
           const hipMeshNode = this.group.getObjectByName('hip-mesh');
           if (torso && hipMeshNode) {
-            hipMeshNode.rotation.y = stride * 0.15;
-            torso.rotation.y = -stride * 0.1;
+            hipMeshNode.rotation.y = stride * pd.hipTwistFactor;
+            torso.rotation.y = -stride * pd.torsoTwistFactor;
           }
         } else {
           // Stationary dribble
           this.group.position.y = Math.sin(this.animTime * animConfig.durations.idleBob) * animConfig.amplitudes.idle.swayHeight;
           bodyPivot.scale.set(1, 1, 1);
-          bodyPivot.rotation.x = 0.1;
+          bodyPivot.rotation.x = pds.bodyPivotRotX;
           hipL.rotation.x = 0;
           hipR.rotation.x = 0;
-          kneeL.rotation.x = 0.15;
-          kneeR.rotation.x = 0.15;
+          kneeL.rotation.x = pds.kneeBase;
+          kneeR.rotation.x = pds.kneeBase;
 
           // Dribble arm (right): phase-based with shoulder pump
           shoulderR.rotation.x = shoulderPump;
@@ -716,9 +718,9 @@ export class GamePlayer {
 
         // Balance arm (left): OUT to the side, not tucked in
         // LEFT shoulder: NEGATIVE rotation.z = arm goes OUTWARD (away from body)
-        shoulderL.rotation.x = -0.1;
-        shoulderL.rotation.z = -0.8; // NEGATIVE for left arm = outward
-        elbowL.rotation.x = -0.3;
+        shoulderL.rotation.x = pd.leftArmShoulderX;
+        shoulderL.rotation.z = pd.leftArmShoulderZ;
+        elbowL.rotation.x = pd.leftArmElbow;
         break;
       }
 
@@ -1151,14 +1153,15 @@ export class GamePlayer {
         const bouncePhase = (Math.sin(bounceT) + 1) / 2;
         this.group.position.y = Math.pow(bouncePhase, 0.6) * animConfig.amplitudes.dribbleSprint.bounceHeight;
 
+        const pds2 = animConfig.poses.dribbleSprint;
         const squashStretch = bouncePhase;
         bodyPivot.scale.set(
-          1 + (1 - squashStretch) * 0.03,
-          1 - (1 - squashStretch) * 0.03 + squashStretch * 0.03,
-          1 + (1 - squashStretch) * 0.03
+          1 + (1 - squashStretch) * pds2.squashStretchAmount,
+          1 - (1 - squashStretch) * pds2.squashStretchAmount + squashStretch * pds2.squashStretchAmount,
+          1 + (1 - squashStretch) * pds2.squashStretchAmount
         );
 
-        bodyPivot.rotation.x = 0.18;
+        bodyPivot.rotation.x = pds2.bodyPivotRotX;
 
         const strideRaw = Math.sin(t);
         const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * animConfig.amplitudes.dribbleSprint.strideAmp;
@@ -1202,14 +1205,14 @@ export class GamePlayer {
 
         // Left arm pumps with stride
         shoulderL.rotation.x = stride * 0.5;
-        shoulderL.rotation.z = -0.3; // slightly out
-        elbowL.rotation.x = -0.6;
+        shoulderL.rotation.z = pds2.leftArmShoulderZ;
+        elbowL.rotation.x = pds2.leftArmElbow;
 
         const torso = this.group.getObjectByName('torso');
         const hipMeshNode = this.group.getObjectByName('hip-mesh');
         if (torso && hipMeshNode) {
-          hipMeshNode.rotation.y = stride * 0.2;
-          torso.rotation.y = -stride * 0.15;
+          hipMeshNode.rotation.y = stride * pds2.hipTwistFactor;
+          torso.rotation.y = -stride * pds2.torsoTwistFactor;
         }
         break;
       }
