@@ -13,7 +13,16 @@
       "Bash(cd:*)",
       "Bash(npx vitest:*)",
       "Bash(npx tsc:*)",
-      "Skill(commit-commands:commit)"
+      "Skill(commit-commands:commit)",
+      "Bash(find /c/Users/steph/Documents/march-mad/src -name *shot* -o -name *dunk*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)",
+      "Bash(start:*)",
+      "Bash(git push:*)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "trx-enterprise"
+  ],
+  "enableAllProjectMcpServers": true
 }
