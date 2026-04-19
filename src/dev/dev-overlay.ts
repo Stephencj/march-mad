@@ -135,6 +135,9 @@ export class DevOverlay {
     for (const section of this.buildSections()) {
       panel.appendChild(this.buildSection(section));
     }
+    for (const el of this.buildLevelSections()) {
+      panel.appendChild(el);
+    }
     panel.appendChild(this.buildPlayerSection());
     panel.appendChild(this.buildAnimationSection());
     return panel;
@@ -481,7 +484,6 @@ export class DevOverlay {
           },
         ],
       },
-      ...this.buildLevelSections(),
     ];
   }
 
@@ -753,64 +755,178 @@ export class DevOverlay {
     return row;
   }
 
-  private buildLevelSections(): SectionSpec[] {
+  // ==========================================================================
+   // LEVEL sections — mirrors level-editor.html's coverage (COURT / HOOP /
+   // COLORS / LIGHTING). Each section is its own <details> so users can
+   // collapse to save vertical space in the dense overlay. COURT is open
+   // by default (landing point); HOOP / COLORS / LIGHTING are collapsed.
+   // Gameplay-coupled fields get a level-editor-style warning box at the
+   // top of the section (complementing the per-field ⚠️ label badges).
+  // ==========================================================================
+
+  private buildLevelSections(): HTMLElement[] {
     const ld = getLevelDefaults();
-    return [
-      {
-        title: 'COURT (next match)',
-        sliders: [
-          { label: 'Width ⚠️', min: 8, max: 24, step: 0.5,
-            get: () => levelConfig.court.width,
-            set: (v) => { levelConfig.court.width = v; },
-            defaultValue: ld.court.width },
-          { label: 'Length ⚠️', min: 16, max: 40, step: 0.5,
-            get: () => levelConfig.court.length,
-            set: (v) => { levelConfig.court.length = v; },
-            defaultValue: ld.court.length },
-          { label: 'Paint Width', min: 2, max: 6, step: 0.1,
-            get: () => levelConfig.court.paintWidth,
-            set: (v) => { levelConfig.court.paintWidth = v; },
-            defaultValue: ld.court.paintWidth },
-          { label: 'Paint Length', min: 3, max: 9, step: 0.1,
-            get: () => levelConfig.court.paintLength,
-            set: (v) => { levelConfig.court.paintLength = v; },
-            defaultValue: ld.court.paintLength },
-          { label: 'Three-Point Radius', min: 4, max: 10, step: 0.05,
-            get: () => levelConfig.court.threePointRadius,
-            set: (v) => { levelConfig.court.threePointRadius = v; },
-            defaultValue: ld.court.threePointRadius },
-        ],
-      },
-      {
-        title: 'HOOP ⚠️ (next match)',
-        sliders: [
-          { label: 'Home Z', min: -18, max: -6, step: 0.5,
-            get: () => levelConfig.hoop.homeZ,
-            set: (v) => { levelConfig.hoop.homeZ = v; },
-            defaultValue: ld.hoop.homeZ },
-          { label: 'Away Z', min: 6, max: 18, step: 0.5,
-            get: () => levelConfig.hoop.awayZ,
-            set: (v) => { levelConfig.hoop.awayZ = v; },
-            defaultValue: ld.hoop.awayZ },
-          { label: 'Rim Height', min: 2, max: 4, step: 0.05,
-            get: () => levelConfig.hoop.rimHeight,
-            set: (v) => { levelConfig.hoop.rimHeight = v; },
-            defaultValue: ld.hoop.rimHeight },
-          { label: 'Rim Radius', min: 0.2, max: 0.6, step: 0.01,
-            get: () => levelConfig.hoop.rimRadius,
-            set: (v) => { levelConfig.hoop.rimRadius = v; },
-            defaultValue: ld.hoop.rimRadius },
-          { label: 'Backboard Width', min: 1.5, max: 4, step: 0.05,
-            get: () => levelConfig.hoop.backboardWidth,
-            set: (v) => { levelConfig.hoop.backboardWidth = v; },
-            defaultValue: ld.hoop.backboardWidth },
-          { label: 'Backboard Height', min: 0.8, max: 2.5, step: 0.05,
-            get: () => levelConfig.hoop.backboardHeight,
-            set: (v) => { levelConfig.hoop.backboardHeight = v; },
-            defaultValue: ld.hoop.backboardHeight },
-        ],
-      },
+
+    // COURT — 9 fields; Width and Length are gameplay-coupled (per level-editor).
+    const courtSection = this.buildLevelSection('COURT (next match)', true);
+    courtSection.appendChild(this.buildWarningBox(
+      '⚠️ All values are gameplay-coupled — changes may break collision, scoring, or AI pathing',
+    ));
+    const courtSliders: SliderSpec[] = [
+      { label: 'Width ⚠️', min: 8, max: 24, step: 0.5,
+        get: () => levelConfig.court.width,
+        set: (v) => { levelConfig.court.width = v; },
+        defaultValue: ld.court.width },
+      { label: 'Length ⚠️', min: 16, max: 40, step: 0.5,
+        get: () => levelConfig.court.length,
+        set: (v) => { levelConfig.court.length = v; },
+        defaultValue: ld.court.length },
+      { label: 'Paint Width', min: 2, max: 6, step: 0.1,
+        get: () => levelConfig.court.paintWidth,
+        set: (v) => { levelConfig.court.paintWidth = v; },
+        defaultValue: ld.court.paintWidth },
+      { label: 'Paint Length', min: 3, max: 9, step: 0.1,
+        get: () => levelConfig.court.paintLength,
+        set: (v) => { levelConfig.court.paintLength = v; },
+        defaultValue: ld.court.paintLength },
+      { label: 'Three-Point Radius', min: 4, max: 10, step: 0.05,
+        get: () => levelConfig.court.threePointRadius,
+        set: (v) => { levelConfig.court.threePointRadius = v; },
+        defaultValue: ld.court.threePointRadius },
+      { label: 'Center Circle Radius', min: 0.5, max: 4, step: 0.1,
+        get: () => levelConfig.court.centerCircleRadius,
+        set: (v) => { levelConfig.court.centerCircleRadius = v; },
+        defaultValue: ld.court.centerCircleRadius },
+      { label: 'Check-Ball Line', min: 0, max: 12, step: 0.5,
+        get: () => levelConfig.court.checkBallLine,
+        set: (v) => { levelConfig.court.checkBallLine = v; },
+        defaultValue: ld.court.checkBallLine },
+      { label: 'Line Height', min: 0.005, max: 0.1, step: 0.005,
+        get: () => levelConfig.court.lineHeight,
+        set: (v) => { levelConfig.court.lineHeight = v; },
+        defaultValue: ld.court.lineHeight },
+      { label: 'Plank Stripe Spacing', min: 0.1, max: 2, step: 0.05,
+        get: () => levelConfig.court.plankStripeSpacing,
+        set: (v) => { levelConfig.court.plankStripeSpacing = v; },
+        defaultValue: ld.court.plankStripeSpacing },
     ];
+    for (const s of courtSliders) courtSection.appendChild(this.buildSlider(s));
+
+    // HOOP — all 6 fields gameplay-coupled per level-editor; collapsed by default.
+    const hoopSection = this.buildLevelSection('HOOP (next match)', false);
+    hoopSection.appendChild(this.buildWarningBox(
+      '⚠️ All values gameplay-coupled — changes may break shot detection, AI, scoring',
+    ));
+    const hoopSliders: SliderSpec[] = [
+      { label: 'Home Z', min: -18, max: -6, step: 0.5,
+        get: () => levelConfig.hoop.homeZ,
+        set: (v) => { levelConfig.hoop.homeZ = v; },
+        defaultValue: ld.hoop.homeZ },
+      { label: 'Away Z', min: 6, max: 18, step: 0.5,
+        get: () => levelConfig.hoop.awayZ,
+        set: (v) => { levelConfig.hoop.awayZ = v; },
+        defaultValue: ld.hoop.awayZ },
+      { label: 'Rim Height', min: 2, max: 4, step: 0.05,
+        get: () => levelConfig.hoop.rimHeight,
+        set: (v) => { levelConfig.hoop.rimHeight = v; },
+        defaultValue: ld.hoop.rimHeight },
+      { label: 'Rim Radius', min: 0.2, max: 0.6, step: 0.01,
+        get: () => levelConfig.hoop.rimRadius,
+        set: (v) => { levelConfig.hoop.rimRadius = v; },
+        defaultValue: ld.hoop.rimRadius },
+      { label: 'Backboard Width', min: 1.5, max: 4, step: 0.05,
+        get: () => levelConfig.hoop.backboardWidth,
+        set: (v) => { levelConfig.hoop.backboardWidth = v; },
+        defaultValue: ld.hoop.backboardWidth },
+      { label: 'Backboard Height', min: 0.8, max: 2.5, step: 0.05,
+        get: () => levelConfig.hoop.backboardHeight,
+        set: (v) => { levelConfig.hoop.backboardHeight = v; },
+        defaultValue: ld.hoop.backboardHeight },
+    ];
+    for (const s of hoopSliders) hoopSection.appendChild(this.buildSlider(s));
+
+    // COLORS — 3 color pickers (floor / plank stripe / line). Collapsed by default.
+    const colorsSection = this.buildLevelSection('COLORS (next match)', false);
+    const colorSpecs: ColorSpec[] = [
+      { label: 'Floor',
+        get: () => levelConfig.colors.floor,
+        set: (v) => { levelConfig.colors.floor = v; },
+        defaultValue: ld.colors.floor },
+      { label: 'Plank Stripe',
+        get: () => levelConfig.colors.plankStripe,
+        set: (v) => { levelConfig.colors.plankStripe = v; },
+        defaultValue: ld.colors.plankStripe },
+      { label: 'Line',
+        get: () => levelConfig.colors.line,
+        set: (v) => { levelConfig.colors.line = v; },
+        defaultValue: ld.colors.line },
+    ];
+    for (const c of colorSpecs) colorsSection.appendChild(this.buildColorRow(c));
+
+    // LIGHTING — 5 sliders. Collapsed by default.
+    const lightingSection = this.buildLevelSection('LIGHTING (next match)', false);
+    const lightingSliders: SliderSpec[] = [
+      { label: 'Ambient Intensity', min: 0, max: 1.5, step: 0.05,
+        get: () => levelConfig.lighting.ambientIntensity,
+        set: (v) => { levelConfig.lighting.ambientIntensity = v; },
+        defaultValue: ld.lighting.ambientIntensity },
+      { label: 'Directional Intensity', min: 0, max: 2, step: 0.05,
+        get: () => levelConfig.lighting.directionalIntensity,
+        set: (v) => { levelConfig.lighting.directionalIntensity = v; },
+        defaultValue: ld.lighting.directionalIntensity },
+      { label: 'Directional X', min: -20, max: 20, step: 0.5,
+        get: () => levelConfig.lighting.directionalX,
+        set: (v) => { levelConfig.lighting.directionalX = v; },
+        defaultValue: ld.lighting.directionalX },
+      { label: 'Directional Y', min: 1, max: 40, step: 0.5,
+        get: () => levelConfig.lighting.directionalY,
+        set: (v) => { levelConfig.lighting.directionalY = v; },
+        defaultValue: ld.lighting.directionalY },
+      { label: 'Directional Z', min: -20, max: 20, step: 0.5,
+        get: () => levelConfig.lighting.directionalZ,
+        set: (v) => { levelConfig.lighting.directionalZ = v; },
+        defaultValue: ld.lighting.directionalZ },
+    ];
+    for (const s of lightingSliders) lightingSection.appendChild(this.buildSlider(s));
+
+    return [courtSection, hoopSection, colorsSection, lightingSection];
+  }
+
+  /** Build a top-level <details> section matching the visual style of
+   *  buildSection() so COURT/HOOP/COLORS/LIGHTING look identical to MATCH. */
+  private buildLevelSection(title: string, open: boolean): HTMLDetailsElement {
+    const details = document.createElement('details');
+    details.open = open;
+    Object.assign(details.style, { marginBottom: '12px' });
+
+    const summary = document.createElement('summary');
+    summary.textContent = title;
+    Object.assign(summary.style, {
+      cursor: 'pointer',
+      fontWeight: 'bold',
+      fontSize: '13px',
+      color: '#aaa',
+      padding: '4px 0',
+      letterSpacing: '1px',
+    });
+    details.appendChild(summary);
+    return details;
+  }
+
+  /** Orange warning box matching level-editor.ts section-level warnings. */
+  private buildWarningBox(text: string): HTMLElement {
+    const warn = document.createElement('div');
+    warn.textContent = text;
+    Object.assign(warn.style, {
+      fontSize: '10px',
+      color: '#ff9800',
+      marginBottom: '6px',
+      padding: '4px',
+      background: 'rgba(255, 152, 0, 0.1)',
+      border: '1px solid rgba(255, 152, 0, 0.3)',
+      borderRadius: '3px',
+    });
+    return warn;
   }
 
   // ==========================================================================
