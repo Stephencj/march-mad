@@ -1578,45 +1578,44 @@ export class GamePlayer {
         const passDuration = animConfig.durations.passDuration;
         const progress = 1 - (this.passTimer / passDuration);
 
+        const pp = animConfig.poses.pass;
         if (progress < 0.25) {
           // PULL IN: both hands come together at chest, pull ball toward body
           const pull = progress / 0.25;
-          // Both arms come to center-chest
-          shoulderR.rotation.x = -0.5 * pull; // arms come forward
-          shoulderL.rotation.x = -0.5 * pull;
-          shoulderR.rotation.z = -0.15 * pull; // hands come inward toward each other
-          shoulderL.rotation.z = 0.15 * pull;
-          elbowR.rotation.x = -0.9 * pull; // bent tight — hands at chest
-          elbowL.rotation.x = -0.9 * pull;
-          bodyPivot.rotation.x = 0.05 * pull; // slight lean back (pulling ball in)
+          shoulderR.rotation.x = pp.pullShoulderR * pull;
+          shoulderL.rotation.x = pp.pullShoulderL * pull;
+          shoulderR.rotation.z = pp.pullShoulderRZ * pull;
+          shoulderL.rotation.z = pp.pullShoulderLZ * pull;
+          elbowR.rotation.x = pp.pullElbowR * pull;
+          elbowL.rotation.x = pp.pullElbowL * pull;
+          bodyPivot.rotation.x = pp.pullBodyPivotRotX * pull;
         } else if (progress < 0.5) {
           // THROW: both arms thrust forward together, extending
           const push = (progress - 0.25) / 0.25;
-          shoulderR.rotation.x = -0.5 - push * 0.7; // thrust forward hard
-          shoulderL.rotation.x = -0.5 - push * 0.7;
-          shoulderR.rotation.z = -0.15 + push * 0.15; // hands spread slightly on release
-          shoulderL.rotation.z = 0.15 - push * 0.15;
-          elbowR.rotation.x = -0.9 + push * 0.8; // straighten arms (release)
-          elbowL.rotation.x = -0.9 + push * 0.8;
-          bodyPivot.rotation.x = 0.05 + push * 0.12; // lean INTO the pass
-          // Step forward with right foot
-          hipR.rotation.x = -0.15 * push;
-          kneeR.rotation.x = 0.1 * push;
+          shoulderR.rotation.x = pp.pullShoulderR + push * pp.throwShoulderR;
+          shoulderL.rotation.x = pp.pullShoulderL + push * pp.throwShoulderL;
+          shoulderR.rotation.z = pp.pullShoulderRZ + push * pp.throwShoulderRZ;
+          shoulderL.rotation.z = pp.pullShoulderLZ + push * pp.throwShoulderLZ;
+          elbowR.rotation.x = pp.pullElbowR + push * pp.throwElbowR;
+          elbowL.rotation.x = pp.pullElbowL + push * pp.throwElbowL;
+          bodyPivot.rotation.x = pp.pullBodyPivotRotX + push * pp.throwBodyPivotRotX;
+          hipR.rotation.x = pp.throwHipR * push;
+          kneeR.rotation.x = pp.throwKneeR * push;
         } else {
           // FOLLOW THROUGH: arms stay extended briefly, then return
           const recover = (progress - 0.5) / 0.5;
-          shoulderR.rotation.x = -1.2 + recover * 1.1; // back to ~-0.1
-          shoulderL.rotation.x = -1.2 + recover * 1.1;
+          shoulderR.rotation.x = pp.ftShoulderRBase + recover * pp.ftShoulderRSwing;
+          shoulderL.rotation.x = pp.ftShoulderLBase + recover * pp.ftShoulderLSwing;
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
           elbowR.rotation.x = -0.1;
           elbowL.rotation.x = -0.1;
-          bodyPivot.rotation.x = 0.17 * (1 - recover);
-          hipR.rotation.x = -0.15 * (1 - recover);
-          kneeR.rotation.x = 0.1 * (1 - recover);
+          bodyPivot.rotation.x = pp.ftBodyPivotRotX * (1 - recover);
+          hipR.rotation.x = pp.ftHipR * (1 - recover);
+          kneeR.rotation.x = pp.ftKneeR * (1 - recover);
         }
-        hipL.rotation.x = 0;
-        kneeL.rotation.x = 0.05;
+        hipL.rotation.x = pp.hipL;
+        kneeL.rotation.x = pp.kneeL;
         break;
       }
     }
