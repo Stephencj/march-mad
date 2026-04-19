@@ -542,16 +542,17 @@ export class GamePlayer {
     switch (this.animState) {
       case 'idle': {
         // Gentle breathing/sway
-        bodyPivot.rotation.x = 0;
+        const p = animConfig.poses.idle;
+        bodyPivot.rotation.x = p.bodyPivotRotX;
         bodyPivot.scale.set(1, 1, 1);
-        hipL.rotation.x = 0;
-        hipR.rotation.x = 0;
-        kneeL.rotation.x = 0.05; // very slight natural bend
-        kneeR.rotation.x = 0.05;
-        shoulderL.rotation.x = 0;
-        shoulderR.rotation.x = 0;
-        elbowL.rotation.x = -0.1; // slight natural elbow bend
-        elbowR.rotation.x = -0.1;
+        hipL.rotation.x = p.hipLRotX;
+        hipR.rotation.x = p.hipRRotX;
+        kneeL.rotation.x = p.kneeLRotX;
+        kneeR.rotation.x = p.kneeRRotX;
+        shoulderL.rotation.x = p.shoulderLRotX;
+        shoulderR.rotation.x = p.shoulderRRotX;
+        elbowL.rotation.x = p.elbowLRotX;
+        elbowR.rotation.x = p.elbowRRotX;
         // Gentle idle bob
         this.group.position.y = Math.sin(this.animTime * animConfig.durations.idleBob) * animConfig.amplitudes.idle.swayHeight;
         break;
