@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { PlayerData } from '@/core/types';
 import { POSITION_SCALES } from '@/core/types';
+import { playerConfig } from '@/dev/player-config';
 
 /**
  * Hair style types for Bobblehead Ballers.
@@ -114,7 +115,11 @@ export class GamePlayer {
     group.add(bodyPivot);
 
     // ========== TORSO (relative to body-pivot) ==========
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.4, 0.16), jerseyMat);
+    const cfg = playerConfig;
+    const torso = new THREE.Mesh(
+      new THREE.BoxGeometry(cfg.body.torsoWidth, cfg.body.torsoHeight, cfg.body.torsoDepth),
+      jerseyMat,
+    );
     torso.position.set(0, 0.2, 0);
     torso.name = 'torso';
     bodyPivot.add(torso);
@@ -132,14 +137,14 @@ export class GamePlayer {
     neckGroup.add(neck);
 
     // Head on top of neck
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 6), skinMat);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(cfg.head.radius, 8, 6), skinMat);
     head.position.set(0, 0.35, 0);
     head.name = 'head';
     neckGroup.add(head);
 
     // Eyes on head (relative to neck group)
     const eyeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
-    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.04, 4, 4), eyeMat);
+    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(cfg.head.eyeRadius, 4, 4), eyeMat);
     eyeLeft.position.set(-0.1, 0.39, 0.24);
     eyeLeft.name = 'eye-left';
     neckGroup.add(eyeLeft);
@@ -158,7 +163,7 @@ export class GamePlayer {
 
     // ========== BROAD SHOULDERS (connecting torso to arms) ==========
     // Shoulder cap meshes to bridge torso to arm joints
-    const shoulderCapGeo = new THREE.SphereGeometry(0.08, 6, 4);
+    const shoulderCapGeo = new THREE.SphereGeometry(cfg.body.shoulderCapRadius, 6, 4);
     const shoulderCapLeft = new THREE.Mesh(shoulderCapGeo, jerseyMat);
     shoulderCapLeft.position.set(-0.16, 0.35, 0);
     shoulderCapLeft.name = 'shoulder-cap-left';
@@ -170,7 +175,9 @@ export class GamePlayer {
     bodyPivot.add(shoulderCapRight);
 
     // Shoulder bar connecting across the top of the torso
-    const shoulderBarGeo = new THREE.BoxGeometry(0.42, 0.06, 0.12);
+    const shoulderBarGeo = new THREE.BoxGeometry(
+      cfg.body.shoulderBarWidth, cfg.body.shoulderBarHeight, cfg.body.shoulderBarDepth,
+    );
     const shoulderBar = new THREE.Mesh(shoulderBarGeo, jerseyMat);
     shoulderBar.position.set(0, 0.37, 0);
     shoulderBar.name = 'shoulder-bar';
@@ -188,7 +195,9 @@ export class GamePlayer {
     bodyPivot.add(shoulderRight);
 
     // Upper arms (hang down from shoulder)
-    const armGeo = new THREE.CylinderGeometry(0.035, 0.04, 0.28, 4);
+    const armGeo = new THREE.CylinderGeometry(
+      cfg.limbs.upperArmRadiusTop, cfg.limbs.upperArmRadiusBottom, cfg.limbs.upperArmLength, 4,
+    );
     const upperArmLeft = new THREE.Mesh(armGeo, jerseyMat);
     upperArmLeft.position.set(0, -0.14, 0);
     upperArmLeft.name = 'upper-arm-left';
@@ -211,7 +220,9 @@ export class GamePlayer {
     upperArmRight.add(elbowRight);
 
     // Forearms
-    const forearmGeo = new THREE.CylinderGeometry(0.03, 0.035, 0.22, 4);
+    const forearmGeo = new THREE.CylinderGeometry(
+      cfg.limbs.forearmRadiusTop, cfg.limbs.forearmRadiusBottom, cfg.limbs.forearmLength, 4,
+    );
     const forearmLeft = new THREE.Mesh(forearmGeo, skinMat);
     forearmLeft.position.set(0, -0.11, 0);
     forearmLeft.name = 'forearm-left';
@@ -223,7 +234,7 @@ export class GamePlayer {
     elbowRight.add(forearmRight);
 
     // ========== HIP/GROIN (bridges torso bottom to leg tops) ==========
-    const hipGeo = new THREE.BoxGeometry(0.28, 0.1, 0.15); // wider than torso bottom, short
+    const hipGeo = new THREE.BoxGeometry(cfg.body.hipWidth, cfg.body.hipHeight, cfg.body.hipDepth);
     const hipMesh = new THREE.Mesh(hipGeo, jerseyMat); // same color as jersey
     hipMesh.position.set(0, -0.05, 0); // just below body-pivot origin (which is at hip height)
     hipMesh.name = 'hip-mesh';
@@ -241,7 +252,9 @@ export class GamePlayer {
     bodyPivot.add(hipRight);
 
     // Upper legs (hang down from hips)
-    const upperLegGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.35, 5);
+    const upperLegGeo = new THREE.CylinderGeometry(
+      cfg.limbs.upperLegRadiusTop, cfg.limbs.upperLegRadiusBottom, cfg.limbs.upperLegLength, 5,
+    );
     const upperLegLeft = new THREE.Mesh(upperLegGeo, jerseyMat);
     upperLegLeft.position.set(0, -0.175, 0);
     upperLegLeft.name = 'upper-leg-left';
@@ -264,7 +277,9 @@ export class GamePlayer {
     upperLegRight.add(kneeRight);
 
     // Lower legs (hang from knees)
-    const lowerLegGeo = new THREE.CylinderGeometry(0.05, 0.06, 0.35, 5);
+    const lowerLegGeo = new THREE.CylinderGeometry(
+      cfg.limbs.lowerLegRadiusTop, cfg.limbs.lowerLegRadiusBottom, cfg.limbs.lowerLegLength, 5,
+    );
     const lowerLegLeft = new THREE.Mesh(lowerLegGeo, skinMat);
     lowerLegLeft.position.set(0, -0.175, 0);
     lowerLegLeft.name = 'lower-leg-left';
@@ -287,8 +302,8 @@ export class GamePlayer {
     lowerLegRight.add(ankleRight);
 
     // Shoes
-    const shoeGeo = new THREE.BoxGeometry(0.14, 0.08, 0.2);
-    const shoeMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const shoeGeo = new THREE.BoxGeometry(cfg.shoes.width, cfg.shoes.height, cfg.shoes.depth);
+    const shoeMat = new THREE.MeshStandardMaterial({ color: cfg.shoes.color });
     const shoeLeft = new THREE.Mesh(shoeGeo, shoeMat);
     shoeLeft.position.set(0, -0.04, 0.02);
     shoeLeft.name = 'shoe-left';
@@ -329,6 +344,7 @@ export class GamePlayer {
    */
   private createHair(style: HairStyle, hairColor: number): THREE.Object3D {
     const hairMat = new THREE.MeshStandardMaterial({ color: hairColor });
+    const h = playerConfig.hair;
 
     // Hair positions relative to neckGroup.
     // Head center at y=0.35, head top at ~0.63, eyes at y=0.39 z=0.24 (front).
@@ -336,7 +352,7 @@ export class GamePlayer {
     switch (style) {
       case 'flat-top': {
         // Sinks INTO the head slightly so edges don't float
-        const geo = new THREE.BoxGeometry(0.34, 0.12, 0.28);
+        const geo = new THREE.BoxGeometry(h.flatTopWidth, h.flatTopHeight, h.flatTopDepth);
         const mesh = new THREE.Mesh(geo, hairMat);
         mesh.position.set(0, 0.60, -0.03); // overlaps into head sphere
         return mesh;
@@ -344,7 +360,7 @@ export class GamePlayer {
 
       case 'afro': {
         // Solid, envelops top/back of head
-        const geo = new THREE.SphereGeometry(0.32, 8, 6);
+        const geo = new THREE.SphereGeometry(h.afroRadius, 8, 6);
         const mesh = new THREE.Mesh(geo, hairMat);
         mesh.position.set(0, 0.50, -0.06);
         return mesh;
@@ -352,7 +368,7 @@ export class GamePlayer {
 
       case 'mohawk': {
         // Sinks into head so it looks planted
-        const geo = new THREE.BoxGeometry(0.06, 0.20, 0.26);
+        const geo = new THREE.BoxGeometry(h.mohawkWidth, h.mohawkHeight, h.mohawkDepth);
         const mesh = new THREE.Mesh(geo, hairMat);
         mesh.position.set(0, 0.60, -0.03); // overlaps into head
         return mesh;
@@ -360,9 +376,9 @@ export class GamePlayer {
 
       case 'headband': {
         // Basketball sweatband wrapped around forehead — like LeBron's headband
-        // Head radius is 0.28, so band radius matches to hug the head
-        const geo = new THREE.CylinderGeometry(0.285, 0.285, 0.06, 16, 1, true);
-        const mat = new THREE.MeshStandardMaterial({ color: 0xff2222, side: THREE.DoubleSide });
+        // Head radius matches to hug the head
+        const geo = new THREE.CylinderGeometry(h.headbandRadius, h.headbandRadius, h.headbandThickness, 16, 1, true);
+        const mat = new THREE.MeshStandardMaterial({ color: h.headbandColor, side: THREE.DoubleSide });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(0, 0.48, 0); // around forehead, above eyes (y=0.39)
         return mesh;

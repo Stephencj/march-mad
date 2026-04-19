@@ -1,6 +1,6 @@
 # Controls Rework + Sprint/Stamina + Pause Menu — Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Remap controls (unified shot/dunk, guard/jump-block, Tab cycling, Escape pause), add sprint stamina system with HUD bar, add pause menu.
 
@@ -19,7 +19,7 @@
 **Files:**
 - Modify: `src/game/player.ts`
 
-- [ ] **Step 1: Add stamina, guard, and block properties**
+- [x] **Step 1: Add stamina, guard, and block properties**
 
 In `src/game/player.ts`, find the public properties section (near `isCharging`, `chargeTimer`, `hasBall`, etc.) and add:
 
@@ -31,7 +31,7 @@ In `src/game/player.ts`, find the public properties section (near `isCharging`, 
   guardTimer = 0;
 ```
 
-- [ ] **Step 2: Add `triggerGuard()` method**
+- [x] **Step 2: Add `triggerGuard()` method**
 
 Add near the existing `triggerSteal()`, `triggerShoot()` methods:
 
@@ -44,7 +44,7 @@ Add near the existing `triggerSteal()`, `triggerShoot()` methods:
   }
 ```
 
-- [ ] **Step 3: Add guard timer tick and cleanup in `animate()`**
+- [x] **Step 3: Add guard timer tick and cleanup in `animate()`**
 
 In the `animate()` method, at the TOP (before the animation state machine), add guard timer handling:
 
@@ -76,7 +76,7 @@ Find where animation states are determined (the if/else chain with `isMoving`, `
       this.animState = 'guard';
 ```
 
-- [ ] **Step 4: Increase sprint speed**
+- [x] **Step 4: Increase sprint speed**
 
 Find the sprint multiplier line (search for `1.6`):
 ```typescript
@@ -87,7 +87,7 @@ Change to:
     const speed = this.isSprinting ? this.moveSpeed * 2.0 : this.moveSpeed;
 ```
 
-- [ ] **Step 5: Run tests + build, commit**
+- [x] **Step 5: Run tests + build, commit**
 
 Run: `npx vitest run && npx vite build`
 Commit: `git commit -am "feat: player stamina, guard, block properties + sprint speed 2.0x"`
@@ -101,7 +101,7 @@ Commit: `git commit -am "feat: player stamina, guard, block properties + sprint 
 - Modify: `src/game/keyboard-controls.ts`
 - Modify: `src/main.ts`
 
-- [ ] **Step 1: Add new gesture types**
+- [x] **Step 1: Add new gesture types**
 
 In `src/game/controls.ts`, line 9, change:
 ```typescript
@@ -112,7 +112,7 @@ To:
 export type GestureType = 'swipe-up' | 'pass' | 'tap' | 'swipe-down' | 'double-tap' | 'jump' | 'charge-start' | 'block' | 'jump-block' | 'cycle-player';
 ```
 
-- [ ] **Step 2: Remap keyboard controls**
+- [x] **Step 2: Remap keyboard controls**
 
 Replace `src/game/keyboard-controls.ts` `handleKeyDown` method entirely:
 
@@ -141,7 +141,7 @@ Replace `src/game/keyboard-controls.ts` `handleKeyDown` method entirely:
   }
 ```
 
-- [ ] **Step 3: Add Tab and Escape preventDefault in main.ts**
+- [x] **Step 3: Add Tab and Escape preventDefault in main.ts**
 
 In `src/main.ts`, replace lines 121-122:
 ```typescript
@@ -157,7 +157,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => keyboardControls.handleKeyUp(e.code));
 ```
 
-- [ ] **Step 4: Fix sprinting in input merge**
+- [x] **Step 4: Fix sprinting in input merge**
 
 In `src/main.ts`, in the `update()` function (~line 274-280), the merged `ControlInput` is missing `sprinting`. Change:
 ```typescript
@@ -181,14 +181,14 @@ To:
     };
 ```
 
-- [ ] **Step 5: Add YourGame to MainMenu state transition**
+- [x] **Step 5: Add YourGame to MainMenu state transition**
 
 In `src/main.ts`, in the `transitions` array (~line 49-69), add:
 ```typescript
   { from: 'YourGame', to: 'MainMenu' },
 ```
 
-- [ ] **Step 6: Run tests + build, commit**
+- [x] **Step 6: Run tests + build, commit**
 
 Run: `npx vitest run && npx vite build`
 Commit: `git commit -am "feat: remap controls — G=guard, Shift+F=jump-block, Tab=cycle, fix sprint input"`
@@ -203,14 +203,14 @@ Commit: `git commit -am "feat: remap controls — G=guard, Shift+F=jump-block, T
 - Modify: `src/game/game-session.ts`
 - Modify: `src/game/shot-accuracy.ts`
 
-- [ ] **Step 1: Add new fields to GameSession**
+- [x] **Step 1: Add new fields to GameSession**
 
 Add near other private fields:
 ```typescript
   private tabCycleIndex = 0;
 ```
 
-- [ ] **Step 2: Rewrite `swipe-up` case for dunk-via-proximity**
+- [x] **Step 2: Rewrite `swipe-up` case for dunk-via-proximity**
 
 Replace the current `case 'swipe-up':` block (~lines 563-585) with:
 
@@ -282,11 +282,11 @@ Replace the current `case 'swipe-up':` block (~lines 563-585) with:
         break;
 ```
 
-- [ ] **Step 3: Remove the `swipe-down` dunk case**
+- [x] **Step 3: Remove the `swipe-down` dunk case**
 
 Delete the entire `case 'swipe-down': { ... }` block (~lines 587-635). Dunks are now handled via proximity in `swipe-up`.
 
-- [ ] **Step 4: Add block, jump-block, and cycle-player gesture handlers**
+- [x] **Step 4: Add block, jump-block, and cycle-player gesture handlers**
 
 In `handleGesture()`, add these cases after `charge-start`:
 
@@ -309,7 +309,7 @@ In `handleGesture()`, add these cases after `charge-start`:
         break;
 ```
 
-- [ ] **Step 5: Add `cyclePlayerControl()` method**
+- [x] **Step 5: Add `cyclePlayerControl()` method**
 
 Add after `switchHumanControl()`:
 
@@ -349,14 +349,14 @@ Add after `switchHumanControl()`:
   }
 ```
 
-- [ ] **Step 6: Reset tab cycle index in `changePossession()`**
+- [x] **Step 6: Reset tab cycle index in `changePossession()`**
 
 In `changePossession()`, add:
 ```typescript
     this.tabCycleIndex = 0;
 ```
 
-- [ ] **Step 7: Add stamina drain/recharge in `processInput()`**
+- [x] **Step 7: Add stamina drain/recharge in `processInput()`**
 
 In `processInput()`, replace line 414 (`human.isSprinting = input.sprinting ?? false;`) with:
 
@@ -380,7 +380,7 @@ In `processInput()`, replace line 414 (`human.isSprinting = input.sprinting ?? f
     }
 ```
 
-- [ ] **Step 8: Add AI stamina management in `update()`**
+- [x] **Step 8: Add AI stamina management in `update()`**
 
 In `update()`, after `updatePowerups(dt)`, add:
 
@@ -409,7 +409,7 @@ In `runAI()`, where ball handler sets `player.isSprinting = true`, change to:
           player.isSprinting = player.stamina > 0 && !player.isExhausted;
 ```
 
-- [ ] **Step 9: Add contest bonus to shot accuracy**
+- [x] **Step 9: Add contest bonus to shot accuracy**
 
 In `src/game/shot-accuracy.ts`, add `contestBonus` to ShotContext:
 ```typescript
@@ -447,7 +447,7 @@ Then pass `contestBonus` in the call:
           contestBonus,
 ```
 
-- [ ] **Step 10: Add jump catch mechanic**
+- [x] **Step 10: Add jump catch mechanic**
 
 In `update()`, after the loose ball pickup check and before the `runAI()` call, add:
 
@@ -472,7 +472,7 @@ In `update()`, after the loose ball pickup check and before the `runAI()` call, 
     }
 ```
 
-- [ ] **Step 11: Run tests + build, commit**
+- [x] **Step 11: Run tests + build, commit**
 
 Run: `npx vitest run && npx vite build`
 Commit: `git commit -am "feat: dunk-via-proximity, guard/jump-block, Tab cycling, stamina system, contest modifiers"`
@@ -487,7 +487,7 @@ Commit: `git commit -am "feat: dunk-via-proximity, guard/jump-block, Tab cycling
 - Modify: `src/ui/hud.ts`
 - Modify: `src/main.ts`
 
-- [ ] **Step 1: Add stamina bar element to HUD**
+- [x] **Step 1: Add stamina bar element to HUD**
 
 In `src/ui/hud.ts`, add fields:
 ```typescript
@@ -531,14 +531,14 @@ Add update method:
   }
 ```
 
-- [ ] **Step 2: Wire stamina bar in main.ts**
+- [x] **Step 2: Wire stamina bar in main.ts**
 
 In `src/main.ts`, in `update()`, after the charge bar update line, add:
 ```typescript
     hud.updateStaminaBar(human.stamina);
 ```
 
-- [ ] **Step 3: Run tests + build, commit**
+- [x] **Step 3: Run tests + build, commit**
 
 Run: `npx vitest run && npx vite build`
 Commit: `git commit -am "feat: stamina bar HUD — green/yellow/red based on level"`
@@ -552,7 +552,7 @@ Commit: `git commit -am "feat: stamina bar HUD — green/yellow/red based on lev
 - Modify: `src/ui/menus.ts`
 - Modify: `src/main.ts`
 
-- [ ] **Step 1: Extract shared controls data**
+- [x] **Step 1: Extract shared controls data**
 
 In `src/ui/menus.ts`, add an exported constant BEFORE the class definition:
 
@@ -576,7 +576,7 @@ Update `renderSettings()` to use `CONTROLS_DATA` instead of the inline controls 
     for (const [action, key] of CONTROLS_DATA) {
 ```
 
-- [ ] **Step 2: Create pause-menu.ts**
+- [x] **Step 2: Create pause-menu.ts**
 
 Create `src/ui/pause-menu.ts`. The class needs:
 - `show()` / `hide()` / `isVisible` getter
@@ -598,7 +598,7 @@ Button styles: Resume uses primary color `#e94560`, others use transparent with 
 
 Navigation: Controls button calls `renderControlsView()`, Back returns to `renderPauseView()`, Main Menu calls `renderConfirmQuit()`, Quit calls `onAction('quit')`, Resume calls `onAction('resume')`.
 
-- [ ] **Step 3: Wire pause menu in main.ts**
+- [x] **Step 3: Wire pause menu in main.ts**
 
 Import the PauseMenu:
 ```typescript
@@ -655,7 +655,7 @@ In the `update()` function, add `&& !isPaused` to the game condition:
   if (session && stateMachine.current === 'YourGame' && !isPaused) {
 ```
 
-- [ ] **Step 4: Run tests + build, commit**
+- [x] **Step 4: Run tests + build, commit**
 
 Run: `npx vitest run && npx vite build`
 Commit: `git commit -am "feat: pause menu (ESC), updated controls screen, shared controls data"`

@@ -1,36 +1,47 @@
 import * as THREE from 'three';
 import { createHoop } from './hoop';
+import { levelConfig } from '@/dev/level-config';
 
+/**
+ * Live getter facade backed by `levelConfig`. Reads return fresh values each
+ * access, so edits in the dev overlay / level editor take effect on the next
+ * court build without any cache invalidation.
+ *
+ * `hoopHome` / `hoopAway` return a **new** Vector3 per call — callers that
+ * mutate the vector (or expect identity equality) should `.clone()` explicitly
+ * if needed; existing callers (`game-session.ts`) already do.
+ */
 export const FULL_COURT_DIMENSIONS = {
-  width: 15,
-  length: 28,
-  threePointRadius: 6.75,
-  hoopHome: new THREE.Vector3(0, 3.05, -13),
-  hoopAway: new THREE.Vector3(0, 3.05, 13),
-  paintWidth: 3.6,
-  paintLength: 5.8,
-  centerCircleRadius: 1.8,
-  checkBallLine: 5,
-};
+  get width() { return levelConfig.court.width; },
+  get length() { return levelConfig.court.length; },
+  get threePointRadius() { return levelConfig.court.threePointRadius; },
+  get hoopHome() { return new THREE.Vector3(0, levelConfig.hoop.rimHeight, levelConfig.hoop.homeZ); },
+  get hoopAway() { return new THREE.Vector3(0, levelConfig.hoop.rimHeight, levelConfig.hoop.awayZ); },
+  get paintWidth() { return levelConfig.court.paintWidth; },
+  get paintLength() { return levelConfig.court.paintLength; },
+  get centerCircleRadius() { return levelConfig.court.centerCircleRadius; },
+  get checkBallLine() { return levelConfig.court.checkBallLine; },
+} as const;
 
 export function createFullCourt(homeColor: number, awayColor: number): THREE.Group {
   const group = new THREE.Group();
   const D = FULL_COURT_DIMENSIONS;
-  const lineHeight = 0.02;
-  const lineMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+  const lineHeight = levelConfig.court.lineHeight;
+  const lineMat = new THREE.MeshStandardMaterial({ color: levelConfig.colors.line });
 
   // ---- FLOOR ----
   const floorGeo = new THREE.PlaneGeometry(D.width, D.length);
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0xe8b960, roughness: 0.8 });
+  const floorMat = new THREE.MeshStandardMaterial({ color: levelConfig.colors.floor, roughness: 0.8 });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.name = 'floor';
   group.add(floor);
 
-  // Plank lines (subtle darker stripes every 0.5m)
-  for (let x = -D.width / 2; x <= D.width / 2; x += 0.5) {
+  // Plank lines (subtle darker stripes)
+  const stripeSpacing = levelConfig.court.plankStripeSpacing;
+  for (let x = -D.width / 2; x <= D.width / 2; x += stripeSpacing) {
     const plankGeo = new THREE.BoxGeometry(0.01, 0.001, D.length);
-    const plankMat = new THREE.MeshStandardMaterial({ color: 0xd4a84b });
+    const plankMat = new THREE.MeshStandardMaterial({ color: levelConfig.colors.plankStripe });
     const plank = new THREE.Mesh(plankGeo, plankMat);
     plank.position.set(x, 0.001, 0);
     group.add(plank);
@@ -54,7 +65,7 @@ export function createFullCourt(homeColor: number, awayColor: number): THREE.Gro
     ));
   }
   const ccGeo = new THREE.BufferGeometry().setFromPoints(ccPoints);
-  const ccLine = new THREE.Line(ccGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
+  const ccLine = new THREE.Line(ccGeo, new THREE.LineBasicMaterial({ color: levelConfig.colors.line }));
   ccLine.name = 'center-circle';
   group.add(ccLine);
 
@@ -84,8 +95,8 @@ export function createFullCourt(homeColor: number, awayColor: number): THREE.Gro
 
   // ---- THREE-POINT ARCS + PAINT for each end ----
   const ends: { suffix: string; hoopZ: number; dir: number; color: number }[] = [
-    { suffix: 'home', hoopZ: D.hoopHome.z, dir: 1, color: homeColor },
-    { suffix: 'away', hoopZ: D.hoopAway.z, dir: -1, color: awayColor },
+    { suffix: 'home', hoopZ: levelConfig.hoop.homeZ, dir: 1, color: homeColor },
+    { suffix: 'away', hoopZ: levelConfig.hoop.awayZ, dir: -1, color: awayColor },
   ];
 
   for (const end of ends) {
@@ -100,7 +111,7 @@ export function createFullCourt(homeColor: number, awayColor: number): THREE.Gro
       ));
     }
     const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPoints);
-    const arc = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
+    const arc = new THREE.Line(arcGeo, new THREE.LineBasicMaterial({ color: levelConfig.colors.line }));
     arc.name = `three-point-arc-${end.suffix}`;
     group.add(arc);
 
@@ -133,13 +144,13 @@ export function createFullCourt(homeColor: number, awayColor: number): THREE.Gro
       ));
     }
     const ftCircleGeo = new THREE.BufferGeometry().setFromPoints(ftCirclePoints);
-    const ftCircle = new THREE.Line(ftCircleGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
+    const ftCircle = new THREE.Line(ftCircleGeo, new THREE.LineBasicMaterial({ color: levelConfig.colors.line }));
     ftCircle.name = `free-throw-circle-${end.suffix}`;
     group.add(ftCircle);
 
     // Hoop
     const hoop = createHoop(
-      new THREE.Vector3(0, D.hoopHome.y, end.hoopZ),
+      new THREE.Vector3(0, levelConfig.hoop.rimHeight, end.hoopZ),
       end.color
     );
     hoop.name = `hoop-${end.suffix}`;
@@ -151,11 +162,15 @@ export function createFullCourt(homeColor: number, awayColor: number): THREE.Gro
   }
 
   // ---- LIGHTING ----
-  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  const ambient = new THREE.AmbientLight(0xffffff, levelConfig.lighting.ambientIntensity);
   ambient.name = 'ambient-light';
   group.add(ambient);
-  const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  mainLight.position.set(5, 20, 0);
+  const mainLight = new THREE.DirectionalLight(0xffffff, levelConfig.lighting.directionalIntensity);
+  mainLight.position.set(
+    levelConfig.lighting.directionalX,
+    levelConfig.lighting.directionalY,
+    levelConfig.lighting.directionalZ,
+  );
   mainLight.name = 'main-light';
   group.add(mainLight);
 

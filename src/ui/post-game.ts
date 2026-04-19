@@ -1,6 +1,12 @@
 import type { GameOverData } from '@/core/types';
 import { MenuNavigator } from './menu-navigator';
 
+export interface PostGameContext {
+  mode: 'quick' | 'tournament' | 'tournament-end';
+  isChampion?: boolean;
+  championName?: string;
+}
+
 export class PostGameUI {
   private container: HTMLElement;
   private onAction: (action: string) => void;
@@ -16,7 +22,7 @@ export class PostGameUI {
     this.navigator = nav;
   }
 
-  show(data: GameOverData): void {
+  show(data: GameOverData, ctx: PostGameContext = { mode: 'quick' }): void {
     this.hide();
     this.container.style.pointerEvents = 'auto';
 
@@ -41,11 +47,15 @@ export class PostGameUI {
     // Result headline
     const headline = document.createElement('div');
     headline.dataset.role = 'result-headline';
-    headline.textContent = data.humanWon ? 'YOU WIN!' : 'YOU LOSE';
+    if (ctx.mode === 'tournament-end') {
+      headline.textContent = `CHAMPION: ${ctx.championName ?? '???'}`;
+    } else {
+      headline.textContent = data.humanWon ? 'YOU WIN!' : 'YOU LOSE';
+    }
     Object.assign(headline.style, {
       fontSize: '64px',
       fontWeight: 'bold',
-      color: data.humanWon ? '#4caf50' : '#f44336',
+      color: ctx.mode === 'tournament-end' ? '#ffc107' : (data.humanWon ? '#4caf50' : '#f44336'),
       marginBottom: '16px',
     });
     this.overlay.appendChild(headline);
@@ -141,10 +151,7 @@ export class PostGameUI {
       gap: '16px',
     });
 
-    const playAgainBtn = document.createElement('button');
-    playAgainBtn.textContent = 'PLAY AGAIN';
-    playAgainBtn.dataset.action = 'play-again';
-    Object.assign(playAgainBtn.style, {
+    const primaryStyle = {
       padding: '12px 32px',
       fontSize: '18px',
       fontWeight: 'bold',
@@ -153,9 +160,23 @@ export class PostGameUI {
       cursor: 'pointer',
       background: '#4caf50',
       color: '#ffffff',
-    });
-    playAgainBtn.addEventListener('click', () => this.onAction('play-again'));
-    buttonRow.appendChild(playAgainBtn);
+    } as const;
+
+    if (ctx.mode === 'quick') {
+      const playAgainBtn = document.createElement('button');
+      playAgainBtn.textContent = 'PLAY AGAIN';
+      playAgainBtn.dataset.action = 'play-again';
+      Object.assign(playAgainBtn.style, primaryStyle);
+      playAgainBtn.addEventListener('click', () => this.onAction('play-again'));
+      buttonRow.appendChild(playAgainBtn);
+    } else if (ctx.mode === 'tournament') {
+      const continueBtn = document.createElement('button');
+      continueBtn.textContent = ctx.isChampion ? 'VIEW CHAMPION' : 'VIEW BRACKET';
+      continueBtn.dataset.action = 'tournament-continue';
+      Object.assign(continueBtn.style, primaryStyle);
+      continueBtn.addEventListener('click', () => this.onAction('tournament-continue'));
+      buttonRow.appendChild(continueBtn);
+    }
 
     const menuBtn = document.createElement('button');
     menuBtn.textContent = 'MAIN MENU';

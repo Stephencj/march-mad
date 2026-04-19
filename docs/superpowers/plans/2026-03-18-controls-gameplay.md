@@ -1,6 +1,6 @@
 # Controls & Gameplay Polish — Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Fix passing reliability, add charge-up shooting with shot detection fix, add Controls menu, add FOUL! splash text.
 
@@ -21,7 +21,7 @@
 - Modify: `src/game/game-session.ts`
 - Modify: `src/game/controls.ts` (add 'charge-start' to GestureType — needed for Task 2 but the type change is here)
 
-- [ ] **Step 1: Increase pass speed and arrival threshold in ball.ts**
+- [x] **Step 1: Increase pass speed and arrival threshold in ball.ts**
 
 In `src/game/ball.ts`, change line 13:
 ```typescript
@@ -41,7 +41,7 @@ To:
       if (dist < 1.0) {
 ```
 
-- [ ] **Step 2: Remove `passProtectionTimer` field, use `pendingPassTarget` for protection**
+- [x] **Step 2: Remove `passProtectionTimer` field, use `pendingPassTarget` for protection**
 
 In `src/game/game-session.ts`:
 
@@ -62,7 +62,7 @@ Remove `this.passProtectionTimer = 0.3;` from both locations where it's set:
 - In the pass gesture handler (~line 614)
 - In `handleBallHandlerAI()` (~line 947)
 
-- [ ] **Step 3: Rewrite `checkBallPickup()` — use `pendingPassTarget` as protection**
+- [x] **Step 3: Rewrite `checkBallPickup()` — use `pendingPassTarget` as protection**
 
 Replace the pass protection check inside `checkBallPickup()`. The current code checks `this.passProtectionTimer > 0 && this.pendingPassTarget`. Change it to just check `this.pendingPassTarget`:
 
@@ -86,7 +86,7 @@ Replace with:
 
 Also remove the `this.passProtectionTimer = 0;` line at the end of `checkBallPickup()` (~line 1042).
 
-- [ ] **Step 4: Restructure `attemptSteal()` for pass deflection**
+- [x] **Step 4: Restructure `attemptSteal()` for pass deflection**
 
 Replace the entire `attemptSteal()` method in `src/game/game-session.ts`:
 
@@ -132,7 +132,7 @@ Replace the entire `attemptSteal()` method in `src/game/game-session.ts`:
   }
 ```
 
-- [ ] **Step 5: Add 'charge-start' to GestureType**
+- [x] **Step 5: Add 'charge-start' to GestureType**
 
 In `src/game/controls.ts`, line 9:
 ```typescript
@@ -143,12 +143,12 @@ Change to:
 export type GestureType = 'swipe-up' | 'pass' | 'tap' | 'swipe-down' | 'double-tap' | 'jump' | 'charge-start';
 ```
 
-- [ ] **Step 6: Run tests + build**
+- [x] **Step 6: Run tests + build**
 
 Run: `npx vitest run && npx vite build`
 Expected: All pass, build succeeds
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```
 git add src/game/ball.ts src/game/game-session.ts src/game/controls.ts
@@ -162,7 +162,7 @@ git commit -m "fix: reliable passing — faster speed, full-flight protection, a
 **Files:**
 - Modify: `src/game/game-session.ts`
 
-- [ ] **Step 1: Add foul event listener**
+- [x] **Step 1: Add foul event listener**
 
 In `src/game/game-session.ts`, in the constructor, after the shot-clock-violation listener (~line 73), add:
 
@@ -172,11 +172,11 @@ In `src/game/game-session.ts`, in the constructor, after the shot-clock-violatio
     });
 ```
 
-- [ ] **Step 2: Run tests + build**
+- [x] **Step 2: Run tests + build**
 
 Run: `npx vitest run && npx vite build`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```
 git add src/game/game-session.ts
@@ -199,7 +199,7 @@ git commit -m "feat: FOUL! splash text on foul events"
 - Modify: `src/ui/hud.ts` — add charge bar element
 - Modify: `src/main.ts` — pass charge state to HUD
 
-- [ ] **Step 1: Add `isCharging` and `chargeTimer` to player.ts**
+- [x] **Step 1: Add `isCharging` and `chargeTimer` to player.ts**
 
 In `src/game/player.ts`, find the public properties section (near the top, with `hasBall`, `isHumanControlled`, `isSprinting`, etc.) and add:
 
@@ -208,7 +208,7 @@ In `src/game/player.ts`, find the public properties section (near the top, with 
   chargeTimer = 0;
 ```
 
-- [ ] **Step 2: Update keyboard-controls.ts — charge-start on keydown, longer charge on keyup**
+- [x] **Step 2: Update keyboard-controls.ts — charge-start on keydown, longer charge on keyup**
 
 In `src/game/keyboard-controls.ts`, replace the Space handling in `handleKeyDown` (line 15-16):
 
@@ -235,7 +235,7 @@ To:
       const power = Math.min(holdTime / 1500, 1);
 ```
 
-- [ ] **Step 3: Handle charge-start in game-session.ts handleGesture()**
+- [x] **Step 3: Handle charge-start in game-session.ts handleGesture()**
 
 In `src/game/game-session.ts`, in `handleGesture()`, add a new case before `case 'swipe-up'`:
 
@@ -295,7 +295,7 @@ Add a new field to the class properties (~line 55):
   private lastChargeMultiplier = 1.0;
 ```
 
-- [ ] **Step 4: Lock player movement while charging**
+- [x] **Step 4: Lock player movement while charging**
 
 In `src/game/game-session.ts`, in `processInput()` (~line 380), after getting the human player, add a charging update block BEFORE the movement code:
 
@@ -314,7 +314,7 @@ In `src/game/game-session.ts`, in `processInput()` (~line 380), after getting th
 
 Insert this right after line 383 (`if (!human) return;`) and before the joystick transform code.
 
-- [ ] **Step 5: Pass chargeMultiplier to shot accuracy**
+- [x] **Step 5: Pass chargeMultiplier to shot accuracy**
 
 In `src/game/game-session.ts`, where `calculateShotSuccess` is called (~line 269), change:
 
@@ -338,7 +338,7 @@ To:
         this.lastChargeMultiplier = 1.0; // reset after use
 ```
 
-- [ ] **Step 6: Add chargeMultiplier to shot-accuracy.ts**
+- [x] **Step 6: Add chargeMultiplier to shot-accuracy.ts**
 
 In `src/game/shot-accuracy.ts`, add the field to ShotContext (line 5):
 
@@ -362,7 +362,7 @@ Apply the multiplier after the contest penalty, before the final clamp (~line 43
   baseAccuracy = Math.max(0.02, Math.min(0.98, baseAccuracy));
 ```
 
-- [ ] **Step 7: Fix shot detection — synthetic velocity in ball.ts**
+- [x] **Step 7: Fix shot detection — synthetic velocity in ball.ts**
 
 In `src/game/ball.ts`, change arc steps from 30 to 60 in `calculateArc()` (~line 58):
 
@@ -416,7 +416,7 @@ With:
     }
 ```
 
-- [ ] **Step 8: Widen shot detector tolerances + logging**
+- [x] **Step 8: Widen shot detector tolerances + logging**
 
 In `src/game/shot-detector.ts`, replace the detection check (~line 43):
 
@@ -433,7 +433,7 @@ With:
     if (horizontalDist <= 0.8 && verticalDist <= 1.0 && ballVelocity.y < 0) {
 ```
 
-- [ ] **Step 9: AI defenders jump when human is charging**
+- [x] **Step 9: AI defenders jump when human is charging**
 
 In `src/game/game-session.ts`, in `runAI()`, inside the defense branch (after `target = this.getZoneDefensePosition(...)` ~line 774), add:
 
@@ -448,7 +448,7 @@ In `src/game/game-session.ts`, in `runAI()`, inside the defense branch (after `t
         }
 ```
 
-- [ ] **Step 10: Add charge bar to HUD**
+- [x] **Step 10: Add charge bar to HUD**
 
 In `src/ui/hud.ts`, add a new element in the constructor, after the existing elements:
 
@@ -496,7 +496,7 @@ Add an update method:
   }
 ```
 
-- [ ] **Step 11: Wire charge bar in main.ts**
+- [x] **Step 11: Wire charge bar in main.ts**
 
 In `src/main.ts`, in the `update()` function, after the HUD clock/score updates (~line 306), add:
 
@@ -508,16 +508,16 @@ In `src/main.ts`, in the `update()` function, after the HUD clock/score updates 
     }
 ```
 
-- [ ] **Step 12: Expose `getHumanPlayer()` charge state**
+- [x] **Step 12: Expose `getHumanPlayer()` charge state**
 
 `getHumanPlayer()` is already public in game-session.ts. `isCharging` and `chargeTimer` are public on GamePlayer. No changes needed — just verify main.ts can access them.
 
-- [ ] **Step 13: Run all tests + build**
+- [x] **Step 13: Run all tests + build**
 
 Run: `npx vitest run && npx vite build`
 Expected: All pass, build succeeds
 
-- [ ] **Step 14: Commit**
+- [x] **Step 14: Commit**
 
 ```
 git add src/game/ball.ts src/game/game-session.ts src/game/keyboard-controls.ts src/game/shot-detector.ts src/game/shot-accuracy.ts src/game/player.ts src/ui/hud.ts src/main.ts
@@ -533,7 +533,7 @@ git commit -m "feat: charge-up shooting with accuracy bonus, fix shot detection 
 **Files:**
 - Modify: `src/ui/menus.ts`
 
-- [ ] **Step 1: Add Controls button to main menu**
+- [x] **Step 1: Add Controls button to main menu**
 
 In `src/ui/menus.ts`, in `renderMainMenu()`, after the Full Game button (~line 133), add:
 
@@ -543,7 +543,7 @@ In `src/ui/menus.ts`, in `renderMainMenu()`, after the Full Game button (~line 1
 
 This uses the existing `'settings'` action which routes to `renderSettings()`.
 
-- [ ] **Step 2: Redesign settings screen with controls reference**
+- [x] **Step 2: Redesign settings screen with controls reference**
 
 Replace the entire `renderSettings()` method (~lines 184-207):
 
@@ -612,11 +612,11 @@ Replace the entire `renderSettings()` method (~lines 184-207):
   }
 ```
 
-- [ ] **Step 3: Run tests + build**
+- [x] **Step 3: Run tests + build**
 
 Run: `npx vitest run && npx vite build`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```
 git add src/ui/menus.ts

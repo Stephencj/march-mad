@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { levelConfig } from '@/dev/level-config';
 
 export function createHoop(position: THREE.Vector3, teamColor: number): THREE.Group {
   const group = new THREE.Group();
@@ -6,6 +7,9 @@ export function createHoop(position: THREE.Vector3, teamColor: number): THREE.Gr
   group.position.copy(position);
 
   const poleMat = new THREE.MeshStandardMaterial({ color: teamColor });
+  const bbW = levelConfig.hoop.backboardWidth;
+  const bbH = levelConfig.hoop.backboardHeight;
+  const rimR = levelConfig.hoop.rimRadius;
 
   // Chunky pole — extends from floor up to rim height
   const poleHeight = position.y + 0.5;
@@ -22,8 +26,8 @@ export function createHoop(position: THREE.Vector3, teamColor: number): THREE.Gr
   base.name = 'pole-base';
   group.add(base);
 
-  // Oversized backboard (1.5x: 2.7 × 1.58)
-  const bbGeo = new THREE.BoxGeometry(2.7, 1.58, 0.06);
+  // Backboard
+  const bbGeo = new THREE.BoxGeometry(bbW, bbH, 0.06);
   const bbMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.75 });
   const backboard = new THREE.Mesh(bbGeo, bbMat);
   backboard.position.set(0, 0.45, -0.2); // relative to rim height
@@ -33,25 +37,25 @@ export function createHoop(position: THREE.Vector3, teamColor: number): THREE.Gr
   // Backboard frame (4 colored edges)
   const frameMat = new THREE.MeshStandardMaterial({ color: teamColor });
   const frameThick = 0.08;
-  const frameTop = new THREE.Mesh(new THREE.BoxGeometry(2.7 + frameThick * 2, frameThick, frameThick), frameMat);
-  frameTop.position.set(0, 0.45 + 1.58 / 2, -0.2);
+  const frameTop = new THREE.Mesh(new THREE.BoxGeometry(bbW + frameThick * 2, frameThick, frameThick), frameMat);
+  frameTop.position.set(0, 0.45 + bbH / 2, -0.2);
   frameTop.name = 'frame-top';
   group.add(frameTop);
   const frameBot = frameTop.clone();
-  frameBot.position.y = 0.45 - 1.58 / 2;
+  frameBot.position.y = 0.45 - bbH / 2;
   frameBot.name = 'frame-bottom';
   group.add(frameBot);
-  const frameSide = new THREE.Mesh(new THREE.BoxGeometry(frameThick, 1.58, frameThick), frameMat);
-  frameSide.position.set(-2.7 / 2, 0.45, -0.2);
+  const frameSide = new THREE.Mesh(new THREE.BoxGeometry(frameThick, bbH, frameThick), frameMat);
+  frameSide.position.set(-bbW / 2, 0.45, -0.2);
   frameSide.name = 'frame-left';
   group.add(frameSide);
   const frameRight = frameSide.clone();
-  frameRight.position.x = 2.7 / 2;
+  frameRight.position.x = bbW / 2;
   frameRight.name = 'frame-right';
   group.add(frameRight);
 
-  // Oversized rim (radius 0.35) — at group origin (0,0,0)
-  const rimGeo = new THREE.TorusGeometry(0.35, 0.04, 8, 16);
+  // Rim — at group origin (0,0,0)
+  const rimGeo = new THREE.TorusGeometry(rimR, 0.04, 8, 16);
   const rimMat = new THREE.MeshStandardMaterial({ color: 0xff4500 });
   const rim = new THREE.Mesh(rimGeo, rimMat);
   rim.rotation.x = -Math.PI / 2;
@@ -60,7 +64,7 @@ export function createHoop(position: THREE.Vector3, teamColor: number): THREE.Gr
   group.add(rim);
 
   // Net (inverted cone below rim)
-  const netGeo = new THREE.ConeGeometry(0.35, 0.45, 12, 1, true);
+  const netGeo = new THREE.ConeGeometry(rimR, 0.45, 12, 1, true);
   const netMat = new THREE.MeshStandardMaterial({
     color: 0xffffff, transparent: true, opacity: 0.4,
     side: THREE.DoubleSide, wireframe: true,

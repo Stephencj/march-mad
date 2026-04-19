@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { GamePlayer } from './game/player';
 import { Ball } from './game/ball';
 import { createHoop } from './game/hoop';
@@ -585,4 +586,28 @@ colorInput.addEventListener('input', () => {
   const color = parseInt(colorInput.value.replace('#', ''), 16);
   const pos = (document.getElementById('position') as HTMLSelectElement).value as Position | '';
   createPlayer(color, parseInt(hairSelect.value), pos || undefined);
+});
+
+// Export Player GLB — snapshots the current player mesh for inspection in Blender.
+// Edits in Blender don't flow back; the procedural code rebuilds the player on every match.
+document.getElementById('export-glb')?.addEventListener('click', () => {
+  if (!player) return;
+  const exporter = new GLTFExporter();
+  exporter.parse(
+    player.group,
+    (result) => {
+      const blob = new Blob([result as ArrayBuffer], { type: 'model/gltf-binary' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'march-mad-player.glb';
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    (err) => {
+      console.error('GLB export failed:', err);
+      alert('GLB export failed: ' + (err instanceof Error ? err.message : String(err)));
+    },
+    { binary: true },
+  );
 });

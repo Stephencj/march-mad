@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { GameLoop } from './core/game-loop';
 import { gameEvents } from './core/events';
 import { GameStateMachine, type StateTransition } from './core/state-machine';
-import { createCourt } from './game/court';
 import { createFullCourt, FULL_COURT_DIMENSIONS } from './game/full-court';
 import { GameSession } from './game/game-session';
 import { GamePlayer } from './game/player';
@@ -13,20 +12,23 @@ import { CrowdSystem } from './systems/crowd';
 import { SubInSystem } from './systems/sub-in';
 import { BettingSystem } from './meta/betting';
 import { Tournament } from './meta/tournament';
+import { TournamentController } from './meta/tournament-controller';
 import { DraftSystem } from './meta/draft';
 import { ProgressionSystem } from './meta/progression';
 import { SaveSystem } from './meta/save';
 import { generateTeams } from './data/teams';
+import type { TeamData, TournamentTier } from './core/types';
 import { HUD } from './ui/hud';
 import { MenuUI } from './ui/menus';
 import { BracketViewUI } from './ui/bracket-view';
 import { BettingUI } from './ui/betting-ui';
 import { PlayerCreatorUI } from './ui/player-creator';
 import { DraftUI } from './ui/draft-ui';
-import { PostGameUI } from './ui/post-game';
+import { PostGameUI, type PostGameContext } from './ui/post-game';
 import { PauseMenu } from '@/ui/pause-menu';
 import { MenuNavigator } from './ui/menu-navigator';
 import { FreeplayPanel } from './ui/freeplay-panel';
+import { DevOverlay } from './dev/dev-overlay';
 
 const focusStyle = document.createElement('style');
 focusStyle.textContent = `.menu-focused { outline: 2px solid #e94560 !important; outline-offset: 4px; box-shadow: 0 0 10px rgba(233, 69, 96, 0.5); }`;
@@ -58,7 +60,9 @@ const transitions: StateTransition[] = [
   { from: 'MainMenu', to: 'YourGame' },
   { from: 'PlayerCreation', to: 'MainMenu' },
   { from: 'TournamentSelect', to: 'DraftPhase' },
+  { from: 'TournamentSelect', to: 'BracketView' },
   { from: 'DraftPhase', to: 'BracketView' },
+  { from: 'MainMenu', to: 'BracketView' },
   { from: 'BracketView', to: 'YourGame' },
   { from: 'BracketView', to: 'Spectating' },
   { from: 'YourGame', to: 'PostGame' },
@@ -80,7 +84,7 @@ const transitions: StateTransition[] = [
 export const stateMachine = new GameStateMachine(transitions);
 
 // --- Scene Objects ---
-const court = createCourt();
+const court = createFullCourt(0xe94560, 0x3498db);
 scene.add(court);
 let currentCourt: THREE.Group = court;
 
@@ -130,6 +134,11 @@ document.addEventListener('touchend', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Tab' || e.code === 'Escape') e.preventDefault();
+  if (e.code === 'F1') {
+    e.preventDefault();
+    devOverlay.toggle();
+    return;
+  }
   if (e.code === 'Backquote' && stateMachine.current === 'Freeplay') {
     freeplayPanel?.toggle();
     return;
@@ -181,12 +190,27 @@ postGameContainer.id = 'postgame-container';
 postGameContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
 uiOverlay.appendChild(postGameContainer);
 
+const bracketContainer = document.createElement('div');
+bracketContainer.id = 'bracket-container';
+bracketContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+uiOverlay.appendChild(bracketContainer);
+
+const devContainer = document.createElement('div');
+devContainer.id = 'dev-container';
+devContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+uiOverlay.appendChild(devContainer);
+const devOverlay = new DevOverlay(devContainer);
+
 // Create UIs with their OWN containers
 const hud = new HUD(hudContainer);
 const menuUI = new MenuUI(menuContainer, handleMenuAction);
 menuUI.setNavigator(menuNavigator);
 const postGameUI = new PostGameUI(postGameContainer, handlePostGameAction);
 postGameUI.setNavigator(menuNavigator);
+const bracketViewUI = new BracketViewUI(bracketContainer, (match) => enterTournamentMatch(match.id));
+bracketViewUI.setNavigator(menuNavigator);
+
+let tournamentController: TournamentController | null = null;
 
 let isPaused = false;
 const pauseMenu = new PauseMenu(pauseContainer, (action) => {
@@ -216,7 +240,20 @@ let freeplayPanel: FreeplayPanel | null = null;
 function handlePostGameAction(action: string) {
   if (action === 'play-again') {
     postGameUI.hide();
-    startMainGame();
+    startQuickMatch(300);
+  }
+  if (action === 'tournament-continue') {
+    postGameUI.hide();
+    if (tournamentController?.champion) {
+      // Keep session alive so TournamentEnd can pull final stats.
+      stateMachine.transition('TournamentEnd');
+    } else {
+      if (session) {
+        session.removeFromScene(scene);
+        session = null;
+      }
+      stateMachine.transition('BracketView');
+    }
   }
   if (action === 'menu') {
     postGameUI.hide();
@@ -226,30 +263,13 @@ function handlePostGameAction(action: string) {
   }
 }
 
-function startQuickGame(): void {
-  if (session) {
-    session.removeFromScene(scene);
-  }
-  // Ensure half court is active
-  scene.remove(currentCourt);
-  const halfCourt = createCourt();
-  scene.add(halfCourt);
-  currentCourt = halfCourt;
-  GamePlayer.courtBoundsZ = [-6.5, 6.5];
-  cameraSystem.fullCourt = false;
-
-  const teams = generateTeams();
-  session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id);
-  session.addToScene(scene);
-  session.setCameraRef(camera);
-  session.setHapticManager(hapticManager);
-  session.start();
-  stateMachine.transition('YourGame');
-  hud.updateScore(0, 0);
-  hud.updateClock(180);
+interface StartMatchOptions {
+  homeTeam: TeamData;
+  awayTeam: TeamData;
+  clockSeconds: number;
 }
 
-function startMainGame(clockSeconds = 300): void {
+function startMainGame(opts: StartMatchOptions): void {
   if (session) {
     session.removeFromScene(scene);
   }
@@ -261,16 +281,33 @@ function startMainGame(clockSeconds = 300): void {
   GamePlayer.courtBoundsZ = [-13.5, 13.5];
   cameraSystem.fullCourt = true;
 
-  const teams = generateTeams(5);
-  session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id, '5v5');
+  session = new GameSession(gameEvents, opts.homeTeam, opts.awayTeam, opts.homeTeam.players[0].id, '5v5');
   session.addToScene(scene);
   session.setCameraRef(camera);
   session.setHapticManager(hapticManager);
   session.start();
   stateMachine.transition('YourGame');
   hud.updateScore(0, 0);
-  hud.updateClock(clockSeconds);
-  session.matchEngine.state.clockSeconds = clockSeconds;
+  hud.updateClock(opts.clockSeconds);
+  session.matchEngine.state.clockSeconds = opts.clockSeconds;
+}
+
+/** Wrap startMainGame for non-tournament callers that want auto-generated teams. */
+function startQuickMatch(clockSeconds: number): void {
+  const teams = generateTeams(5);
+  startMainGame({ homeTeam: teams[0], awayTeam: teams[1], clockSeconds });
+}
+
+function enterTournamentMatch(matchId: string): void {
+  if (!tournamentController) return;
+  const ctx = tournamentController.enterMatch(matchId);
+  startMainGame({ homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam, clockSeconds: 180 });
+}
+
+function startTournament(tier: TournamentTier): void {
+  tournamentController?.dispose();
+  tournamentController = new TournamentController(tier);
+  stateMachine.transition('BracketView');
 }
 
 function startFreeplay(): void {
@@ -329,7 +366,7 @@ function startFreeplay(): void {
 
 function handleMenuAction(action: string, _data?: unknown) {
   if (action === 'play' || action === 'quick-play' || action === 'quick-game') {
-    startMainGame(180); // 3 minutes
+    startQuickMatch(180); // 3 minutes
   }
   if (action === 'tournament') {
     menuUI.show('tournament-select');
@@ -337,20 +374,18 @@ function handleMenuAction(action: string, _data?: unknown) {
   if (action === 'full-game') {
     menuUI.show('full-game-select');
   }
-  if (action === 'fullgame-8') startMainGame(8 * 60 * 4); // 4 quarters of 8 min
-  if (action === 'fullgame-10') startMainGame(10 * 60 * 4);
-  if (action === 'fullgame-12') startMainGame(12 * 60 * 4);
+  if (action === 'fullgame-8') startQuickMatch(8 * 60 * 4); // 4 quarters of 8 min
+  if (action === 'fullgame-10') startQuickMatch(10 * 60 * 4);
+  if (action === 'fullgame-12') startQuickMatch(12 * 60 * 4);
   if (action === 'back-to-main') menuUI.show('main');
   if (action === 'back') menuUI.show('main');
   if (action === 'settings') { /* settings */ }
   if (action === 'freeplay') {
     startFreeplay();
   }
-  // Tournament actions can be stubs for now
-  if (action.startsWith('tournament-')) {
-    // TODO: wire tournament flow
-    startMainGame(180); // placeholder
-  }
+  if (action === 'tournament-8') startTournament('casual');
+  if (action === 'tournament-16') startTournament('sweet16');
+  if (action === 'tournament-64') startTournament('season');
 }
 
 // --- State Machine Hooks ---
@@ -372,6 +407,7 @@ stateMachine.onExit('TournamentSelect', () => {
 
 stateMachine.onEnter('YourGame', () => {
   menuUI.hide();
+  hud.show();
 });
 
 stateMachine.onExit('Freeplay', () => {
@@ -383,6 +419,40 @@ stateMachine.onExit('Freeplay', () => {
 
 stateMachine.onEnter('PostGame', () => {
   // Game stops but HUD stays visible
+});
+
+stateMachine.onEnter('BracketView', () => {
+  if (!tournamentController) return;
+  bracketContainer.style.pointerEvents = 'auto';
+  hud.hide();
+  bracketViewUI.render(tournamentController.allMatches, tournamentController.currentRound);
+  const next = tournamentController.getNextHumanMatch();
+  if (next) bracketViewUI.focusMatch(next.id);
+});
+
+stateMachine.onExit('BracketView', () => {
+  bracketViewUI.hide();
+  bracketContainer.style.pointerEvents = 'none';
+});
+
+stateMachine.onEnter('TournamentEnd', () => {
+  const champ = tournamentController?.champion;
+  if (!champ || !session) {
+    stateMachine.transition('MainMenu');
+    return;
+  }
+  postGameUI.show(session.getGameOverData(), {
+    mode: 'tournament-end',
+    championName: champ.name,
+  });
+});
+
+// Cleanup tournament state when returning to MainMenu.
+stateMachine.onEnter('MainMenu', () => {
+  if (tournamentController) {
+    tournamentController.dispose();
+    tournamentController = null;
+  }
 });
 
 gameEvents.on('splash', (data: { text: string; color: string }) => {
@@ -397,6 +467,17 @@ gameEvents.on('powerup', () => hapticManager.onPowerupPickup());
 gameEvents.on('game-over', () => {
   if (!session) return;
   const data = session.getGameOverData();
+
+  if (tournamentController?.isActive) {
+    tournamentController.recordHumanResult(data.winner);
+    stateMachine.transition('PostGame');
+    postGameUI.show(data, {
+      mode: 'tournament',
+      isChampion: !!tournamentController.champion,
+    } satisfies PostGameContext);
+    return;
+  }
+
   stateMachine.transition('PostGame');
   postGameUI.show(data);
 });
@@ -500,6 +581,5 @@ void PlayerCreatorUI;
 void DraftUI;
 void progressionSystem;
 void saveSystem;
-void FULL_COURT_DIMENSIONS;
 
 console.log('March Madness 3v3 initialized — all systems wired');

@@ -101,4 +101,68 @@ describe('Tournament', () => {
     expect(round1[1].teamA.seed).toBe(2);
     expect(round1[1].teamB.seed).toBe(15);
   });
+
+  describe('simulateMatch', () => {
+    it('returns the lower-seeded team id and reports the result', () => {
+      const tourney = new Tournament('casual', makeTeams(8));
+      const r1 = tourney.getMatchesForRound(1);
+      const winnerId = tourney.simulateMatch(r1[0].id); // seed 1 vs seed 8
+      expect(winnerId).toBe('team-1');
+      expect(r1[0].winnerId).toBe('team-1');
+    });
+
+    it('is idempotent for an already-decided match', () => {
+      const tourney = new Tournament('casual', makeTeams(8));
+      const r1 = tourney.getMatchesForRound(1);
+      tourney.reportResult(r1[0].id, r1[0].teamB.id); // upset reported manually
+      const winnerId = tourney.simulateMatch(r1[0].id);
+      expect(winnerId).toBe(r1[0].teamB.id);
+    });
+
+    it('throws for an unknown match id', () => {
+      const tourney = new Tournament('casual', makeTeams(8));
+      expect(() => tourney.simulateMatch('r9-m9')).toThrow();
+    });
+  });
+
+  describe('simulateRemainingRoundMatches', () => {
+    it('resolves every other match in the same round, leaves the excluded one alone', () => {
+      const tourney = new Tournament('casual', makeTeams(8));
+      const r1 = tourney.getMatchesForRound(1);
+      const humanMatchId = r1[0].id;
+
+      tourney.simulateRemainingRoundMatches(humanMatchId);
+
+      expect(r1[0].winnerId).toBeNull();
+      for (const m of r1.slice(1)) {
+        expect(m.winnerId).not.toBeNull();
+        expect(m.winnerId).toBe(m.teamA.id); // lower seed wins
+      }
+    });
+
+    it('advances the round automatically once the excluded match is also resolved', () => {
+      const tourney = new Tournament('casual', makeTeams(8));
+      const r1 = tourney.getMatchesForRound(1);
+      const humanMatch = r1[0];
+
+      tourney.simulateRemainingRoundMatches(humanMatch.id);
+      tourney.reportResult(humanMatch.id, humanMatch.teamA.id);
+
+      const r2 = tourney.getMatchesForRound(2);
+      expect(r2).toHaveLength(2);
+    });
+
+    it('does not touch matches in other rounds', () => {
+      const tourney = new Tournament('casual', makeTeams(8));
+      const r1 = tourney.getMatchesForRound(1);
+      // Decide round 1 entirely so round 2 exists
+      for (const m of r1) tourney.reportResult(m.id, m.teamA.id);
+
+      const r2 = tourney.getMatchesForRound(2);
+      tourney.simulateRemainingRoundMatches(r2[0].id);
+
+      expect(r2[0].winnerId).toBeNull();
+      expect(r2[1].winnerId).not.toBeNull();
+    });
+  });
 });

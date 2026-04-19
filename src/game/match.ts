@@ -1,9 +1,6 @@
 import { MatchState, Possession, ShotType, TeamData, SHOT_POINTS } from '@/core/types';
 import { EventBus } from '@/core/events';
-
-const WIN_SCORE = 21;
-const ON_FIRE_DURATION = 15; // seconds
-const FOUL_POWERUP_CHARGE = 15;
+import { balanceConfig } from '@/dev/balance-config';
 
 interface OnFireState {
   active: boolean;
@@ -29,7 +26,7 @@ export class MatchEngine {
       possession: 'home',
       phase: 'playing',
       clockSeconds: 180,
-      shotClockSeconds: 24,
+      shotClockSeconds: balanceConfig.match.shotClock,
       powerupMeter: 0,
     };
   }
@@ -56,12 +53,13 @@ export class MatchEngine {
       this.state.awayScore += points;
     }
 
-    if (!this.freeplay) this.state.shotClockSeconds = 24;
+    if (!this.freeplay) this.state.shotClockSeconds = balanceConfig.match.shotClock;
 
     this.events.emit('score', { team, points, shotType });
 
     // Check win condition
-    if (this.state.homeScore >= WIN_SCORE || this.state.awayScore >= WIN_SCORE) {
+    const winScore = balanceConfig.match.winScore;
+    if (this.state.homeScore >= winScore || this.state.awayScore >= winScore) {
       this.endGame();
       return;
     }
@@ -92,7 +90,7 @@ export class MatchEngine {
     if (this.state.shotClockSeconds > 0) {
       this.state.shotClockSeconds -= dt;
       if (this.state.shotClockSeconds <= 0) {
-        this.state.shotClockSeconds = 24;
+        this.state.shotClockSeconds = balanceConfig.match.shotClock;
         const violatingTeam = this.state.possession;
         // Do NOT flip possession here — game-session handles it via the event
         this.events.emit('shot-clock-violation', { violatingTeam });
@@ -112,24 +110,24 @@ export class MatchEngine {
     // Possession change is handled by game-session via enterDeadBall()
 
     // Charge powerup meter
-    this.state.powerupMeter += FOUL_POWERUP_CHARGE;
+    this.state.powerupMeter += balanceConfig.match.foulPowerupCharge;
 
     this.events.emit('foul', { team });
   }
 
   activateOnFire(team: Possession): void {
     this.onFire[team].active = true;
-    this.onFire[team].timer = ON_FIRE_DURATION;
+    this.onFire[team].timer = balanceConfig.match.onFireDuration;
   }
 
   checkBallComplete(team: Possession): void {
     this.state.possession = team;
     this.state.phase = 'playing';
-    if (!this.freeplay) this.state.shotClockSeconds = 24;
+    if (!this.freeplay) this.state.shotClockSeconds = balanceConfig.match.shotClock;
   }
 
   resetShotClock(): void {
-    if (!this.freeplay) this.state.shotClockSeconds = 24;
+    if (!this.freeplay) this.state.shotClockSeconds = balanceConfig.match.shotClock;
   }
 
   getScoreDifferential(): { losingTeam: Possession; deficit: number } | null {

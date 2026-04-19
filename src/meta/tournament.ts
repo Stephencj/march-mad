@@ -86,6 +86,33 @@ export class Tournament {
     return this.matches.filter((m) => m.round === round);
   }
 
+  /** Get all matches across all built rounds. */
+  getAllMatches(): BracketMatch[] {
+    return [...this.matches];
+  }
+
+  /** Deterministically pick a winner: lower seed always wins. */
+  simulateMatch(matchId: string): string {
+    const match = this.matches.find((m) => m.id === matchId);
+    if (!match) throw new Error(`Match not found: ${matchId}`);
+    if (match.winnerId !== null) return match.winnerId;
+    const winner = match.teamA.seed <= match.teamB.seed ? match.teamA : match.teamB;
+    this.reportResult(matchId, winner.id);
+    return winner.id;
+  }
+
+  /** Resolve every still-undecided match in the same round as `excludeMatchId`. */
+  simulateRemainingRoundMatches(excludeMatchId: string): void {
+    const anchor = this.matches.find((m) => m.id === excludeMatchId);
+    if (!anchor) throw new Error(`Match not found: ${excludeMatchId}`);
+    const siblings = this.getMatchesForRound(anchor.round);
+    for (const m of siblings) {
+      if (m.winnerId === null && m.id !== excludeMatchId) {
+        this.simulateMatch(m.id);
+      }
+    }
+  }
+
   /** Whether the tournament is complete (has a champion). */
   get isComplete(): boolean {
     return this._champion !== null;

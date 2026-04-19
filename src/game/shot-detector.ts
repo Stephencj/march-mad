@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COURT_DIMENSIONS } from '@/game/court';
+import { FULL_COURT_DIMENSIONS } from '@/game/full-court';
 import { ShotType } from '@/core/types';
 
 export interface ShotCheckResult {
@@ -11,8 +11,8 @@ export class ShotDetector {
   private cooldown = 0;
   private hoopPosition: THREE.Vector3;
 
-  constructor(hoopPosition?: THREE.Vector3) {
-    this.hoopPosition = hoopPosition ?? COURT_DIMENSIONS.hoopPosition;
+  constructor(hoopPosition: THREE.Vector3) {
+    this.hoopPosition = hoopPosition;
   }
 
   setHoopPosition(pos: THREE.Vector3): void {
@@ -67,7 +67,7 @@ export class ShotDetector {
       return 'layup';
     }
 
-    if (dist < COURT_DIMENSIONS.threePointRadius) {
+    if (dist < FULL_COURT_DIMENSIONS.threePointRadius) {
       return 'mid-range';
     }
 

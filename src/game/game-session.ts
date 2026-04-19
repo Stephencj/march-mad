@@ -8,7 +8,6 @@ import { Ball } from './ball';
 import { MatchEngine } from './match';
 import { ShotDetector } from './shot-detector';
 import { PlayerAI, type AIContext } from '@/ai/player-ai';
-import { COURT_DIMENSIONS } from './court';
 import { FULL_COURT_DIMENSIONS } from './full-court';
 import { ProgressionSystem } from '@/meta/progression';
 import { PowerupSystem } from '@/systems/powerups';
@@ -84,21 +83,12 @@ export class GameSession {
       this.events.emit('splash', { text: 'FOUL!', color: '#ffaa00' });
     });
 
-    if (mode === '5v5') {
-      // Fixed per-team hoops — set once, NEVER change
-      this.homeAttackHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();  // z=+13
-      this.homeDefendHoop = FULL_COURT_DIMENSIONS.hoopHome.clone();  // z=-13
-      this.awayAttackHoop = FULL_COURT_DIMENSIONS.hoopHome.clone();  // z=-13
-      this.awayDefendHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();  // z=+13
-      this.shotDetector = new ShotDetector(this.homeAttackHoop);
-    } else {
-      // 3v3: single hoop
-      this.homeAttackHoop = COURT_DIMENSIONS.hoopPosition.clone();
-      this.homeDefendHoop = COURT_DIMENSIONS.hoopPosition.clone();
-      this.awayAttackHoop = COURT_DIMENSIONS.hoopPosition.clone();
-      this.awayDefendHoop = COURT_DIMENSIONS.hoopPosition.clone();
-      this.shotDetector = new ShotDetector();
-    }
+    // Fixed per-team hoops — set once, NEVER change
+    this.homeAttackHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();  // z=+13
+    this.homeDefendHoop = FULL_COURT_DIMENSIONS.hoopHome.clone();  // z=-13
+    this.awayAttackHoop = FULL_COURT_DIMENSIONS.hoopHome.clone();  // z=-13
+    this.awayDefendHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();  // z=+13
+    this.shotDetector = new ShotDetector(this.homeAttackHoop);
 
     // Spawn home team players
     const homeColor = parseInt(homeTeam.colors.primary.replace('#', ''), 16) || 0x3498db;

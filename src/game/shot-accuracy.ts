@@ -1,3 +1,5 @@
+import { balanceConfig } from '@/dev/balance-config';
+
 export interface ShotContext {
   distance: number;
   shootingStat: number;
@@ -14,26 +16,27 @@ export function calculateShotSuccess(ctx: ShotContext): boolean {
     return true;
   }
 
+  const accuracy = balanceConfig.shooting.baseAccuracy;
   let baseAccuracy: number;
   switch (ctx.shotType) {
     case 'layup':
-      baseAccuracy = 0.85;
+      baseAccuracy = accuracy.layup;
       break;
     case 'mid-range':
-      baseAccuracy = 0.55;
+      baseAccuracy = accuracy.midRange;
       break;
     case 'three-pointer':
-      baseAccuracy = 0.40;
+      baseAccuracy = accuracy.threePointer;
       break;
     default:
-      baseAccuracy = 0.50;
+      baseAccuracy = accuracy.default;
   }
 
   // Distance penalty: beyond normal range, accuracy drops
-  const normalRange = 8;
+  const normalRange = balanceConfig.shooting.normalRange;
   if (ctx.distance > normalRange) {
     const overshoot = (ctx.distance - normalRange) / normalRange;
-    baseAccuracy *= Math.max(0.05, 1 - overshoot * 1.2);
+    baseAccuracy *= Math.max(0.05, 1 - overshoot * balanceConfig.shooting.distancePenalty);
   }
 
   // Stat modifier: shooting stat 1-10 scales +/-30%
@@ -42,7 +45,7 @@ export function calculateShotSuccess(ctx: ShotContext): boolean {
 
   // Contest penalty: ONLY when defender is actively guarding AND close
   if (ctx.isDefenderGuarding && ctx.defenderDistance < 2) {
-    baseAccuracy *= 0.80; // -20% for active guard within 2u
+    baseAccuracy *= balanceConfig.shooting.contestPenalty;
   }
 
   // Charge multiplier (default 1.0 for AI, variable for human)

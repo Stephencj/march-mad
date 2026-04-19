@@ -1,6 +1,6 @@
 # Possession Authority + Camera Zoom + Auto-Switch — Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Fix possession desync bugs (teams driving to wrong basket), make camera zoom actually work, and auto-switch human control on rebound pickup.
 
@@ -21,7 +21,7 @@
 - Modify: `src/game/match.ts`
 - Test: `tests/game/possession-sync.test.ts`
 
-- [ ] **Step 1: Add `changePossession()` method and `passProtectionTimer` field to game-session.ts**
+- [x] **Step 1: Add `changePossession()` method and `passProtectionTimer` field to game-session.ts**
 
 In `src/game/game-session.ts`, add a new field after `private inboundTargetId` (line 58):
 
@@ -43,7 +43,7 @@ private changePossession(newTeam: 'home' | 'away', reason: string): void {
 }
 ```
 
-- [ ] **Step 2: Replace all direct `matchEngine.state.possession =` writes with `changePossession()`**
+- [x] **Step 2: Replace all direct `matchEngine.state.possession =` writes with `changePossession()`**
 
 There are 6 locations in game-session.ts that directly write possession. Replace each one:
 
@@ -153,7 +153,7 @@ With:
 ```
 And remove line 650 (`this.matchEngine.state.phase = 'playing';`) since it's now included above. Also remove the duplicate `this.aiShootTimer = 0;` on line 651 since `changePossession` handles it.
 
-- [ ] **Step 3: Fix `match.ts` — remove direct possession flip from shot clock violation**
+- [x] **Step 3: Fix `match.ts` — remove direct possession flip from shot clock violation**
 
 In `src/game/match.ts`, change the shot clock violation block (lines 92-97):
 
@@ -197,7 +197,7 @@ With:
     });
 ```
 
-- [ ] **Step 4: Fix `callFoul()` — enter dead ball after foul**
+- [x] **Step 4: Fix `callFoul()` — enter dead ball after foul**
 
 In `src/game/game-session.ts`, in `attemptSteal()`, after the `callFoul` call (line 1067):
 
@@ -219,7 +219,7 @@ With:
     }
 ```
 
-- [ ] **Step 5: Add pass protection timer**
+- [x] **Step 5: Add pass protection timer**
 
 In `src/game/game-session.ts`, wherever `pendingPassTarget` is set (two locations: the pass gesture handler ~line 590, and `handleBallHandlerAI` ~line 939), also set `passProtectionTimer = 0.3`:
 
@@ -241,7 +241,7 @@ In `update()`, tick the timer (add right after the inbound timer block, before t
     }
 ```
 
-- [ ] **Step 6: Rewrite `checkBallPickup()` — closest player wins, pass protection, auto-switch**
+- [x] **Step 6: Rewrite `checkBallPickup()` — closest player wins, pass protection, auto-switch**
 
 Replace the entire `checkBallPickup()` method:
 
@@ -288,7 +288,7 @@ Replace the entire `checkBallPickup()` method:
   }
 ```
 
-- [ ] **Step 7: Clean up dead code**
+- [x] **Step 7: Clean up dead code**
 
 Delete `updateDefensiveAutoSwitch()` (lines 963-986) — it's never called and the new auto-switch in `checkBallPickup()` replaces its intent.
 
@@ -308,12 +308,12 @@ This replaces:
             this.playerAIs.delete(teammate.data.id);
 ```
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 Run: `npx vitest run`
 Expected: All existing tests pass
 
-- [ ] **Step 9: Write new tests for possession authority**
+- [x] **Step 9: Write new tests for possession authority**
 
 Replace `tests/game/possession-sync.test.ts` with comprehensive tests:
 
@@ -424,17 +424,17 @@ describe('Possession Authority', () => {
 });
 ```
 
-- [ ] **Step 10: Run tests and verify**
+- [x] **Step 10: Run tests and verify**
 
 Run: `npx vitest run`
 Expected: All tests pass
 
-- [ ] **Step 11: Build check**
+- [x] **Step 11: Build check**
 
 Run: `npx vite build`
 Expected: Build succeeds
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```
 git add src/game/game-session.ts src/game/match.ts tests/game/possession-sync.test.ts
@@ -451,7 +451,7 @@ git commit -m "fix: centralize possession authority — eliminate desync bugs, a
 - Modify: `src/game/camera.ts`
 - Modify: `src/main.ts`
 
-- [ ] **Step 1: Fix `main.ts` — track actual X positions instead of hardcoding**
+- [x] **Step 1: Fix `main.ts` — track actual X positions instead of hardcoding**
 
 In `src/main.ts`, replace the player spread calculation block (lines 285-292):
 
@@ -482,7 +482,7 @@ With:
     cameraSystem.setPlayerBounds(minZ, maxZ, minX, maxX);
 ```
 
-- [ ] **Step 2: Fix `camera.ts` — adjust zoom constants for realistic spread**
+- [x] **Step 2: Fix `camera.ts` — adjust zoom constants for realistic spread**
 
 In `src/game/camera.ts`, replace the broadcast zoom calculation (lines 81-86):
 
@@ -506,12 +506,12 @@ With:
       const dynamicHeight = dynamicDist * 0.6; // proportional height
 ```
 
-- [ ] **Step 3: Build and verify**
+- [x] **Step 3: Build and verify**
 
 Run: `npx vite build`
 Expected: Build succeeds
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```
 git add src/game/camera.ts src/main.ts

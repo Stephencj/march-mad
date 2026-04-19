@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bash \"C:/Users/steph/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.2/skills/brainstorming/scripts/start-server.sh\" --project-dir \"C:/Users/steph/documents/march-mad\")",
+      "Bash(bash \"C:/Users/Stephen/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.2/skills/brainstorming/scripts/start-server.sh\" --project-dir \"C:/Users/Stephen/documents/march-mad\")",
       "Bash(curl:*)",
       "Bash(grep:*)",
       "Bash(npm init:*)",
@@ -14,7 +14,7 @@
       "Bash(npx vitest:*)",
       "Bash(npx tsc:*)",
       "Skill(commit-commands:commit)",
-      "Bash(find /c/Users/steph/Documents/march-mad/src -name *shot* -o -name *dunk*)",
+      "Bash(find /c/Users/Stephen/Documents/march-mad/src -name *shot* -o -name *dunk*)",
       "Bash(gh auth:*)",
       "Bash(gh repo:*)",
       "Bash(start:*)",

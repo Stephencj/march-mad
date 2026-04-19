@@ -29,5 +29,13 @@ export default defineConfig({
   ],
   build: {
     target: 'es2020',
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        'anim-viewer': path.resolve(__dirname, 'anim-viewer.html'),
+        'level-editor': path.resolve(__dirname, 'level-editor.html'),
+        'player-editor': path.resolve(__dirname, 'player-editor.html'),
+      },
+    },
   },
 });
