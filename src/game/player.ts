@@ -780,61 +780,56 @@ export class GamePlayer {
         const forearmR = this.group.getObjectByName('forearm-right');
         let forearmScale = 1;
 
+        const pst = animConfig.poses.steal;
         // Lower stance like guard
-        this.group.position.y = -0.05;
+        this.group.position.y = pst.stanceDropY;
 
         if (progress < 0.2) {
           const wind = progress / 0.2;
-          bodyPivot.rotation.x = 0.15; // guard-like forward lean
-          // Arm pulls to the right side
-          shoulderR.rotation.x = -0.3 * wind;
-          shoulderR.rotation.z = 0.8 * wind; // out to right
-          elbowR.rotation.x = -0.3 * wind;
+          bodyPivot.rotation.x = pst.windBodyPivotRotX;
+          shoulderR.rotation.x = pst.windShoulderRRotX * wind;
+          shoulderR.rotation.z = pst.windShoulderRRotZ * wind;
+          elbowR.rotation.x = pst.windElbowRRotX * wind;
           forearmScale = 1 + wind * 0.4;
-          // Torso twists away
-          bodyPivot.rotation.y = 0.3 * wind;
-          // Squash as body coils
-          bodyPivot.scale.set(1.05, 0.95, 1.05);
+          bodyPivot.rotation.y = pst.windBodyRotY * wind;
+          bodyPivot.scale.set(pst.windSquashX, pst.windSquashY, pst.windSquashX);
         } else if (progress < 0.55) {
           // HOLD: cocked back, big forearm, dramatic pause
-          bodyPivot.rotation.x = 0.2; // deeper lean during wind-up
-          shoulderR.rotation.x = -0.3;
-          shoulderR.rotation.z = 0.8;
-          elbowR.rotation.x = -0.3;
+          bodyPivot.rotation.x = pst.holdBodyPivotRotX;
+          shoulderR.rotation.x = pst.holdShoulderRRotX;
+          shoulderR.rotation.z = pst.holdShoulderRRotZ;
+          elbowR.rotation.x = pst.holdElbowRRotX;
           forearmScale = 1.6;
-          bodyPivot.rotation.y = 0.3;
-          // Compressed/coiled
-          bodyPivot.scale.set(1.06, 0.94, 1.06);
+          bodyPivot.rotation.y = pst.holdBodyRotY;
+          bodyPivot.scale.set(pst.holdSquashX, pst.holdSquashY, pst.holdSquashX);
         } else if (progress < 0.85) {
           // SWIPE: quick sweep from right to left, low
-          bodyPivot.rotation.x = 0.25; // lean INTO the swipe
+          bodyPivot.rotation.x = pst.swipeBodyPivotRotX;
           const swipe = (progress - 0.55) / 0.3;
-          shoulderR.rotation.x = -0.3 - swipe * 0.3;
-          shoulderR.rotation.z = 0.8 - swipe * 1.6; // right to left
-          elbowR.rotation.x = -0.3 + swipe * 0.1;
+          shoulderR.rotation.x = pst.swipeShoulderRXBase + swipe * pst.swipeShoulderRXSwing;
+          shoulderR.rotation.z = pst.swipeShoulderRZBase + swipe * pst.swipeShoulderRZSwing;
+          elbowR.rotation.x = pst.swipeElbowRXBase + swipe * pst.swipeElbowRXSwing;
           forearmScale = 1.6 - swipe * 0.4;
-          bodyPivot.rotation.y = 0.3 - swipe * 0.6;
+          bodyPivot.rotation.y = pst.swipeBodyRotYBase + swipe * pst.swipeBodyRotYSwing;
           // Stretch horizontally as the arm sweeps
-          const stretchX = 1.06 - swipe * 0.06 + Math.sin(swipe * Math.PI) * 0.1; // peaks mid-swipe
+          const stretchX = 1.06 - swipe * 0.06 + Math.sin(swipe * Math.PI) * 0.1;
           const squashY = 0.94 + swipe * 0.06 - Math.sin(swipe * Math.PI) * 0.08;
           bodyPivot.scale.set(stretchX, squashY, 1);
         } else {
           // Recovery
           const recover = (progress - 0.85) / 0.15;
-          bodyPivot.rotation.x = 0.2 * (1 - recover); // lean eases back
+          bodyPivot.rotation.x = pst.holdBodyPivotRotX * (1 - recover);
           shoulderR.rotation.x = -0.6 + recover * 0.6;
           shoulderR.rotation.z = -0.8 + recover * 0.8;
           elbowR.rotation.x = -0.2 + recover * 0.1;
           forearmScale = 1.2 - recover * 0.2;
           bodyPivot.rotation.y = -0.3 + recover * 0.3;
-          // Return to normal
           bodyPivot.scale.set(
             1 + (1 - recover) * 0.04,
             1 - (1 - recover) * 0.04,
             1
           );
-          // Ease stance height back up during recovery
-          this.group.position.y = -0.05 * (1 - recover);
+          this.group.position.y = pst.stanceDropY * (1 - recover);
         }
 
         if (forearmR) {
@@ -843,14 +838,14 @@ export class GamePlayer {
         }
 
         // Left arm relaxed at side
-        shoulderL.rotation.x = 0;
-        elbowL.rotation.x = -0.1;
+        shoulderL.rotation.x = pst.shoulderLRotX;
+        elbowL.rotation.x = pst.elbowLRotX;
 
         // Deep crouched stance like guard
-        hipL.rotation.x = -0.05;
-        hipR.rotation.x = 0.05;
-        kneeL.rotation.x = 0.35;
-        kneeR.rotation.x = 0.35;
+        hipL.rotation.x = pst.hipLRotX;
+        hipR.rotation.x = pst.hipRRotX;
+        kneeL.rotation.x = pst.kneeLRotX;
+        kneeR.rotation.x = pst.kneeRRotX;
         break;
       }
 
