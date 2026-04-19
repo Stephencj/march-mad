@@ -1382,119 +1382,112 @@ export class GamePlayer {
           }
         }
 
+        const pdk = animConfig.poses.dunk;
         if (progress < 0.15) {
           // RISE: crouch extends, legs start spreading, arms bring ball up
           const rise = progress / 0.15;
-          bodyPivot.rotation.x = 0.1 * (1 - rise); // straighten up
-          // Legs transition to MJ pose
-          kneeL.rotation.x = 0.4 * (1 - rise) + 0.7 * rise; // from crouch to deep bend
-          kneeR.rotation.x = 0.4 * (1 - rise) + 0.8 * rise;
-          hipL.rotation.x = 0 + (-0.3) * rise; // spread out
-          hipR.rotation.x = 0 + 0.4 * rise;
-          hipL.rotation.z = -0.2 * rise;
-          hipR.rotation.z = 0.2 * rise;
-          // Both arms sweep up together
-          shoulderR.rotation.x = -rise * 2.6;
-          shoulderL.rotation.x = -rise * 2.6;
-          elbowR.rotation.x = -0.4 * (1 - rise); // straighten
-          elbowL.rotation.x = -0.4 * (1 - rise);
+          bodyPivot.rotation.x = pdk.riseBodyPivotRotX * (1 - rise);
+          kneeL.rotation.x = pdk.riseKneeLStart * (1 - rise) + pdk.riseKneeLEnd * rise;
+          kneeR.rotation.x = pdk.riseKneeRStart * (1 - rise) + pdk.riseKneeREnd * rise;
+          hipL.rotation.x = pdk.riseHipL * rise;
+          hipR.rotation.x = pdk.riseHipR * rise;
+          hipL.rotation.z = pdk.riseHipLZ * rise;
+          hipR.rotation.z = pdk.riseHipRZ * rise;
+          shoulderR.rotation.x = rise * pdk.riseShoulderR;
+          shoulderL.rotation.x = rise * pdk.riseShoulderL;
+          elbowR.rotation.x = pdk.riseElbowR * (1 - rise);
+          elbowL.rotation.x = pdk.riseElbowL * (1 - rise);
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
         } else if (progress < 0.35) {
           // HANG TIME: MJ pose — RIGHT arm stretches UP with ball, getting bigger
           const hangT = (progress - 0.15) / 0.2;
-          bodyPivot.rotation.x = -0.1;
-          // Right arm reaches UP high with ball — stretches dramatically
-          shoulderR.rotation.x = -2.6 - hangT * 0.3; // goes higher (-2.9)
-          elbowR.rotation.x = -0.05; // nearly straight — reaching for rim
-          // Left arm out for balance
-          shoulderL.rotation.x = -0.8;
-          shoulderL.rotation.z = -0.3;
-          elbowL.rotation.x = -0.2;
+          bodyPivot.rotation.x = pdk.hangBodyPivotRotX;
+          shoulderR.rotation.x = pdk.hangShoulderRBase + hangT * pdk.hangShoulderROffset;
+          elbowR.rotation.x = pdk.hangElbowR;
+          shoulderL.rotation.x = pdk.hangShoulderL;
+          shoulderL.rotation.z = pdk.hangShoulderLZ;
+          elbowL.rotation.x = pdk.hangElbowL;
           shoulderR.rotation.z = 0;
-          // Scale up the right arm — getting bigger as he winds up to dunk
-          const armScale = 1 + hangT * 0.3; // grows from 1.0 to 1.3
+          const armScale = 1 + hangT * animConfig.amplitudes.dunk.armScalePeak;
           const upperArmR = this.group.getObjectByName('upper-arm-right');
           const forearmR = this.group.getObjectByName('forearm-right');
-          if (upperArmR) upperArmR.scale.set(armScale, armScale * 1.1, armScale);
-          if (forearmR) forearmR.scale.set(armScale * 1.1, armScale * 1.2, armScale * 1.1);
-          // MJ legs
-          kneeL.rotation.x = 0.7;
-          kneeR.rotation.x = 0.8;
-          hipL.rotation.x = -0.3;
-          hipR.rotation.x = 0.4;
-          hipL.rotation.z = -0.2;
-          hipR.rotation.z = 0.2;
+          if (upperArmR) upperArmR.scale.set(armScale, armScale * animConfig.amplitudes.dunk.armThickness, armScale);
+          if (forearmR) forearmR.scale.set(armScale * animConfig.amplitudes.dunk.armThickness, armScale * 1.2, armScale * animConfig.amplitudes.dunk.armThickness);
+          kneeL.rotation.x = pdk.hangKneeL;
+          kneeR.rotation.x = pdk.hangKneeR;
+          hipL.rotation.x = pdk.hangHipL;
+          hipR.rotation.x = pdk.hangHipR;
+          hipL.rotation.z = pdk.hangHipLZ;
+          hipR.rotation.z = pdk.hangHipRZ;
         } else if (progress < 0.45) {
           // SLAM: arms drive down, body curls forward
           const slam = (progress - 0.35) / 0.1;
-          bodyPivot.rotation.x = -0.1 + slam * 0.4; // curl forward
-          shoulderR.rotation.x = -2.6 + slam * 2.0; // to -0.6
-          shoulderL.rotation.x = -2.6 + slam * 2.0;
-          elbowR.rotation.x = -0.1 - slam * 0.3;
-          elbowL.rotation.x = -0.1 - slam * 0.3;
+          bodyPivot.rotation.x = pdk.slamBodyPivotRotXBase + slam * pdk.slamBodyPivotRotXSwing;
+          shoulderR.rotation.x = pdk.slamShoulderRBase + slam * pdk.slamShoulderRSwing;
+          shoulderL.rotation.x = pdk.slamShoulderLBase + slam * pdk.slamShoulderLSwing;
+          elbowR.rotation.x = pdk.slamElbowRBase + slam * pdk.slamElbowRSwing;
+          elbowL.rotation.x = pdk.slamElbowLBase + slam * pdk.slamElbowLSwing;
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
-          kneeL.rotation.x = 0.7 - slam * 0.5; // straightening
-          kneeR.rotation.x = 0.8 - slam * 0.6;
-          hipL.rotation.x = -0.3 + slam * 0.3; // back to neutral
-          hipR.rotation.x = 0.4 - slam * 0.4;
-          hipL.rotation.z = -0.2 * (1 - slam);
-          hipR.rotation.z = 0.2 * (1 - slam);
+          kneeL.rotation.x = pdk.slamKneeLBase + slam * pdk.slamKneeLSwing;
+          kneeR.rotation.x = pdk.slamKneeRBase + slam * pdk.slamKneeRSwing;
+          hipL.rotation.x = pdk.slamHipLBase + slam * pdk.slamHipLSwing;
+          hipR.rotation.x = pdk.slamHipRBase + slam * pdk.slamHipRSwing;
+          hipL.rotation.z = pdk.hangHipLZ * (1 - slam);
+          hipR.rotation.z = pdk.hangHipRZ * (1 - slam);
         } else if (progress < 0.65) {
           // RIM HANG: one arm up (hanging on rim), legs dangle, slight sway
-          shoulderR.rotation.x = -2.8; // right arm up (hanging on rim)
-          elbowR.rotation.x = -0.2; // slight bend like gripping
-          shoulderL.rotation.x = -0.3; // left arm relaxed
-          elbowL.rotation.x = -0.2;
+          shoulderR.rotation.x = pdk.rimHangShoulderR;
+          elbowR.rotation.x = pdk.rimHangElbowR;
+          shoulderL.rotation.x = pdk.rimHangShoulderL;
+          elbowL.rotation.x = pdk.rimHangElbowL;
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
-          kneeL.rotation.x = 0.3; // legs dangle
-          kneeR.rotation.x = 0.4;
-          hipL.rotation.x = 0.05;
-          hipR.rotation.x = 0.05;
+          kneeL.rotation.x = pdk.rimHangKneeL;
+          kneeR.rotation.x = pdk.rimHangKneeR;
+          hipL.rotation.x = pdk.rimHangHipL;
+          hipR.rotation.x = pdk.rimHangHipR;
           hipL.rotation.z = 0;
           hipR.rotation.z = 0;
           bodyPivot.rotation.x = 0;
-          // Slight sway
           const sway = (progress - 0.45) / 0.2;
-          bodyPivot.rotation.z = Math.sin(sway * Math.PI * 2) * 0.05;
+          bodyPivot.rotation.z = Math.sin(sway * Math.PI * 2) * pdk.rimHangSwayAmp;
 
-          // Stretch the arm to reach the rim — scale up upper arm and forearm
           const upperArmR = this.group.getObjectByName('upper-arm-right');
           const forearmR = this.group.getObjectByName('forearm-right');
-          if (upperArmR) upperArmR.scale.set(1.2, 1.3, 1.2); // thicker, longer
-          if (forearmR) forearmR.scale.set(1.3, 1.4, 1.3); // even bigger at the hand end
+          if (upperArmR) upperArmR.scale.set(animConfig.amplitudes.dunk.rimHangArmScaleU, animConfig.amplitudes.dunk.rimHangArmScaleF, animConfig.amplitudes.dunk.rimHangArmScaleU);
+          if (forearmR) forearmR.scale.set(animConfig.amplitudes.dunk.rimHangArmScaleF, animConfig.amplitudes.dunk.rimHangArmScaleF + 0.1, animConfig.amplitudes.dunk.rimHangArmScaleF);
         } else if (progress < 0.85) {
           // DROP FROM RIM: fall to ground
           const drop = (progress - 0.65) / 0.2;
-          bodyPivot.rotation.x = 0.1 * drop;
+          bodyPivot.rotation.x = pdk.dropBodyPivotRotXFactor * drop;
           bodyPivot.rotation.z = 0;
-          shoulderR.rotation.x = -2.8 + drop * 2.2; // arms come down
-          shoulderL.rotation.x = -0.3 + drop * 0.2;
-          elbowR.rotation.x = -0.6 + drop * 0.5;
-          elbowL.rotation.x = -0.2 + drop * 0.1;
+          shoulderR.rotation.x = pdk.dropShoulderRFrom + drop * pdk.dropShoulderRDelta;
+          shoulderL.rotation.x = pdk.dropShoulderLFrom + drop * pdk.dropShoulderLDelta;
+          elbowR.rotation.x = pdk.dropElbowRFrom + drop * pdk.dropElbowRDelta;
+          elbowL.rotation.x = pdk.dropElbowLFrom + drop * pdk.dropElbowLDelta;
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
-          kneeL.rotation.x = 0.3 + drop * 0.3; // brace for landing
-          kneeR.rotation.x = 0.4 + drop * 0.2;
-          hipL.rotation.x = 0.05;
-          hipR.rotation.x = 0.05;
+          kneeL.rotation.x = pdk.dropKneeLFrom + drop * pdk.dropKneeLDelta;
+          kneeR.rotation.x = pdk.dropKneeRFrom + drop * pdk.dropKneeRDelta;
+          hipL.rotation.x = pdk.rimHangHipL;
+          hipR.rotation.x = pdk.rimHangHipR;
           hipL.rotation.z = 0;
           hipR.rotation.z = 0;
         } else {
           // DRAMATIC LANDING: deep knee bend, right foot forward, left behind, slowly stand
           const land = (progress - 0.85) / 0.15;
-          bodyPivot.rotation.x = 0.2 * (1 - land); // lean forward on impact, straighten
+          bodyPivot.rotation.x = pdk.landBodyPivotRotX * (1 - land);
           bodyPivot.rotation.z = 0;
-          hipR.rotation.x = -0.15; // right foot forward
-          hipL.rotation.x = 0.1; // left foot behind
-          kneeR.rotation.x = 0.6 * (1 - land * 0.5); // deep bend, slowly straighten
-          kneeL.rotation.x = 0.4 * (1 - land * 0.5);
-          shoulderR.rotation.x = -0.1;
-          shoulderL.rotation.x = -0.1;
-          elbowR.rotation.x = -0.1;
-          elbowL.rotation.x = -0.1;
+          hipR.rotation.x = pdk.landHipR;
+          hipL.rotation.x = pdk.landHipL;
+          kneeR.rotation.x = pdk.landKneeR * (1 - land * 0.5);
+          kneeL.rotation.x = pdk.landKneeL * (1 - land * 0.5);
+          shoulderR.rotation.x = pdk.landShoulderR;
+          shoulderL.rotation.x = pdk.landShoulderL;
+          elbowR.rotation.x = pdk.landElbowR;
+          elbowL.rotation.x = pdk.landElbowL;
           shoulderR.rotation.z = 0;
           shoulderL.rotation.z = 0;
           hipL.rotation.z = 0;
@@ -1506,26 +1499,24 @@ export class GamePlayer {
           const torsoNode = this.group.getObjectByName('torso');
           const hipMeshNode = this.group.getObjectByName('hip-mesh');
           if (torsoNode && hipMeshNode) {
+            const hipTw = animConfig.amplitudes.dunk.hipTwist;
+            const torsoTw = animConfig.amplitudes.dunk.torsoTwist;
+            const slamThru = animConfig.amplitudes.dunk.slamTwistThrough;
             if (progress < 0.15) {
-              // Rise — twist as gathering
               const rise = progress / 0.15;
-              hipMeshNode.rotation.y = 0.2 * rise;
-              torsoNode.rotation.y = -0.15 * rise;
+              hipMeshNode.rotation.y = hipTw * rise;
+              torsoNode.rotation.y = -torsoTw * rise;
             } else if (progress < 0.35) {
-              // Hang — hold twist
-              hipMeshNode.rotation.y = 0.2;
-              torsoNode.rotation.y = -0.15;
+              hipMeshNode.rotation.y = hipTw;
+              torsoNode.rotation.y = -torsoTw;
             } else if (progress < 0.45) {
-              // Slam — TWIST THROUGH for power
               const slam = (progress - 0.35) / 0.1;
-              hipMeshNode.rotation.y = 0.2 - slam * 0.5;
-              torsoNode.rotation.y = -0.15 + slam * 0.35;
+              hipMeshNode.rotation.y = hipTw - slam * slamThru;
+              torsoNode.rotation.y = -torsoTw + slam * (slamThru - 0.15);
             } else if (progress < 0.65) {
-              // Rim hang — hold twist
-              hipMeshNode.rotation.y = -0.3;
-              torsoNode.rotation.y = 0.2;
+              hipMeshNode.rotation.y = -(hipTw + slamThru - hipTw); // -0.3 at defaults
+              torsoNode.rotation.y = torsoTw + 0.05; // 0.2 at defaults
             } else {
-              // Drop + Land — return to neutral
               const recover = progress < 0.85 ? (progress - 0.65) / 0.2 : 1;
               hipMeshNode.rotation.y = -0.3 * (1 - recover);
               torsoNode.rotation.y = 0.2 * (1 - recover);
