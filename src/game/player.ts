@@ -858,114 +858,105 @@ export class GamePlayer {
         const shootDuration = animConfig.durations.shootDuration;
         const progress = 1 - (this.shootTimer / shootDuration); // 0 to 1
 
+        const psh = animConfig.poses.shoot;
+        const hopHeight = animConfig.amplitudes.shoot.hopHeight;
         // Slight hop during shot — quick up, brief hang, land
         let shootHeight: number;
         if (progress < 0.15) {
-          // Crouch before jump
           shootHeight = 0;
         } else if (progress < 0.25) {
-          // Quick rise
           const rise = (progress - 0.15) / 0.1;
-          shootHeight = rise * 0.6;
+          shootHeight = rise * hopHeight;
         } else if (progress < 0.4) {
-          // Hang time — release point
-          shootHeight = 0.6;
+          shootHeight = hopHeight;
         } else if (progress < 0.55) {
-          // Coming down
           const descend = (progress - 0.4) / 0.15;
-          shootHeight = 0.6 * (1 - descend);
+          shootHeight = hopHeight * (1 - descend);
         } else {
-          // On ground, recovering
           shootHeight = 0;
         }
         this.group.position.y = shootHeight;
 
         if (progress < 0.15) {
           // SNAP: hands come up together to shooting position
-          const snap = progress / 0.15; // 0 to 1 fast
-          // Right arm (shooting hand): up and back behind head
-          shoulderR.rotation.x = -1.8 * snap; // snaps up high
-          shoulderR.rotation.z = 0.1 * snap; // slightly outward
-          elbowR.rotation.x = -1.2 * snap; // bent, ball behind head
-          // Left arm (guide hand): up and to the side of ball
-          shoulderL.rotation.x = -1.6 * snap; // up, slightly less than right
-          shoulderL.rotation.z = -0.3 * snap; // left arm comes inward toward ball
-          elbowL.rotation.x = -0.8 * snap; // bent, hand on side of ball
-          // Slight crouch
-          bodyPivot.rotation.x = 0.05;
-          kneeL.rotation.x = 0.3 * (progress / 0.15); // bend knees for crouch
-          kneeR.rotation.x = 0.3 * (progress / 0.15);
+          const snap = progress / 0.15;
+          shoulderR.rotation.x = psh.snapShoulderR * snap;
+          shoulderR.rotation.z = psh.snapShoulderRZ * snap;
+          elbowR.rotation.x = psh.snapElbowR * snap;
+          shoulderL.rotation.x = psh.snapShoulderL * snap;
+          shoulderL.rotation.z = psh.snapShoulderLZ * snap;
+          elbowL.rotation.x = psh.snapElbowL * snap;
+          bodyPivot.rotation.x = psh.snapBodyPivotRotX;
+          kneeL.rotation.x = psh.snapKneeBend * (progress / 0.15);
+          kneeR.rotation.x = psh.snapKneeBend * (progress / 0.15);
           hipL.rotation.x = 0;
           hipR.rotation.x = 0;
         } else if (progress < 0.25) {
           // RISE: arms continue, legs extend
           const rise = (progress - 0.15) / 0.1;
-          // Arm positions interpolate from snap-end to release-start
-          const subRelease = (progress - 0.15) / 0.25; // partial into release phase
-          shoulderR.rotation.x = -1.8 - subRelease * 0.8;
-          shoulderR.rotation.z = 0.1;
-          elbowR.rotation.x = -1.2 + subRelease * 1.0;
-          shoulderL.rotation.x = -1.6 + subRelease * 1.0;
-          shoulderL.rotation.z = -0.3 - subRelease * 0.3;
-          elbowL.rotation.x = -0.8 + subRelease * 0.5;
-          bodyPivot.rotation.x = 0.05 - subRelease * 0.15;
-          kneeL.rotation.x = 0.3 * (1 - rise); // legs extend
-          kneeR.rotation.x = 0.3 * (1 - rise);
+          const subRelease = (progress - 0.15) / 0.25;
+          shoulderR.rotation.x = psh.snapShoulderR - subRelease * 0.8;
+          shoulderR.rotation.z = psh.snapShoulderRZ;
+          elbowR.rotation.x = psh.snapElbowR + subRelease * 1.0;
+          shoulderL.rotation.x = psh.snapShoulderL + subRelease * 1.0;
+          shoulderL.rotation.z = psh.snapShoulderLZ - subRelease * 0.3;
+          elbowL.rotation.x = psh.snapElbowL + subRelease * 0.5;
+          bodyPivot.rotation.x = psh.snapBodyPivotRotX - subRelease * 0.15;
+          kneeL.rotation.x = psh.snapKneeBend * (1 - rise);
+          kneeR.rotation.x = psh.snapKneeBend * (1 - rise);
           hipL.rotation.x = 0;
           hipR.rotation.x = 0;
         } else if (progress < 0.4) {
           // HANG TIME + RELEASE: right arm extends up, left peels away
-          const subRelease = (progress - 0.15) / 0.25; // 0 to 1
-          shoulderR.rotation.x = -1.8 - subRelease * 0.8; // goes higher (-2.6)
-          shoulderR.rotation.z = 0.1;
-          elbowR.rotation.x = -1.2 + subRelease * 1.0; // straightens out (-0.2)
-          shoulderL.rotation.x = -1.6 + subRelease * 1.0; // drops to -0.6
-          shoulderL.rotation.z = -0.3 - subRelease * 0.3; // opens outward more
-          elbowL.rotation.x = -0.8 + subRelease * 0.5; // relaxes
-          bodyPivot.rotation.x = 0.05 - subRelease * 0.15;
-          kneeL.rotation.x = 0.05; // slight bend in air
-          kneeR.rotation.x = 0.05;
+          const subRelease = (progress - 0.15) / 0.25;
+          shoulderR.rotation.x = psh.snapShoulderR - subRelease * 0.8;
+          shoulderR.rotation.z = psh.snapShoulderRZ;
+          elbowR.rotation.x = psh.snapElbowR + subRelease * 1.0;
+          shoulderL.rotation.x = psh.snapShoulderL + subRelease * 1.0;
+          shoulderL.rotation.z = psh.snapShoulderLZ - subRelease * 0.3;
+          elbowL.rotation.x = psh.snapElbowL + subRelease * 0.5;
+          bodyPivot.rotation.x = psh.snapBodyPivotRotX - subRelease * 0.15;
+          kneeL.rotation.x = psh.hangKnee;
+          kneeR.rotation.x = psh.hangKnee;
           hipL.rotation.x = 0;
           hipR.rotation.x = 0;
         } else if (progress < 0.55) {
           // COMING DOWN: start recovery
           const descend = (progress - 0.4) / 0.15;
-          const recover = (progress - 0.4) / 0.6; // partial into recover
-          shoulderR.rotation.x = -2.6 + recover * 2.6;
-          shoulderR.rotation.z = 0.1 * (1 - recover);
-          elbowR.rotation.x = -0.2 + recover * 0.1;
-          shoulderL.rotation.x = -0.6 + recover * 0.6;
-          shoulderL.rotation.z = -0.6 + recover * 0.6;
-          elbowL.rotation.x = -0.3 + recover * 0.2;
-          bodyPivot.rotation.x = -0.1 + recover * 0.1;
-          // Staggered landing: right foot first, left behind
+          const recover = (progress - 0.4) / 0.6;
+          shoulderR.rotation.x = psh.releaseShoulderR + recover * 2.6;
+          shoulderR.rotation.z = psh.snapShoulderRZ * (1 - recover);
+          elbowR.rotation.x = psh.releaseElbowR + recover * 0.1;
+          shoulderL.rotation.x = psh.releaseShoulderL + recover * 0.6;
+          shoulderL.rotation.z = psh.releaseShoulderLZ + recover * 0.6;
+          elbowL.rotation.x = psh.releaseElbowL + recover * 0.2;
+          bodyPivot.rotation.x = psh.releaseBodyPivotRotX + recover * 0.1;
           const land = descend;
-          hipR.rotation.x = -0.15 * land; // right leg forward
-          hipL.rotation.x = 0.1 * land; // left leg back
-          kneeR.rotation.x = 0.4 * land; // right knee absorbs first
-          kneeL.rotation.x = 0.2 * land; // left catches up
+          hipR.rotation.x = psh.landHipR * land;
+          hipL.rotation.x = psh.landHipL * land;
+          kneeR.rotation.x = psh.landKneeR * land;
+          kneeL.rotation.x = psh.landKneeL * land;
         } else {
           // RECOVER: on ground, arms come back down to sides
-          const recover = (progress - 0.4) / 0.6; // 0 to 1
-          shoulderR.rotation.x = -2.6 + recover * 2.6; // back to 0
-          shoulderR.rotation.z = 0.1 * (1 - recover);
-          elbowR.rotation.x = -0.2 + recover * 0.1; // back to -0.1
-          shoulderL.rotation.x = -0.6 + recover * 0.6; // back to 0
-          shoulderL.rotation.z = -0.6 + recover * 0.6; // back to 0
-          elbowL.rotation.x = -0.3 + recover * 0.2; // back to -0.1
-          bodyPivot.rotation.x = -0.1 + recover * 0.1; // back to 0
-          // Staggered landing
+          const recover = (progress - 0.4) / 0.6;
+          shoulderR.rotation.x = psh.releaseShoulderR + recover * 2.6;
+          shoulderR.rotation.z = psh.snapShoulderRZ * (1 - recover);
+          elbowR.rotation.x = psh.releaseElbowR + recover * 0.1;
+          shoulderL.rotation.x = psh.releaseShoulderL + recover * 0.6;
+          shoulderL.rotation.z = psh.releaseShoulderLZ + recover * 0.6;
+          elbowL.rotation.x = psh.releaseElbowL + recover * 0.2;
+          bodyPivot.rotation.x = psh.releaseBodyPivotRotX + recover * 0.1;
           if (progress >= 0.55) {
             const land = (progress - 0.55) / 0.45;
-            hipR.rotation.x = -0.12; // right foot slightly forward
-            hipL.rotation.x = 0.08; // left foot slightly back
-            kneeR.rotation.x = 0.3 * (1 - land * 0.7); // absorb then straighten
-            kneeL.rotation.x = 0.15 * (1 - land * 0.5);
+            hipR.rotation.x = psh.recoverHipR;
+            hipL.rotation.x = psh.recoverHipL;
+            kneeR.rotation.x = psh.recoverKneeR * (1 - land * 0.7);
+            kneeL.rotation.x = psh.recoverKneeL * (1 - land * 0.5);
           } else {
-            hipR.rotation.x = -0.15; // right leg forward
-            hipL.rotation.x = 0.1; // left leg back
-            kneeR.rotation.x = 0.4; // right knee absorbs first
-            kneeL.rotation.x = 0.2; // left catches up
+            hipR.rotation.x = psh.landHipR;
+            hipL.rotation.x = psh.landHipL;
+            kneeR.rotation.x = psh.landKneeR;
+            kneeL.rotation.x = psh.landKneeL;
           }
         }
 
@@ -974,20 +965,17 @@ export class GamePlayer {
         const hipMeshNode = this.group.getObjectByName('hip-mesh');
         if (torsoNode && hipMeshNode) {
           if (progress < 0.15) {
-            // Wind up — slight twist away
             const snap = progress / 0.15;
-            hipMeshNode.rotation.y = 0.1 * snap;
-            torsoNode.rotation.y = -0.08 * snap;
+            hipMeshNode.rotation.y = psh.hipTwistSnap * snap;
+            torsoNode.rotation.y = psh.torsoTwistSnap * snap;
           } else if (progress < 0.4) {
-            // Release — twist toward the shot
             const release = (progress - 0.15) / 0.25;
-            hipMeshNode.rotation.y = 0.1 - release * 0.2; // twist through
-            torsoNode.rotation.y = -0.08 + release * 0.16;
+            hipMeshNode.rotation.y = psh.hipTwistSnap + release * psh.hipTwistRelease;
+            torsoNode.rotation.y = psh.torsoTwistSnap + release * psh.torsoTwistRelease;
           } else {
-            // Recover — untwist
             const recover = (progress - 0.4) / 0.6;
-            hipMeshNode.rotation.y = -0.1 * (1 - recover);
-            torsoNode.rotation.y = 0.08 * (1 - recover);
+            hipMeshNode.rotation.y = -psh.hipTwistSnap * (1 - recover);
+            torsoNode.rotation.y = -psh.torsoTwistSnap * (1 - recover);
           }
         }
         break;
