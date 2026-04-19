@@ -1310,51 +1310,52 @@ export class GamePlayer {
         const fallDuration = animConfig.durations.fallDuration;
         const progress = 1 - (this.fallTimer / fallDuration);
 
+        const pf = animConfig.poses.fall;
         if (progress < 0.4) {
           // Stagger back
           const stagger = progress / 0.4;
-          bodyPivot.rotation.x = -0.3 * stagger; // lean back
-          bodyPivot.rotation.z = 0.2 * stagger; // tilt sideways
+          bodyPivot.rotation.x = pf.staggerBodyPivotRotX * stagger;
+          bodyPivot.rotation.z = pf.staggerBodyPivotRotZ * stagger;
           this.group.position.y = 0;
           // Arms flail
-          shoulderL.rotation.x = -0.5 * stagger;
-          shoulderL.rotation.z = -0.6 * stagger;
-          shoulderR.rotation.x = -0.8 * stagger;
-          shoulderR.rotation.z = 0.4 * stagger;
-          elbowL.rotation.x = -0.3;
-          elbowR.rotation.x = -0.5;
+          shoulderL.rotation.x = pf.staggerShoulderLRotX * stagger;
+          shoulderL.rotation.z = pf.staggerShoulderLRotZ * stagger;
+          shoulderR.rotation.x = pf.staggerShoulderRRotX * stagger;
+          shoulderR.rotation.z = pf.staggerShoulderRRotZ * stagger;
+          elbowL.rotation.x = pf.staggerElbowL;
+          elbowR.rotation.x = pf.staggerElbowR;
           // Legs buckle
-          kneeL.rotation.x = 0.3 * stagger;
-          kneeR.rotation.x = 0.5 * stagger;
-          hipL.rotation.x = 0.1 * stagger;
-          hipR.rotation.x = -0.1 * stagger;
+          kneeL.rotation.x = pf.staggerKneeL * stagger;
+          kneeR.rotation.x = pf.staggerKneeR * stagger;
+          hipL.rotation.x = pf.staggerHipL * stagger;
+          hipR.rotation.x = pf.staggerHipR * stagger;
         } else if (progress < 0.7) {
           // Hit the ground
           const ground = (progress - 0.4) / 0.3;
-          bodyPivot.rotation.x = -0.3 - ground * 1.0; // falls flat back
-          bodyPivot.rotation.z = 0.2;
-          this.group.position.y = -ground * 0.3; // drops down
-          shoulderL.rotation.x = -0.5 - ground * 0.5;
-          shoulderL.rotation.z = -0.6 - ground * 0.4;
-          shoulderR.rotation.x = -0.8;
-          shoulderR.rotation.z = 0.4 + ground * 0.3;
-          elbowL.rotation.x = -0.3;
-          elbowR.rotation.x = -0.5;
-          kneeL.rotation.x = 0.3 + ground * 0.3;
-          kneeR.rotation.x = 0.5;
+          bodyPivot.rotation.x = pf.staggerBodyPivotRotX + ground * pf.groundBodyPivotRotX;
+          bodyPivot.rotation.z = pf.staggerBodyPivotRotZ;
+          this.group.position.y = ground * pf.groundPosY;
+          shoulderL.rotation.x = pf.staggerShoulderLRotX + ground * pf.groundShoulderLRotX;
+          shoulderL.rotation.z = pf.staggerShoulderLRotZ + ground * pf.groundShoulderLRotZ;
+          shoulderR.rotation.x = pf.staggerShoulderRRotX;
+          shoulderR.rotation.z = pf.staggerShoulderRRotZ + ground * pf.groundShoulderRRotZ;
+          elbowL.rotation.x = pf.groundElbowL;
+          elbowR.rotation.x = pf.groundElbowR;
+          kneeL.rotation.x = pf.staggerKneeL + ground * pf.groundKneeL;
+          kneeR.rotation.x = pf.groundKneeR;
         } else {
           // Lying on ground
-          bodyPivot.rotation.x = -1.3;
-          bodyPivot.rotation.z = 0.2;
-          this.group.position.y = -0.3;
-          shoulderL.rotation.x = -1.0;
-          shoulderL.rotation.z = -1.0;
-          shoulderR.rotation.x = -0.8;
-          shoulderR.rotation.z = 0.7;
-          elbowL.rotation.x = -0.3;
-          elbowR.rotation.x = -0.5;
-          kneeL.rotation.x = 0.6;
-          kneeR.rotation.x = 0.5;
+          bodyPivot.rotation.x = pf.lyingBodyPivotRotX;
+          bodyPivot.rotation.z = pf.lyingBodyPivotRotZ;
+          this.group.position.y = pf.lyingPosY;
+          shoulderL.rotation.x = pf.lyingShoulderL;
+          shoulderL.rotation.z = pf.lyingShoulderLZ;
+          shoulderR.rotation.x = pf.lyingShoulderR;
+          shoulderR.rotation.z = pf.lyingShoulderRZ;
+          elbowL.rotation.x = pf.lyingElbowL;
+          elbowR.rotation.x = pf.lyingElbowR;
+          kneeL.rotation.x = pf.lyingKneeL;
+          kneeR.rotation.x = pf.lyingKneeR;
         }
 
         if (this.fallTimer <= 0) {
