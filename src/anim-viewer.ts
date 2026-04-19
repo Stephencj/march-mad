@@ -12,7 +12,13 @@ import {
   resetAnim,
   getDefaults as getAnimDefaults,
 } from './dev/anim-config';
+import { serializeBalance, applyBalanceJSON, resetBalance } from './dev/balance-config';
+import { serializeLevel, applyLevelJSON, resetLevel } from './dev/level-config';
+import { serializePlayer, applyPlayerJSON, resetPlayer } from './dev/player-config';
 import { pickSliderRange, type RangeTier } from './dev/shared-ranges';
+import { persistDetails, detailsKey } from './dev/details-state';
+
+const DEVPANEL_PREFIX = 'devpanel:anim-viewer';
 
 // --- Renderer ---
 const canvas = document.getElementById('viewer-canvas') as HTMLCanvasElement;
@@ -823,8 +829,99 @@ function rebuildAnimTuning(): void {
       if (typeof section.parent[key] !== 'number') continue;
       details.appendChild(buildSlider(section.parent, section.defaultParent, key, section.tier, section.animKey));
     }
+    persistDetails(details, detailsKey(DEVPANEL_PREFIX, currentAnim, section.title));
     host.appendChild(details);
   }
+}
+
+// "ALL CONFIGS" row — resets/exports/imports balance + level + player + anim
+// together. Injected above the existing anim-only row so the domain-scoped
+// buttons remain available for quick anim-only workflows.
+installAllConfigsRow();
+
+function installAllConfigsRow(): void {
+  const existingRow = document.getElementById('anim-tuning-buttons');
+  if (!existingRow || !existingRow.parentElement) return;
+  const parent = existingRow.parentElement;
+
+  const label = document.createElement('label');
+  label.textContent = 'ALL CONFIGS';
+  Object.assign(label.style, {
+    fontSize: '10px',
+    letterSpacing: '1.5px',
+    color: '#888',
+    marginTop: '4px',
+  });
+
+  const row = document.createElement('div');
+  Object.assign(row.style, { display: 'flex', gap: '4px', marginBottom: '4px' });
+  row.id = 'anim-tuning-all-buttons';
+
+  const mkBtn = (text: string, onClick: () => void) => {
+    const btn = document.createElement('div');
+    btn.className = 'btn';
+    btn.textContent = text;
+    Object.assign(btn.style, { flex: '1', fontSize: '12px', padding: '6px' });
+    btn.addEventListener('click', onClick);
+    return btn;
+  };
+
+  row.appendChild(mkBtn('Reset All', () => {
+    resetBalance();
+    resetLevel();
+    resetPlayer();
+    resetAnim();
+    rebuildAnimTuning();
+  }));
+  row.appendChild(mkBtn('Export All', () => {
+    const combined = JSON.stringify({
+      balance: JSON.parse(serializeBalance()),
+      level: JSON.parse(serializeLevel()),
+      player: JSON.parse(serializePlayer()),
+      animConfig: JSON.parse(serializeAnim()),
+    }, null, 2);
+    const blob = new Blob([combined], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'march-mad-config.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }));
+  row.appendChild(mkBtn('Import All', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      file.text().then((text) => {
+        try {
+          let parsed: any;
+          try { parsed = JSON.parse(text); } catch { throw new Error('Invalid JSON'); }
+          if (parsed && typeof parsed === 'object' && (parsed.balance || parsed.level || parsed.player || parsed.animConfig)) {
+            if (parsed.balance) applyBalanceJSON(JSON.stringify(parsed.balance));
+            if (parsed.level) applyLevelJSON(JSON.stringify(parsed.level));
+            if (parsed.player) applyPlayerJSON(JSON.stringify(parsed.player));
+            if (parsed.animConfig) applyAnimJSON(JSON.stringify(parsed.animConfig));
+          } else {
+            try { applyBalanceJSON(text); } catch {
+              try { applyLevelJSON(text); } catch {
+                try { applyPlayerJSON(text); } catch { applyAnimJSON(text); }
+              }
+            }
+          }
+          rebuildAnimTuning();
+        } catch (err) {
+          alert('Import failed: ' + (err instanceof Error ? err.message : String(err)));
+        }
+      });
+    });
+    input.click();
+  }));
+
+  parent.insertBefore(label, existingRow);
+  parent.insertBefore(row, existingRow);
 }
 
 document.getElementById('anim-reset')?.addEventListener('click', () => {

@@ -9,6 +9,12 @@ import {
   applyLevelJSON,
   getDefaults,
 } from './dev/level-config';
+import { serializeBalance, applyBalanceJSON, resetBalance } from './dev/balance-config';
+import { serializePlayer, applyPlayerJSON, resetPlayer } from './dev/player-config';
+import { serializeAnim, applyAnimJSON, resetAnim } from './dev/anim-config';
+import { persistDetails, detailsKey } from './dev/details-state';
+
+const DEVPANEL_PREFIX = 'devpanel:level-editor';
 
 const HOME_COLOR = 0xe94560;
 const AWAY_COLOR = 0x3498db;
@@ -154,6 +160,29 @@ function buildPanel(): void {
   Object.assign(hint.style, { fontSize: '11px', color: '#888' });
   header.appendChild(hint);
 
+  // "ALL CONFIGS" row — resets/exports/imports balance + level + player + anim
+  // together. Placed ABOVE the domain-scoped row so the level-only buttons
+  // remain the quick default.
+  const allLabel = document.createElement('div');
+  allLabel.textContent = 'ALL CONFIGS';
+  Object.assign(allLabel.style, {
+    fontSize: '10px', letterSpacing: '1.5px', color: '#888', marginTop: '4px',
+  });
+  header.appendChild(allLabel);
+
+  const allRow = document.createElement('div');
+  Object.assign(allRow.style, { display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' });
+  allRow.appendChild(makeButton('Reset All', () => {
+    resetBalance();
+    resetLevel();
+    resetPlayer();
+    resetAnim();
+    syncFromConfig();
+  }));
+  allRow.appendChild(makeButton('Export All', exportAllJSON));
+  allRow.appendChild(makeButton('Import All', importAllJSON));
+  header.appendChild(allRow);
+
   const buttonRow = document.createElement('div');
   Object.assign(buttonRow.style, { display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' });
   buttonRow.appendChild(makeButton('Reset', () => { resetLevel(); syncFromConfig(); }));
@@ -254,6 +283,7 @@ function buildSection(spec: SectionSpec): HTMLElement {
   for (const n of spec.numerics ?? []) details.appendChild(buildNumericRow(n));
   for (const c of spec.colors ?? []) details.appendChild(buildColorRow(c));
 
+  persistDetails(details, detailsKey(DEVPANEL_PREFIX, spec.title));
   return details;
 }
 
@@ -388,6 +418,55 @@ function importJSON(): void {
         syncFromConfig();
       } catch (err) {
         console.error('Failed to import level JSON:', err);
+        alert('Failed to import: ' + (err instanceof Error ? err.message : String(err)));
+      }
+    });
+  });
+  input.click();
+}
+
+function exportAllJSON(): void {
+  const combined = JSON.stringify({
+    balance: JSON.parse(serializeBalance()),
+    level: JSON.parse(serializeLevel()),
+    player: JSON.parse(serializePlayer()),
+    animConfig: JSON.parse(serializeAnim()),
+  }, null, 2);
+  const blob = new Blob([combined], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'march-mad-config.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importAllJSON(): void {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json,.json';
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    file.text().then((text) => {
+      try {
+        let parsed: any;
+        try { parsed = JSON.parse(text); } catch { throw new Error('Invalid JSON'); }
+        if (parsed && typeof parsed === 'object' && (parsed.balance || parsed.level || parsed.player || parsed.animConfig)) {
+          if (parsed.balance) applyBalanceJSON(JSON.stringify(parsed.balance));
+          if (parsed.level) applyLevelJSON(JSON.stringify(parsed.level));
+          if (parsed.player) applyPlayerJSON(JSON.stringify(parsed.player));
+          if (parsed.animConfig) applyAnimJSON(JSON.stringify(parsed.animConfig));
+        } else {
+          try { applyBalanceJSON(text); } catch {
+            try { applyLevelJSON(text); } catch {
+              try { applyPlayerJSON(text); } catch { applyAnimJSON(text); }
+            }
+          }
+        }
+        syncFromConfig();
+      } catch (err) {
+        console.error('Failed to import all-config JSON:', err);
         alert('Failed to import: ' + (err instanceof Error ? err.message : String(err)));
       }
     });

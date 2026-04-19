@@ -27,6 +27,9 @@ import {
   getDefaults as getAnimDefaults,
 } from './anim-config';
 import { pickSliderRange, type RangeTier } from './shared-ranges';
+import { persistDetails, detailsKey } from './details-state';
+
+const DEVUI_PREFIX = 'devui';
 
 interface SliderSpec {
   label: string;
@@ -321,6 +324,7 @@ export class DevOverlay {
     for (const slider of spec.sliders) {
       details.appendChild(this.buildSlider(slider));
     }
+    persistDetails(details, detailsKey(DEVUI_PREFIX, spec.title));
     return details;
   }
 
@@ -496,9 +500,10 @@ export class DevOverlay {
     const root = document.createElement('details');
     root.open = true;
     Object.assign(root.style, { marginBottom: '12px' });
+    const rootTitle = 'PLAYER (next match)';
 
     const summary = document.createElement('summary');
-    summary.textContent = 'PLAYER (next match)';
+    summary.textContent = rootTitle;
     Object.assign(summary.style, {
       cursor: 'pointer',
       fontWeight: 'bold',
@@ -512,7 +517,7 @@ export class DevOverlay {
     const pd = getPlayerDefaults();
 
     // HEAD (open by default — landing point)
-    const headSub = this.buildSubSection('HEAD', true);
+    const headSub = this.buildSubSection('HEAD', true, [rootTitle, 'HEAD']);
     const headSliders: SliderSpec[] = [
       { label: 'Head Radius', min: 0.18, max: 0.45, step: 0.01,
         get: () => playerConfig.head.radius,
@@ -527,7 +532,7 @@ export class DevOverlay {
     root.appendChild(headSub);
 
     // BODY
-    const bodySub = this.buildSubSection('BODY', false);
+    const bodySub = this.buildSubSection('BODY', false, [rootTitle, 'BODY']);
     const bodySliders: SliderSpec[] = [
       { label: 'Torso Width', min: 0.18, max: 0.45, step: 0.01,
         get: () => playerConfig.body.torsoWidth,
@@ -574,7 +579,7 @@ export class DevOverlay {
     root.appendChild(bodySub);
 
     // LIMBS
-    const limbsSub = this.buildSubSection('LIMBS', false);
+    const limbsSub = this.buildSubSection('LIMBS', false, [rootTitle, 'LIMBS']);
     const limbsSliders: SliderSpec[] = [
       { label: 'Upper Arm: Top R', min: 0.02, max: 0.06, step: 0.005,
         get: () => playerConfig.limbs.upperArmRadiusTop,
@@ -629,7 +634,7 @@ export class DevOverlay {
     root.appendChild(limbsSub);
 
     // SHOES (3 numeric + 1 color)
-    const shoesSub = this.buildSubSection('SHOES', false);
+    const shoesSub = this.buildSubSection('SHOES', false, [rootTitle, 'SHOES']);
     const shoesSliders: SliderSpec[] = [
       { label: 'Shoes Width', min: 0.08, max: 0.22, step: 0.01,
         get: () => playerConfig.shoes.width,
@@ -654,7 +659,7 @@ export class DevOverlay {
     root.appendChild(shoesSub);
 
     // HAIR (9 numeric + 1 color)
-    const hairSub = this.buildSubSection('HAIR', false);
+    const hairSub = this.buildSubSection('HAIR', false, [rootTitle, 'HAIR']);
     const hairSliders: SliderSpec[] = [
       { label: 'Flat-Top: Width', min: 0.2, max: 0.5, step: 0.01,
         get: () => playerConfig.hair.flatTopWidth,
@@ -702,6 +707,7 @@ export class DevOverlay {
     }));
     root.appendChild(hairSub);
 
+    persistDetails(root, detailsKey(DEVUI_PREFIX, rootTitle));
     return root;
   }
 
@@ -910,6 +916,7 @@ export class DevOverlay {
       letterSpacing: '1px',
     });
     details.appendChild(summary);
+    persistDetails(details, detailsKey(DEVUI_PREFIX, title));
     return details;
   }
 
@@ -954,10 +961,11 @@ export class DevOverlay {
     root.appendChild(this.buildAnimDurations());
     root.appendChild(this.buildAnimAmplitudes());
     root.appendChild(this.buildAnimPoses());
+    persistDetails(root, detailsKey(DEVUI_PREFIX, 'ANIMATION'));
     return root;
   }
 
-  private buildSubSection(title: string, open = false): HTMLDetailsElement {
+  private buildSubSection(title: string, open = false, keyPath?: string[]): HTMLDetailsElement {
     const d = document.createElement('details');
     d.open = open;
     Object.assign(d.style, { marginLeft: '8px', marginBottom: '6px' });
@@ -972,11 +980,14 @@ export class DevOverlay {
       letterSpacing: '1px',
     });
     d.appendChild(s);
+    if (keyPath && keyPath.length > 0) {
+      persistDetails(d, detailsKey(DEVUI_PREFIX, ...keyPath));
+    }
     return d;
   }
 
   private buildAnimDurations(): HTMLElement {
-    const section = this.buildSubSection('Durations', false);
+    const section = this.buildSubSection('Durations', false, ['ANIMATION', 'Durations']);
     const d = getAnimDefaults();
     const keys = Object.keys(animConfig.durations) as Array<keyof typeof animConfig.durations>;
     for (const k of keys) {
@@ -988,11 +999,11 @@ export class DevOverlay {
   }
 
   private buildAnimAmplitudes(): HTMLElement {
-    const section = this.buildSubSection('Amplitudes', false);
+    const section = this.buildSubSection('Amplitudes', false, ['ANIMATION', 'Amplitudes']);
     const d = getAnimDefaults();
     const animKeys = Object.keys(animConfig.amplitudes) as Array<keyof typeof animConfig.amplitudes>;
     for (const anim of animKeys) {
-      const sub = this.buildSubSection(humanize(anim as string), false);
+      const sub = this.buildSubSection(humanize(anim as string), false, ['ANIMATION', 'Amplitudes', anim as string]);
       const fields = animConfig.amplitudes[anim] as Record<string, number>;
       const defaultsForAnim = (d.amplitudes as unknown as Record<string, Record<string, number>>)[anim as string];
       for (const f of Object.keys(fields)) {
@@ -1006,11 +1017,11 @@ export class DevOverlay {
   }
 
   private buildAnimPoses(): HTMLElement {
-    const section = this.buildSubSection('Poses', false);
+    const section = this.buildSubSection('Poses', false, ['ANIMATION', 'Poses']);
     const d = getAnimDefaults();
     const animKeys = Object.keys(animConfig.poses) as Array<keyof typeof animConfig.poses>;
     for (const anim of animKeys) {
-      const sub = this.buildSubSection(humanize(anim as string), false);
+      const sub = this.buildSubSection(humanize(anim as string), false, ['ANIMATION', 'Poses', anim as string]);
       const fields = animConfig.poses[anim] as unknown as Record<string, number>;
       const defaultsForAnim = (d.poses as unknown as Record<string, Record<string, number>>)[anim as string];
       for (const f of Object.keys(fields)) {
