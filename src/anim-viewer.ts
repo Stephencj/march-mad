@@ -5,6 +5,13 @@ import { Ball } from './game/ball';
 import { createHoop } from './game/hoop';
 import { createDefaultPlayerStats } from './core/types';
 import type { Position } from './core/types';
+import {
+  animConfig,
+  serializeAnim,
+  applyAnimJSON,
+  resetAnim,
+  getDefaults as getAnimDefaults,
+} from './dev/anim-config';
 
 // --- Renderer ---
 const canvas = document.getElementById('viewer-canvas') as HTMLCanvasElement;
@@ -536,6 +543,7 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
     } else {
       player.forceAnimState(null);
     }
+    rebuildAnimTuning();
   });
 });
 
@@ -611,3 +619,283 @@ document.getElementById('export-glb')?.addEventListener('click', () => {
     { binary: true },
   );
 });
+
+// =============================================================================
+// ANIMATION TUNING PANEL
+// Context-aware sliders bound to `animConfig`. The currently selected animation
+// drives which subgroups are shown. GamePlayer.animate() reads animConfig every
+// tick, so mutating a field is enough — no rebuild needed.
+// =============================================================================
+
+// Map dropdown anim id → keys inside animConfig.amplitudes / animConfig.poses
+// and the list of per-animation duration fields to surface.
+interface AnimMapping {
+  configKey: string; // key into amplitudes / poses
+  durations: string[]; // per-animation duration fields
+  extraConfigKeys?: string[]; // additional amplitude/pose groups to show (e.g. walk-while-dribbling)
+}
+
+const ANIM_MAP: Record<string, AnimMapping> = {
+  'idle': { configKey: 'idle', durations: ['idleBob'] },
+  'walk': { configKey: 'walk', durations: ['walkStride', 'walkBounce'] },
+  'dribble': { configKey: 'dribbleStationary', durations: ['dribbleCycle'] },
+  'dribble-walk': { configKey: 'dribble', durations: ['dribbleCycle', 'walkStride', 'walkBounce'] },
+  'guard': { configKey: 'guard', durations: ['guardPulse'] },
+  'steal': { configKey: 'steal', durations: ['stealDuration'] },
+  'shoot': { configKey: 'shoot', durations: ['shootDuration'] },
+  'jump': { configKey: 'jump', durations: ['jumpDuration'] },
+  'sprint': { configKey: 'sprint', durations: ['sprintStride', 'sprintBounce'] },
+  'dribble-sprint': { configKey: 'dribbleSprint', durations: ['dribbleSprintStride', 'dribbleSprintBounce', 'dribbleCycle'] },
+  'jump-block': { configKey: 'jumpBlock', durations: ['jumpBlockDuration'] },
+  'fall': { configKey: 'fall', durations: ['fallDuration'] },
+  'dunk': { configKey: 'dunk', durations: ['dunkDuration'] },
+  'pass': { configKey: 'pass', durations: ['passDuration'] },
+};
+
+// Shared cycle-frequency durations that apply across multiple animations.
+const SHARED_DURATION_KEYS = ['idleBob', 'walkStride', 'walkBounce', 'backwardStride', 'backwardBounce',
+  'sprintStride', 'sprintBounce', 'dribbleCycle', 'dribbleSprintStride', 'dribbleSprintBounce',
+  'guardPulse', 'indicatorBob', 'possessionRingPulse'];
+
+interface SliderRange { min: number; max: number; step: number; }
+
+/** Heuristic range per field based on its name and default value. */
+function rangeFor(fieldName: string, defaultValue: number, kind: 'duration' | 'amplitude' | 'pose'): SliderRange {
+  const lower = fieldName.toLowerCase();
+  if (kind === 'duration') {
+    // Cycle-frequency multipliers use large values (e.g. walkStride=5, sprintBounce=16).
+    if (SHARED_DURATION_KEYS.includes(fieldName)) {
+      return { min: 0.1, max: 30, step: 0.1 };
+    }
+    // Fixed-duration fields in seconds.
+    return { min: 0.05, max: 3.0, step: 0.01 };
+  }
+  // Scale / squash-stretch factors
+  if (lower.includes('squash') || lower.includes('stretch') || lower.includes('scale')
+      || lower.includes('compression') || lower.includes('thickness')) {
+    return { min: 0.3, max: 2.5, step: 0.01 };
+  }
+  // Opacity values stay in [0, 1]
+  if (lower.includes('opacity')) {
+    return { min: 0, max: 1, step: 0.01 };
+  }
+  // Approach distance / speed use larger ranges
+  if (lower === 'approachspeed') return { min: 1, max: 20, step: 0.5 };
+  if (lower === 'approachdist') return { min: 0, max: 3, step: 0.05 };
+  // Phase-timing normalized values in [0, 1]
+  if (lower === 'risetime' || lower === 'hangstart' || lower === 'dropstart' || lower === 'landstart') {
+    return { min: 0, max: 1, step: 0.01 };
+  }
+  // Ratio / factor fields are in [0, 2] typically
+  if (lower.includes('ratio') || lower.includes('factor')) {
+    return { min: -2, max: 2, step: 0.01 };
+  }
+  // Heights / apex / lateral / drop / spread / lower / lean
+  if (lower.includes('height') || lower.includes('apex') || lower.includes('lateral')
+      || lower.includes('drop') || lower.includes('bob') || lower.includes('bounce')
+      || lower.includes('stride') || lower.includes('amp')) {
+    // Positional-ish magnitudes — include negatives to allow inversion
+    return { min: -3, max: 3, step: 0.01 };
+  }
+  // Anything else (rotations, knee/hip/elbow/shoulder/body angles in radians)
+  // covers typical defaults in [-3.0, 3.0].
+  const absDef = Math.abs(defaultValue);
+  if (absDef > 3.1) {
+    const bound = Math.ceil(absDef * 1.25 * 100) / 100;
+    return { min: -bound, max: bound, step: 0.01 };
+  }
+  return { min: -3.2, max: 3.2, step: 0.01 };
+}
+
+interface TuningSection {
+  title: string;
+  /** Parent object on animConfig to bind against (live, mutated in place). */
+  parent: Record<string, number>;
+  /** Parent object on the defaults snapshot, for "default:" labels. */
+  defaultParent: Record<string, number>;
+  /** Restricted to this subset of keys (if null, show all keys on parent). */
+  keys: string[] | null;
+  /** How to classify each key for slider-range heuristics. */
+  kind: 'duration' | 'amplitude' | 'pose';
+  openByDefault?: boolean;
+}
+
+function buildAnimTuningSections(animId: string): TuningSection[] {
+  const mapping = ANIM_MAP[animId];
+  const defaults = getAnimDefaults();
+  const sections: TuningSection[] = [];
+
+  // Shared cycle-frequency durations — always present.
+  sections.push({
+    title: 'Durations (shared)',
+    parent: animConfig.durations as unknown as Record<string, number>,
+    defaultParent: defaults.durations as unknown as Record<string, number>,
+    keys: SHARED_DURATION_KEYS.slice(),
+    kind: 'duration',
+    openByDefault: false,
+  });
+
+  if (!mapping) return sections;
+
+  // Per-animation duration(s)
+  if (mapping.durations.length > 0) {
+    sections.push({
+      title: `Duration: ${animId}`,
+      parent: animConfig.durations as unknown as Record<string, number>,
+      defaultParent: defaults.durations as unknown as Record<string, number>,
+      keys: mapping.durations.slice(),
+      kind: 'duration',
+      openByDefault: true,
+    });
+  }
+
+  const keysToShow = [mapping.configKey, ...(mapping.extraConfigKeys ?? [])];
+
+  // Amplitudes for this animation
+  const ampRoot = animConfig.amplitudes as unknown as Record<string, Record<string, number>>;
+  const ampDefRoot = defaults.amplitudes as unknown as Record<string, Record<string, number>>;
+  for (const key of keysToShow) {
+    const ampGroup = ampRoot[key];
+    if (ampGroup && typeof ampGroup === 'object') {
+      sections.push({
+        title: `Amplitudes: ${key}`,
+        parent: ampGroup,
+        defaultParent: ampDefRoot[key],
+        keys: null,
+        kind: 'amplitude',
+        openByDefault: true,
+      });
+    }
+  }
+
+  // Poses for this animation
+  const poseRoot = animConfig.poses as unknown as Record<string, Record<string, number>>;
+  const poseDefRoot = defaults.poses as unknown as Record<string, Record<string, number>>;
+  for (const key of keysToShow) {
+    const poseGroup = poseRoot[key];
+    if (poseGroup && typeof poseGroup === 'object') {
+      sections.push({
+        title: `Poses: ${key}`,
+        parent: poseGroup,
+        defaultParent: poseDefRoot[key],
+        keys: null,
+        kind: 'pose',
+        openByDefault: false,
+      });
+    }
+  }
+
+  return sections;
+}
+
+function buildSlider(
+  parent: Record<string, number>,
+  defaultParent: Record<string, number> | undefined,
+  key: string,
+  kind: 'duration' | 'amplitude' | 'pose',
+): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'at-slider-row';
+
+  const currentVal = parent[key];
+  const defaultVal = defaultParent ? defaultParent[key] : currentVal;
+  const range = rangeFor(key, defaultVal, kind);
+
+  const head = document.createElement('div');
+  head.className = 'at-slider-head';
+
+  const label = document.createElement('span');
+  label.className = 'at-slider-label';
+  label.textContent = key;
+  head.appendChild(label);
+
+  const numeric = document.createElement('input');
+  numeric.type = 'number';
+  numeric.className = 'at-slider-num';
+  numeric.min = String(range.min);
+  numeric.max = String(range.max);
+  numeric.step = String(range.step);
+  numeric.value = String(currentVal);
+  head.appendChild(numeric);
+
+  row.appendChild(head);
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = String(range.min);
+  slider.max = String(range.max);
+  slider.step = String(range.step);
+  slider.value = String(currentVal);
+  row.appendChild(slider);
+
+  const defLabel = document.createElement('div');
+  defLabel.className = 'at-slider-default';
+  defLabel.textContent = `default: ${defaultVal}`;
+  row.appendChild(defLabel);
+
+  const apply = (raw: string) => {
+    if (raw.trim() === '') return;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) return;
+    parent[key] = v;
+    slider.value = String(v);
+    numeric.value = String(v);
+  };
+  slider.addEventListener('input', () => apply(slider.value));
+  numeric.addEventListener('input', () => apply(numeric.value));
+
+  return row;
+}
+
+function rebuildAnimTuning(): void {
+  const host = document.getElementById('anim-tuning');
+  if (!host) return;
+  host.innerHTML = '';
+  const sections = buildAnimTuningSections(currentAnim);
+  for (const section of sections) {
+    const details = document.createElement('details');
+    if (section.openByDefault) details.open = true;
+    const summary = document.createElement('summary');
+    summary.textContent = section.title;
+    details.appendChild(summary);
+
+    const keys = section.keys ?? Object.keys(section.parent);
+    for (const key of keys) {
+      if (typeof section.parent[key] !== 'number') continue;
+      details.appendChild(buildSlider(section.parent, section.defaultParent, key, section.kind));
+    }
+    host.appendChild(details);
+  }
+}
+
+document.getElementById('anim-reset')?.addEventListener('click', () => {
+  resetAnim();
+  rebuildAnimTuning();
+});
+
+document.getElementById('anim-export')?.addEventListener('click', () => {
+  const json = serializeAnim();
+  const nav = navigator as Navigator & { clipboard?: { writeText?: (t: string) => Promise<void> } };
+  const copyFallback = () => window.prompt('Copy anim JSON:', json);
+  if (nav.clipboard?.writeText) {
+    nav.clipboard.writeText(json).then(() => {
+      alert('Animation JSON copied to clipboard.');
+    }).catch(() => { copyFallback(); });
+  } else {
+    copyFallback();
+  }
+});
+
+document.getElementById('anim-import')?.addEventListener('click', () => {
+  const text = window.prompt('Paste anim JSON to import:');
+  if (text == null || text.trim() === '') return;
+  try {
+    applyAnimJSON(text);
+    rebuildAnimTuning();
+  } catch (err) {
+    alert('Import failed: ' + (err instanceof Error ? err.message : String(err)));
+  }
+});
+
+// Initial build for the default-selected animation.
+rebuildAnimTuning();
