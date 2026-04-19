@@ -1227,57 +1227,58 @@ export class GamePlayer {
         this.jumpHeight = Math.sin(progress * Math.PI) * animConfig.amplitudes.jumpBlock.apexHeight;
         this.group.position.y = this.jumpHeight;
 
+        const pjb = animConfig.poses.jumpBlock;
         if (progress < 0.15) {
           // Crouch
           const crouch = progress / 0.15;
-          bodyPivot.rotation.x = 0.2 * crouch;
-          kneeL.rotation.x = 0.7 * crouch;
-          kneeR.rotation.x = 0.7 * crouch;
-          hipL.rotation.x = 0.1 * crouch;
-          hipR.rotation.x = 0.1 * crouch;
-          shoulderL.rotation.x = 0.2 * crouch;
-          shoulderR.rotation.x = 0.2 * crouch;
-          elbowL.rotation.x = -0.3 * crouch;
-          elbowR.rotation.x = -0.3 * crouch;
+          bodyPivot.rotation.x = pjb.crouchBodyPivotRotX * crouch;
+          kneeL.rotation.x = pjb.crouchKnee * crouch;
+          kneeR.rotation.x = pjb.crouchKnee * crouch;
+          hipL.rotation.x = pjb.crouchHip * crouch;
+          hipR.rotation.x = pjb.crouchHip * crouch;
+          shoulderL.rotation.x = pjb.crouchShoulder * crouch;
+          shoulderR.rotation.x = pjb.crouchShoulder * crouch;
+          elbowL.rotation.x = pjb.crouchElbow * crouch;
+          elbowR.rotation.x = pjb.crouchElbow * crouch;
         } else if (progress < 0.3) {
           // Launch — BOTH arms shoot up
           const launch = (progress - 0.15) / 0.15;
-          bodyPivot.rotation.x = 0.2 - launch * 0.25;
-          kneeL.rotation.x = 0.7 * (1 - launch);
-          kneeR.rotation.x = 0.7 * (1 - launch);
-          hipL.rotation.x = 0.1 * (1 - launch);
-          hipR.rotation.x = 0.1 * (1 - launch);
-          shoulderL.rotation.x = 0.2 - launch * 2.9; // both arms straight up (-2.7)
-          shoulderR.rotation.x = 0.2 - launch * 2.9;
-          shoulderL.rotation.z = -launch * 0.3; // spread wide
-          shoulderR.rotation.z = launch * 0.3;
-          elbowL.rotation.x = -0.3 + launch * 0.2;
-          elbowR.rotation.x = -0.3 + launch * 0.2;
+          bodyPivot.rotation.x = pjb.crouchBodyPivotRotX - launch * 0.25;
+          kneeL.rotation.x = pjb.crouchKnee * (1 - launch);
+          kneeR.rotation.x = pjb.crouchKnee * (1 - launch);
+          hipL.rotation.x = pjb.crouchHip * (1 - launch);
+          hipR.rotation.x = pjb.crouchHip * (1 - launch);
+          shoulderL.rotation.x = pjb.crouchShoulder - launch * pjb.launchShoulder;
+          shoulderR.rotation.x = pjb.crouchShoulder - launch * pjb.launchShoulder;
+          shoulderL.rotation.z = -launch * pjb.launchShoulderSpread;
+          shoulderR.rotation.z = launch * pjb.launchShoulderSpread;
+          elbowL.rotation.x = pjb.crouchElbow + launch * pjb.launchElbowDelta;
+          elbowR.rotation.x = pjb.crouchElbow + launch * pjb.launchElbowDelta;
         } else if (progress < 0.7) {
           // Hang time — both arms up, wide spread like a wall
-          bodyPivot.rotation.x = -0.05;
-          kneeL.rotation.x = 0.1;
-          kneeR.rotation.x = 0.1;
+          bodyPivot.rotation.x = pjb.hangBodyPivotRotX;
+          kneeL.rotation.x = pjb.hangKneeL;
+          kneeR.rotation.x = pjb.hangKneeR;
           hipL.rotation.x = 0;
           hipR.rotation.x = 0;
-          shoulderL.rotation.x = -2.7;
-          shoulderR.rotation.x = -2.7;
-          shoulderL.rotation.z = -0.4;
-          shoulderR.rotation.z = 0.4;
-          elbowL.rotation.x = -0.1;
-          elbowR.rotation.x = -0.1;
+          shoulderL.rotation.x = pjb.hangShoulderL;
+          shoulderR.rotation.x = pjb.hangShoulderR;
+          shoulderL.rotation.z = pjb.hangShoulderLZ;
+          shoulderR.rotation.z = pjb.hangShoulderRZ;
+          elbowL.rotation.x = pjb.hangElbowL;
+          elbowR.rotation.x = pjb.hangElbowR;
         } else {
           // Land
           const land = (progress - 0.7) / 0.3;
-          bodyPivot.rotation.x = -0.05 + land * 0.15;
-          kneeL.rotation.x = 0.1 + land * 0.5;
-          kneeR.rotation.x = 0.1 + land * 0.5;
-          shoulderL.rotation.x = -2.7 + land * 2.6;
-          shoulderR.rotation.x = -2.7 + land * 2.6;
-          shoulderL.rotation.z = -0.4 + land * 0.4;
-          shoulderR.rotation.z = 0.4 - land * 0.4;
-          elbowL.rotation.x = -0.1;
-          elbowR.rotation.x = -0.1;
+          bodyPivot.rotation.x = pjb.hangBodyPivotRotX + land * 0.15;
+          kneeL.rotation.x = pjb.hangKneeL + land * 0.5;
+          kneeR.rotation.x = pjb.hangKneeR + land * 0.5;
+          shoulderL.rotation.x = pjb.hangShoulderL + land * 2.6;
+          shoulderR.rotation.x = pjb.hangShoulderR + land * 2.6;
+          shoulderL.rotation.z = pjb.hangShoulderLZ + land * 0.4;
+          shoulderR.rotation.z = pjb.hangShoulderRZ - land * 0.4;
+          elbowL.rotation.x = pjb.hangElbowL;
+          elbowR.rotation.x = pjb.hangElbowR;
         }
 
         // Torso/hip twist during jump-block (same as jump)
@@ -1287,15 +1288,15 @@ export class GamePlayer {
           if (torsoNode && hipMeshNode) {
             if (progress < 0.3) {
               const launch = progress / 0.3;
-              hipMeshNode.rotation.y = 0.15 * launch;
-              torsoNode.rotation.y = -0.1 * launch;
+              hipMeshNode.rotation.y = pjb.hipTwistLaunch * launch;
+              torsoNode.rotation.y = pjb.torsoTwistLaunch * launch;
             } else if (progress < 0.7) {
-              hipMeshNode.rotation.y = 0.15;
-              torsoNode.rotation.y = -0.1;
+              hipMeshNode.rotation.y = pjb.hipTwistLaunch;
+              torsoNode.rotation.y = pjb.torsoTwistLaunch;
             } else {
               const land = (progress - 0.7) / 0.3;
-              hipMeshNode.rotation.y = 0.15 * (1 - land);
-              torsoNode.rotation.y = -0.1 * (1 - land);
+              hipMeshNode.rotation.y = pjb.hipTwistLaunch * (1 - land);
+              torsoNode.rotation.y = pjb.torsoTwistLaunch * (1 - land);
             }
           }
         }
