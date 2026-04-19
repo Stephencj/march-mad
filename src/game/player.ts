@@ -553,7 +553,7 @@ export class GamePlayer {
         elbowL.rotation.x = -0.1; // slight natural elbow bend
         elbowR.rotation.x = -0.1;
         // Gentle idle bob
-        this.group.position.y = Math.sin(this.animTime * animConfig.durations.idleBob) * 0.03;
+        this.group.position.y = Math.sin(this.animTime * animConfig.durations.idleBob) * animConfig.amplitudes.idle.swayHeight;
         break;
       }
 
@@ -563,18 +563,18 @@ export class GamePlayer {
           const t = this.animTime * animConfig.durations.backwardStride;
           const bounceT = this.animTime * animConfig.durations.backwardBounce;
           const bouncePhase = (Math.sin(bounceT) + 1) / 2;
-          this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.08;
+          this.group.position.y = Math.pow(bouncePhase, 0.6) * animConfig.amplitudes.walkBackward.bounceHeight;
 
           bodyPivot.rotation.x = 0; // upright, no lean
           bodyPivot.scale.set(1, 1, 1);
 
           const strideRaw = Math.sin(t);
-          const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.3;
+          const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * animConfig.amplitudes.walkBackward.strideAmp;
 
           hipL.rotation.x = -stride;
           hipR.rotation.x = stride;
-          kneeL.rotation.x = 0.15 + Math.max(0, stride) * 0.3;
-          kneeR.rotation.x = 0.15 + Math.max(0, -stride) * 0.3;
+          kneeL.rotation.x = animConfig.amplitudes.walkBackward.kneeBase + Math.max(0, stride) * animConfig.amplitudes.walkBackward.kneeSwing;
+          kneeR.rotation.x = animConfig.amplitudes.walkBackward.kneeBase + Math.max(0, -stride) * animConfig.amplitudes.walkBackward.kneeSwing;
 
           // Arms in defensive ready position
           shoulderL.rotation.x = -0.3;
@@ -590,7 +590,7 @@ export class GamePlayer {
         const t = this.animTime * animConfig.durations.walkStride;
         const bounceT = this.animTime * animConfig.durations.walkBounce;
         const bouncePhase = (Math.sin(bounceT) + 1) / 2;
-        this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.15; // subtler (was 0.25)
+        this.group.position.y = Math.pow(bouncePhase, 0.6) * animConfig.amplitudes.walk.bounceHeight;
 
         // Squash-stretch on body pivot
         const squashStretch = bouncePhase; // 0 = ground contact, 1 = peak
@@ -605,28 +605,28 @@ export class GamePlayer {
 
         // Leg stride — floaty power curve
         const strideRaw = Math.sin(t);
-        const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.6;
+        const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * animConfig.amplitudes.walk.strideAmp;
 
         hipL.rotation.x = -stride; // negative = forward swing
         hipR.rotation.x = stride;
 
         // Knee bend: more when leg is back (pushing off)
-        kneeL.rotation.x = 0.15 + Math.max(0, stride) * 0.6;
-        kneeR.rotation.x = 0.15 + Math.max(0, -stride) * 0.6;
+        kneeL.rotation.x = animConfig.amplitudes.walk.kneeBase + Math.max(0, stride) * animConfig.amplitudes.walk.kneeSwing;
+        kneeR.rotation.x = animConfig.amplitudes.walk.kneeBase + Math.max(0, -stride) * animConfig.amplitudes.walk.kneeSwing;
 
         // Arms swing opposite to their OPPOSITE legs
-        shoulderL.rotation.x = stride * 0.5;
-        shoulderR.rotation.x = -stride * 0.5;
-        elbowL.rotation.x = -0.3 - Math.max(0, stride) * 0.3;  // NEGATIVE = natural bend
-        elbowR.rotation.x = -0.3 - Math.max(0, -stride) * 0.3; // NEGATIVE
+        shoulderL.rotation.x = stride * animConfig.amplitudes.walk.armSwingRatio;
+        shoulderR.rotation.x = -stride * animConfig.amplitudes.walk.armSwingRatio;
+        elbowL.rotation.x = -animConfig.amplitudes.walk.elbowBend - Math.max(0, stride) * animConfig.amplitudes.walk.elbowBend;
+        elbowR.rotation.x = -animConfig.amplitudes.walk.elbowBend - Math.max(0, -stride) * animConfig.amplitudes.walk.elbowBend;
 
         // Torso/hip counter-rotation for natural walk
         const torso = this.group.getObjectByName('torso');
         const hipMeshNode = this.group.getObjectByName('hip-mesh');
         if (torso && hipMeshNode) {
           // Hips twist WITH the leading leg, torso twists OPPOSITE
-          hipMeshNode.rotation.y = stride * 0.15; // subtle hip twist
-          torso.rotation.y = -stride * 0.1; // torso counter-twists
+          hipMeshNode.rotation.y = stride * animConfig.amplitudes.walk.hipTwist;
+          torso.rotation.y = -stride * animConfig.amplitudes.walk.torsoTwist;
         }
         break;
       }
@@ -666,7 +666,7 @@ export class GamePlayer {
           // Moving with ball — walk legs + phase-based dribble arm
           const bounceT = this.animTime * animConfig.durations.walkBounce; // match walk double-bounce
           const bouncePhase = (Math.sin(bounceT) + 1) / 2;
-          this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.12; // subtler than walk
+          this.group.position.y = Math.pow(bouncePhase, 0.6) * animConfig.amplitudes.dribble.bounceHeight;
 
           // Squash-stretch on body pivot (subtle)
           const squashStretch = bouncePhase;
@@ -679,11 +679,11 @@ export class GamePlayer {
           bodyPivot.rotation.x = 0.15; // slight crouch
 
           const strideRaw = Math.sin(t);
-          const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.5;
+          const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * animConfig.amplitudes.dribble.strideAmp;
           hipL.rotation.x = -stride;
           hipR.rotation.x = stride;
-          kneeL.rotation.x = 0.2 + Math.max(0, stride) * 0.5;
-          kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.5;
+          kneeL.rotation.x = animConfig.amplitudes.dribble.kneeBase + Math.max(0, stride) * animConfig.amplitudes.dribble.kneeSwing;
+          kneeR.rotation.x = animConfig.amplitudes.dribble.kneeBase + Math.max(0, -stride) * animConfig.amplitudes.dribble.kneeSwing;
 
           // Dribble arm (right): phase-based with shoulder pump
           shoulderR.rotation.x = shoulderPump;
@@ -698,7 +698,7 @@ export class GamePlayer {
           }
         } else {
           // Stationary dribble
-          this.group.position.y = Math.sin(this.animTime * animConfig.durations.idleBob) * 0.03;
+          this.group.position.y = Math.sin(this.animTime * animConfig.durations.idleBob) * animConfig.amplitudes.idle.swayHeight;
           bodyPivot.scale.set(1, 1, 1);
           bodyPivot.rotation.x = 0.1;
           hipL.rotation.x = 0;
@@ -756,7 +756,7 @@ export class GamePlayer {
         screen.visible = true;
         // Pulse the screen opacity
         const screenMat = (screen as THREE.Mesh).material as THREE.MeshBasicMaterial;
-        screenMat.opacity = 0.1 + Math.sin(this.animTime * animConfig.durations.guardPulse) * 0.08;
+        screenMat.opacity = animConfig.amplitudes.guard.blockOpacityMin + Math.sin(this.animTime * animConfig.durations.guardPulse) * animConfig.amplitudes.guard.blockOpacitySwing;
         break;
       }
 
@@ -999,7 +999,7 @@ export class GamePlayer {
         const progress = 1 - (this.jumpTimer / jumpDuration);
 
         // Parabolic height
-        this.jumpHeight = Math.sin(progress * Math.PI) * 1.8; // higher than before
+        this.jumpHeight = Math.sin(progress * Math.PI) * animConfig.amplitudes.jump.apexHeight;
         this.group.position.y = this.jumpHeight;
 
         if (progress < 0.15) {
@@ -1107,7 +1107,7 @@ export class GamePlayer {
         const t = this.animTime * animConfig.durations.sprintStride;
         const bounceT = this.animTime * animConfig.durations.sprintBounce;
         const bouncePhase = (Math.sin(bounceT) + 1) / 2;
-        this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.2; // slightly bigger than walk
+        this.group.position.y = Math.pow(bouncePhase, 0.6) * animConfig.amplitudes.sprint.bounceHeight;
 
         const squashStretch = bouncePhase;
         bodyPivot.scale.set(
@@ -1119,24 +1119,24 @@ export class GamePlayer {
         bodyPivot.rotation.x = 0.2; // more forward lean than walk
 
         const strideRaw = Math.sin(t);
-        const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.8; // bigger stride
+        const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * animConfig.amplitudes.sprint.strideAmp;
 
         hipL.rotation.x = -stride;
         hipR.rotation.x = stride;
-        kneeL.rotation.x = 0.2 + Math.max(0, stride) * 0.7; // deeper knee drive
-        kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.7;
+        kneeL.rotation.x = animConfig.amplitudes.sprint.kneeBase + Math.max(0, stride) * animConfig.amplitudes.sprint.kneeDrive;
+        kneeR.rotation.x = animConfig.amplitudes.sprint.kneeBase + Math.max(0, -stride) * animConfig.amplitudes.sprint.kneeDrive;
 
         // Arms pump hard — elbows tight, fists driving
-        shoulderL.rotation.x = stride * 0.7;
-        shoulderR.rotation.x = -stride * 0.7;
-        elbowL.rotation.x = -0.8; // tight elbow bend throughout
-        elbowR.rotation.x = -0.8;
+        shoulderL.rotation.x = stride * animConfig.amplitudes.sprint.shoulderSwing;
+        shoulderR.rotation.x = -stride * animConfig.amplitudes.sprint.shoulderSwing;
+        elbowL.rotation.x = -animConfig.amplitudes.sprint.elbowBend;
+        elbowR.rotation.x = -animConfig.amplitudes.sprint.elbowBend;
 
         const torso = this.group.getObjectByName('torso');
         const hipMeshNode = this.group.getObjectByName('hip-mesh');
         if (torso && hipMeshNode) {
-          hipMeshNode.rotation.y = stride * 0.2; // more twist when sprinting
-          torso.rotation.y = -stride * 0.15;
+          hipMeshNode.rotation.y = stride * animConfig.amplitudes.sprint.hipTwist;
+          torso.rotation.y = -stride * animConfig.amplitudes.sprint.torsoTwist;
         }
         break;
       }
@@ -1145,7 +1145,7 @@ export class GamePlayer {
         const t = this.animTime * animConfig.durations.dribbleSprintStride;
         const bounceT = this.animTime * animConfig.durations.dribbleSprintBounce;
         const bouncePhase = (Math.sin(bounceT) + 1) / 2;
-        this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.18;
+        this.group.position.y = Math.pow(bouncePhase, 0.6) * animConfig.amplitudes.dribbleSprint.bounceHeight;
 
         const squashStretch = bouncePhase;
         bodyPivot.scale.set(
@@ -1157,12 +1157,12 @@ export class GamePlayer {
         bodyPivot.rotation.x = 0.18;
 
         const strideRaw = Math.sin(t);
-        const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * 0.7;
+        const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * animConfig.amplitudes.dribbleSprint.strideAmp;
 
         hipL.rotation.x = -stride;
         hipR.rotation.x = stride;
-        kneeL.rotation.x = 0.2 + Math.max(0, stride) * 0.6;
-        kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.6;
+        kneeL.rotation.x = animConfig.amplitudes.dribbleSprint.kneeBase + Math.max(0, stride) * animConfig.amplitudes.dribbleSprint.kneeSwing;
+        kneeR.rotation.x = animConfig.amplitudes.dribbleSprint.kneeBase + Math.max(0, -stride) * animConfig.amplitudes.dribbleSprint.kneeSwing;
 
         // Compute dribble phase (0-1 cycle) — same speed as all dribble modes
         const dribbleSpeed = animConfig.durations.dribbleCycle; // Hz — cycles per second
@@ -1216,7 +1216,7 @@ export class GamePlayer {
         const jumpDuration = animConfig.durations.jumpBlockDuration;
         const progress = 1 - (this.jumpTimer / jumpDuration);
 
-        this.jumpHeight = Math.sin(progress * Math.PI) * 1.5;
+        this.jumpHeight = Math.sin(progress * Math.PI) * animConfig.amplitudes.jumpBlock.apexHeight;
         this.group.position.y = this.jumpHeight;
 
         if (progress < 0.15) {
@@ -1364,17 +1364,20 @@ export class GamePlayer {
         const dunkDuration = animConfig.durations.dunkDuration;
         const progress = 1 - (this.dunkTimer / dunkDuration);
 
-        // Height curve — feet at 1.2 means hand reaches ~3.2 (rim height)
+        // Height curve — feet at apexHeight means hand reaches ~3.2 (rim height).
+        // Phase boundaries (0.15/0.45/0.65/0.85) are structural timing ratios
+        // shared across the dunk state's pose code; only the apex height varies.
+        const dunkApex = animConfig.amplitudes.dunk.apexHeight;
         let height: number;
         if (progress < 0.15) {
-          height = (progress / 0.15) * 1.2; // quick rise
+          height = (progress / 0.15) * dunkApex; // quick rise
         } else if (progress < 0.45) {
-          height = 1.2; // hang at peak (includes slam)
+          height = dunkApex; // hang at peak (includes slam)
         } else if (progress < 0.65) {
-          height = 1.2; // still at rim height during hang
+          height = dunkApex; // still at rim height during hang
         } else if (progress < 0.85) {
           const drop = (progress - 0.65) / 0.2;
-          height = 1.2 * (1 - drop); // drop to ground
+          height = dunkApex * (1 - drop); // drop to ground
         } else {
           height = 0; // on ground
         }
@@ -1546,8 +1549,8 @@ export class GamePlayer {
           const dx = this.dunkTarget.x - this.group.position.x;
           const dz = this.dunkTarget.z - this.group.position.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
-          if (dist > 0.3) {
-            const speed = 8; // fast lunge
+          if (dist > animConfig.amplitudes.dunk.approachDist) {
+            const speed = animConfig.amplitudes.dunk.approachSpeed; // fast lunge
             const step = Math.min(speed * dt, dist);
             this.group.position.x += (dx / dist) * step;
             this.group.position.z += (dz / dist) * step;
