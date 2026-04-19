@@ -140,7 +140,7 @@ describe('DevOverlay', () => {
       expect(container.textContent).toContain('PLAYER');
       expect(container.textContent).toContain('Head Radius');
       expect(container.textContent).toContain('Torso Width');
-      expect(container.textContent).toContain('Upper Arm Length');
+      expect(container.textContent).toContain('Upper Arm: Length');
     });
 
     it('a head-radius edit writes to playerConfig', () => {
@@ -149,6 +149,62 @@ describe('DevOverlay', () => {
       headNumeric.value = '0.4';
       headNumeric.dispatchEvent(new Event('input'));
       expect(playerConfig.head.radius).toBe(0.4);
+    });
+
+    it('renders HEAD / BODY / LIMBS / SHOES / HAIR subsection summaries', () => {
+      overlay.show();
+      const summaries = Array.from(container.querySelectorAll('summary')).map((s) => s.textContent);
+      expect(summaries).toContain('HEAD');
+      expect(summaries).toContain('BODY');
+      expect(summaries).toContain('LIMBS');
+      expect(summaries).toContain('SHOES');
+      expect(summaries).toContain('HAIR');
+    });
+
+    it('exposes all player fields (36 numeric sliders + 2 color pickers)', () => {
+      overlay.show();
+      // Count numeric inputs inside the PLAYER root details (by summary text).
+      const allDetails = container.querySelectorAll('details');
+      let playerRoot: HTMLDetailsElement | null = null;
+      for (const d of Array.from(allDetails)) {
+        const s = d.querySelector('summary');
+        if (s && s.textContent && s.textContent.startsWith('PLAYER')) {
+          playerRoot = d as HTMLDetailsElement;
+          break;
+        }
+      }
+      expect(playerRoot).not.toBeNull();
+      const numericInputs = playerRoot!.querySelectorAll('input[type="number"]');
+      const colorInputs = playerRoot!.querySelectorAll('input[type="color"]');
+      // HEAD(2) + BODY(10) + LIMBS(12) + SHOES(3 numeric) + HAIR(9 numeric) = 36
+      // SHOES(1 color) + HAIR(1 color) = 2
+      expect(numericInputs.length).toBe(36);
+      expect(colorInputs.length).toBe(2);
+    });
+
+    it('shoes color picker writes an integer back to playerConfig', () => {
+      overlay.show();
+      const picker = container.querySelector<HTMLInputElement>('input[data-role="color-Shoes Color"]')!;
+      picker.value = '#ff8800';
+      picker.dispatchEvent(new Event('input'));
+      expect(playerConfig.shoes.color).toBe(0xff8800);
+    });
+
+    it('headband color picker writes an integer back to playerConfig', () => {
+      overlay.show();
+      const picker = container.querySelector<HTMLInputElement>('input[data-role="color-Headband Color"]')!;
+      picker.value = '#00aaff';
+      picker.dispatchEvent(new Event('input'));
+      expect(playerConfig.hair.headbandColor).toBe(0x00aaff);
+    });
+
+    it('Reset re-syncs color pickers from defaults', () => {
+      overlay.show();
+      playerConfig.shoes.color = 0x123456;
+      const picker = container.querySelector<HTMLInputElement>('input[data-role="color-Shoes Color"]')!;
+      const resetBtn = container.querySelector<HTMLButtonElement>('button[data-action="reset"]')!;
+      resetBtn.click();
+      expect(picker.value).toBe('#ffffff');
     });
   });
 });

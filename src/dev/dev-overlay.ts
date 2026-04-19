@@ -41,6 +41,16 @@ interface SliderSpec {
   defaultValue: number;
 }
 
+interface ColorSpec {
+  label: string;
+  /** Read the current value from the live config (integer, e.g. 0xff2222). */
+  get: () => number;
+  /** Write a new value back into the config (integer). */
+  set: (v: number) => void;
+  /** Default value to label "(default: #rrggbb)". */
+  defaultValue: number;
+}
+
 interface SectionSpec {
   title: string;
   sliders: SliderSpec[];
@@ -52,6 +62,8 @@ export class DevOverlay {
   private visible = false;
   /** Map slider DOM input → spec, so re-syncing after import is one pass. */
   private bindings: Array<{ input: HTMLInputElement; numeric: HTMLInputElement; spec: SliderSpec }> = [];
+  /** Map color picker DOM input → spec (integer ↔ hex string). */
+  private colorBindings: Array<{ picker: HTMLInputElement; spec: ColorSpec }> = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -79,6 +91,7 @@ export class DevOverlay {
       this.panel = null;
     }
     this.bindings = [];
+    this.colorBindings = [];
   }
 
   destroy(): void {
@@ -91,6 +104,9 @@ export class DevOverlay {
       const v = spec.get();
       input.value = String(v);
       numeric.value = String(v);
+    }
+    for (const { picker, spec } of this.colorBindings) {
+      picker.value = numToHex(spec.get());
     }
   }
 
@@ -119,6 +135,7 @@ export class DevOverlay {
     for (const section of this.buildSections()) {
       panel.appendChild(this.buildSection(section));
     }
+    panel.appendChild(this.buildPlayerSection());
     panel.appendChild(this.buildAnimationSection());
     return panel;
   }
@@ -465,47 +482,275 @@ export class DevOverlay {
         ],
       },
       ...this.buildLevelSections(),
-      ...this.buildPlayerSections(),
     ];
   }
 
-  private buildPlayerSections(): SectionSpec[] {
+  // ==========================================================================
+  // PLAYER section — mirrors player-editor.html's grouping (HEAD / BODY /
+  // LIMBS / SHOES / HAIR). Nested <details> because the overlay is dense.
+  // ==========================================================================
+
+  private buildPlayerSection(): HTMLElement {
+    const root = document.createElement('details');
+    root.open = true;
+    Object.assign(root.style, { marginBottom: '12px' });
+
+    const summary = document.createElement('summary');
+    summary.textContent = 'PLAYER (next match)';
+    Object.assign(summary.style, {
+      cursor: 'pointer',
+      fontWeight: 'bold',
+      fontSize: '13px',
+      color: '#aaa',
+      padding: '4px 0',
+      letterSpacing: '1px',
+    });
+    root.appendChild(summary);
+
     const pd = getPlayerDefaults();
-    return [
-      {
-        title: 'PLAYER (next match)',
-        sliders: [
-          { label: 'Head Radius', min: 0.18, max: 0.45, step: 0.01,
-            get: () => playerConfig.head.radius,
-            set: (v) => { playerConfig.head.radius = v; },
-            defaultValue: pd.head.radius },
-          { label: 'Torso Width', min: 0.18, max: 0.45, step: 0.01,
-            get: () => playerConfig.body.torsoWidth,
-            set: (v) => { playerConfig.body.torsoWidth = v; },
-            defaultValue: pd.body.torsoWidth },
-          { label: 'Torso Height', min: 0.25, max: 0.6, step: 0.01,
-            get: () => playerConfig.body.torsoHeight,
-            set: (v) => { playerConfig.body.torsoHeight = v; },
-            defaultValue: pd.body.torsoHeight },
-          { label: 'Upper Arm Length', min: 0.18, max: 0.42, step: 0.01,
-            get: () => playerConfig.limbs.upperArmLength,
-            set: (v) => { playerConfig.limbs.upperArmLength = v; },
-            defaultValue: pd.limbs.upperArmLength },
-          { label: 'Forearm Length', min: 0.14, max: 0.36, step: 0.01,
-            get: () => playerConfig.limbs.forearmLength,
-            set: (v) => { playerConfig.limbs.forearmLength = v; },
-            defaultValue: pd.limbs.forearmLength },
-          { label: 'Upper Leg Length', min: 0.22, max: 0.5, step: 0.01,
-            get: () => playerConfig.limbs.upperLegLength,
-            set: (v) => { playerConfig.limbs.upperLegLength = v; },
-            defaultValue: pd.limbs.upperLegLength },
-          { label: 'Lower Leg Length', min: 0.22, max: 0.5, step: 0.01,
-            get: () => playerConfig.limbs.lowerLegLength,
-            set: (v) => { playerConfig.limbs.lowerLegLength = v; },
-            defaultValue: pd.limbs.lowerLegLength },
-        ],
-      },
+
+    // HEAD (open by default — landing point)
+    const headSub = this.buildSubSection('HEAD', true);
+    const headSliders: SliderSpec[] = [
+      { label: 'Head Radius', min: 0.18, max: 0.45, step: 0.01,
+        get: () => playerConfig.head.radius,
+        set: (v) => { playerConfig.head.radius = v; },
+        defaultValue: pd.head.radius },
+      { label: 'Eye Radius', min: 0.01, max: 0.1, step: 0.005,
+        get: () => playerConfig.head.eyeRadius,
+        set: (v) => { playerConfig.head.eyeRadius = v; },
+        defaultValue: pd.head.eyeRadius },
     ];
+    for (const s of headSliders) headSub.appendChild(this.buildSlider(s));
+    root.appendChild(headSub);
+
+    // BODY
+    const bodySub = this.buildSubSection('BODY', false);
+    const bodySliders: SliderSpec[] = [
+      { label: 'Torso Width', min: 0.18, max: 0.45, step: 0.01,
+        get: () => playerConfig.body.torsoWidth,
+        set: (v) => { playerConfig.body.torsoWidth = v; },
+        defaultValue: pd.body.torsoWidth },
+      { label: 'Torso Height', min: 0.25, max: 0.6, step: 0.01,
+        get: () => playerConfig.body.torsoHeight,
+        set: (v) => { playerConfig.body.torsoHeight = v; },
+        defaultValue: pd.body.torsoHeight },
+      { label: 'Torso Depth', min: 0.08, max: 0.3, step: 0.01,
+        get: () => playerConfig.body.torsoDepth,
+        set: (v) => { playerConfig.body.torsoDepth = v; },
+        defaultValue: pd.body.torsoDepth },
+      { label: 'Shoulder Bar Width', min: 0.3, max: 0.6, step: 0.01,
+        get: () => playerConfig.body.shoulderBarWidth,
+        set: (v) => { playerConfig.body.shoulderBarWidth = v; },
+        defaultValue: pd.body.shoulderBarWidth },
+      { label: 'Shoulder Bar Height', min: 0.02, max: 0.15, step: 0.01,
+        get: () => playerConfig.body.shoulderBarHeight,
+        set: (v) => { playerConfig.body.shoulderBarHeight = v; },
+        defaultValue: pd.body.shoulderBarHeight },
+      { label: 'Shoulder Bar Depth', min: 0.05, max: 0.25, step: 0.01,
+        get: () => playerConfig.body.shoulderBarDepth,
+        set: (v) => { playerConfig.body.shoulderBarDepth = v; },
+        defaultValue: pd.body.shoulderBarDepth },
+      { label: 'Shoulder Cap Radius', min: 0.04, max: 0.16, step: 0.01,
+        get: () => playerConfig.body.shoulderCapRadius,
+        set: (v) => { playerConfig.body.shoulderCapRadius = v; },
+        defaultValue: pd.body.shoulderCapRadius },
+      { label: 'Hip Width', min: 0.18, max: 0.4, step: 0.01,
+        get: () => playerConfig.body.hipWidth,
+        set: (v) => { playerConfig.body.hipWidth = v; },
+        defaultValue: pd.body.hipWidth },
+      { label: 'Hip Height', min: 0.05, max: 0.2, step: 0.01,
+        get: () => playerConfig.body.hipHeight,
+        set: (v) => { playerConfig.body.hipHeight = v; },
+        defaultValue: pd.body.hipHeight },
+      { label: 'Hip Depth', min: 0.08, max: 0.25, step: 0.01,
+        get: () => playerConfig.body.hipDepth,
+        set: (v) => { playerConfig.body.hipDepth = v; },
+        defaultValue: pd.body.hipDepth },
+    ];
+    for (const s of bodySliders) bodySub.appendChild(this.buildSlider(s));
+    root.appendChild(bodySub);
+
+    // LIMBS
+    const limbsSub = this.buildSubSection('LIMBS', false);
+    const limbsSliders: SliderSpec[] = [
+      { label: 'Upper Arm: Top R', min: 0.02, max: 0.06, step: 0.005,
+        get: () => playerConfig.limbs.upperArmRadiusTop,
+        set: (v) => { playerConfig.limbs.upperArmRadiusTop = v; },
+        defaultValue: pd.limbs.upperArmRadiusTop },
+      { label: 'Upper Arm: Bot R', min: 0.02, max: 0.06, step: 0.005,
+        get: () => playerConfig.limbs.upperArmRadiusBottom,
+        set: (v) => { playerConfig.limbs.upperArmRadiusBottom = v; },
+        defaultValue: pd.limbs.upperArmRadiusBottom },
+      { label: 'Upper Arm: Length', min: 0.18, max: 0.42, step: 0.01,
+        get: () => playerConfig.limbs.upperArmLength,
+        set: (v) => { playerConfig.limbs.upperArmLength = v; },
+        defaultValue: pd.limbs.upperArmLength },
+      { label: 'Forearm: Top R', min: 0.015, max: 0.05, step: 0.005,
+        get: () => playerConfig.limbs.forearmRadiusTop,
+        set: (v) => { playerConfig.limbs.forearmRadiusTop = v; },
+        defaultValue: pd.limbs.forearmRadiusTop },
+      { label: 'Forearm: Bot R', min: 0.015, max: 0.05, step: 0.005,
+        get: () => playerConfig.limbs.forearmRadiusBottom,
+        set: (v) => { playerConfig.limbs.forearmRadiusBottom = v; },
+        defaultValue: pd.limbs.forearmRadiusBottom },
+      { label: 'Forearm: Length', min: 0.14, max: 0.36, step: 0.01,
+        get: () => playerConfig.limbs.forearmLength,
+        set: (v) => { playerConfig.limbs.forearmLength = v; },
+        defaultValue: pd.limbs.forearmLength },
+      { label: 'Upper Leg: Top R', min: 0.04, max: 0.1, step: 0.005,
+        get: () => playerConfig.limbs.upperLegRadiusTop,
+        set: (v) => { playerConfig.limbs.upperLegRadiusTop = v; },
+        defaultValue: pd.limbs.upperLegRadiusTop },
+      { label: 'Upper Leg: Bot R', min: 0.03, max: 0.09, step: 0.005,
+        get: () => playerConfig.limbs.upperLegRadiusBottom,
+        set: (v) => { playerConfig.limbs.upperLegRadiusBottom = v; },
+        defaultValue: pd.limbs.upperLegRadiusBottom },
+      { label: 'Upper Leg: Length', min: 0.22, max: 0.5, step: 0.01,
+        get: () => playerConfig.limbs.upperLegLength,
+        set: (v) => { playerConfig.limbs.upperLegLength = v; },
+        defaultValue: pd.limbs.upperLegLength },
+      { label: 'Lower Leg: Top R', min: 0.03, max: 0.09, step: 0.005,
+        get: () => playerConfig.limbs.lowerLegRadiusTop,
+        set: (v) => { playerConfig.limbs.lowerLegRadiusTop = v; },
+        defaultValue: pd.limbs.lowerLegRadiusTop },
+      { label: 'Lower Leg: Bot R', min: 0.04, max: 0.1, step: 0.005,
+        get: () => playerConfig.limbs.lowerLegRadiusBottom,
+        set: (v) => { playerConfig.limbs.lowerLegRadiusBottom = v; },
+        defaultValue: pd.limbs.lowerLegRadiusBottom },
+      { label: 'Lower Leg: Length', min: 0.22, max: 0.5, step: 0.01,
+        get: () => playerConfig.limbs.lowerLegLength,
+        set: (v) => { playerConfig.limbs.lowerLegLength = v; },
+        defaultValue: pd.limbs.lowerLegLength },
+    ];
+    for (const s of limbsSliders) limbsSub.appendChild(this.buildSlider(s));
+    root.appendChild(limbsSub);
+
+    // SHOES (3 numeric + 1 color)
+    const shoesSub = this.buildSubSection('SHOES', false);
+    const shoesSliders: SliderSpec[] = [
+      { label: 'Shoes Width', min: 0.08, max: 0.22, step: 0.01,
+        get: () => playerConfig.shoes.width,
+        set: (v) => { playerConfig.shoes.width = v; },
+        defaultValue: pd.shoes.width },
+      { label: 'Shoes Height', min: 0.04, max: 0.16, step: 0.01,
+        get: () => playerConfig.shoes.height,
+        set: (v) => { playerConfig.shoes.height = v; },
+        defaultValue: pd.shoes.height },
+      { label: 'Shoes Depth', min: 0.12, max: 0.3, step: 0.01,
+        get: () => playerConfig.shoes.depth,
+        set: (v) => { playerConfig.shoes.depth = v; },
+        defaultValue: pd.shoes.depth },
+    ];
+    for (const s of shoesSliders) shoesSub.appendChild(this.buildSlider(s));
+    shoesSub.appendChild(this.buildColorRow({
+      label: 'Shoes Color',
+      get: () => playerConfig.shoes.color,
+      set: (v) => { playerConfig.shoes.color = v; },
+      defaultValue: pd.shoes.color,
+    }));
+    root.appendChild(shoesSub);
+
+    // HAIR (9 numeric + 1 color)
+    const hairSub = this.buildSubSection('HAIR', false);
+    const hairSliders: SliderSpec[] = [
+      { label: 'Flat-Top: Width', min: 0.2, max: 0.5, step: 0.01,
+        get: () => playerConfig.hair.flatTopWidth,
+        set: (v) => { playerConfig.hair.flatTopWidth = v; },
+        defaultValue: pd.hair.flatTopWidth },
+      { label: 'Flat-Top: Height', min: 0.04, max: 0.25, step: 0.01,
+        get: () => playerConfig.hair.flatTopHeight,
+        set: (v) => { playerConfig.hair.flatTopHeight = v; },
+        defaultValue: pd.hair.flatTopHeight },
+      { label: 'Flat-Top: Depth', min: 0.18, max: 0.4, step: 0.01,
+        get: () => playerConfig.hair.flatTopDepth,
+        set: (v) => { playerConfig.hair.flatTopDepth = v; },
+        defaultValue: pd.hair.flatTopDepth },
+      { label: 'Afro Radius', min: 0.2, max: 0.5, step: 0.01,
+        get: () => playerConfig.hair.afroRadius,
+        set: (v) => { playerConfig.hair.afroRadius = v; },
+        defaultValue: pd.hair.afroRadius },
+      { label: 'Mohawk: Width', min: 0.02, max: 0.16, step: 0.01,
+        get: () => playerConfig.hair.mohawkWidth,
+        set: (v) => { playerConfig.hair.mohawkWidth = v; },
+        defaultValue: pd.hair.mohawkWidth },
+      { label: 'Mohawk: Height', min: 0.08, max: 0.4, step: 0.01,
+        get: () => playerConfig.hair.mohawkHeight,
+        set: (v) => { playerConfig.hair.mohawkHeight = v; },
+        defaultValue: pd.hair.mohawkHeight },
+      { label: 'Mohawk: Depth', min: 0.14, max: 0.36, step: 0.01,
+        get: () => playerConfig.hair.mohawkDepth,
+        set: (v) => { playerConfig.hair.mohawkDepth = v; },
+        defaultValue: pd.hair.mohawkDepth },
+      { label: 'Headband Radius', min: 0.2, max: 0.4, step: 0.005,
+        get: () => playerConfig.hair.headbandRadius,
+        set: (v) => { playerConfig.hair.headbandRadius = v; },
+        defaultValue: pd.hair.headbandRadius },
+      { label: 'Headband Thickness', min: 0.02, max: 0.15, step: 0.005,
+        get: () => playerConfig.hair.headbandThickness,
+        set: (v) => { playerConfig.hair.headbandThickness = v; },
+        defaultValue: pd.hair.headbandThickness },
+    ];
+    for (const s of hairSliders) hairSub.appendChild(this.buildSlider(s));
+    hairSub.appendChild(this.buildColorRow({
+      label: 'Headband Color',
+      get: () => playerConfig.hair.headbandColor,
+      set: (v) => { playerConfig.hair.headbandColor = v; },
+      defaultValue: pd.hair.headbandColor,
+    }));
+    root.appendChild(hairSub);
+
+    return root;
+  }
+
+  private buildColorRow(spec: ColorSpec): HTMLElement {
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '4px',
+      padding: '6px 0',
+      borderBottom: '1px solid #222',
+    });
+
+    const labelRow = document.createElement('div');
+    Object.assign(labelRow.style, {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    });
+
+    const label = document.createElement('label');
+    label.textContent = spec.label;
+    Object.assign(label.style, { fontSize: '12px', color: '#ddd' });
+    labelRow.appendChild(label);
+
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.value = numToHex(spec.get());
+    picker.dataset.role = `color-${spec.label}`;
+    Object.assign(picker.style, {
+      width: '60px',
+      height: '24px',
+      cursor: 'pointer',
+      background: 'transparent',
+      border: '1px solid #444',
+      borderRadius: '3px',
+    });
+    picker.addEventListener('input', () => {
+      spec.set(hexToNum(picker.value));
+    });
+    labelRow.appendChild(picker);
+
+    row.appendChild(labelRow);
+
+    const defaultLabel = document.createElement('div');
+    defaultLabel.textContent = `default: ${numToHex(spec.defaultValue)}`;
+    Object.assign(defaultLabel.style, { fontSize: '10px', color: '#666' });
+    row.appendChild(defaultLabel);
+
+    this.colorBindings.push({ picker, spec });
+    return row;
   }
 
   private buildLevelSections(): SectionSpec[] {
@@ -666,6 +911,15 @@ export class DevOverlay {
 // ----------------------------------------------------------------------------
 // Helpers for ANIMATION section — field-name classification & dotted-path r/w.
 // ----------------------------------------------------------------------------
+
+// Color integer ↔ "#rrggbb" conversion (shared with player-editor.ts semantics).
+function numToHex(n: number): string {
+  return '#' + (n >>> 0).toString(16).padStart(6, '0');
+}
+
+function hexToNum(s: string): number {
+  return parseInt(s.replace('#', ''), 16);
+}
 
 function humanize(name: string): string {
   // idleBob → "Idle Bob"; stealDuration → "Steal Duration"; rotX stays as "Rot X"
