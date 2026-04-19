@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { PlayerData } from '@/core/types';
 import { POSITION_SCALES } from '@/core/types';
 import { playerConfig } from '@/dev/player-config';
+import { animConfig } from '@/dev/anim-config';
 
 /**
  * Hair style types for Bobblehead Ballers.
@@ -512,7 +513,7 @@ export class GamePlayer {
     if (ring) {
       ring.visible = this.isHumanControlled;
       if (this.hasBall) {
-        const pulse = 1 + Math.sin(this.animTime * 4) * 0.15;
+        const pulse = 1 + Math.sin(this.animTime * animConfig.durations.possessionRingPulse) * 0.15;
         ring.scale.set(pulse, 1, pulse);
       }
     }
@@ -522,7 +523,7 @@ export class GamePlayer {
     if (indicator) {
       indicator.visible = this.isHumanControlled;
       if (this.isHumanControlled) {
-        indicator.position.y = 2.25 + Math.sin(this.animTime * 3) * 0.08;
+        indicator.position.y = 2.25 + Math.sin(this.animTime * animConfig.durations.indicatorBob) * 0.08;
       }
     }
 
@@ -552,15 +553,15 @@ export class GamePlayer {
         elbowL.rotation.x = -0.1; // slight natural elbow bend
         elbowR.rotation.x = -0.1;
         // Gentle idle bob
-        this.group.position.y = Math.sin(this.animTime * 1.5) * 0.03;
+        this.group.position.y = Math.sin(this.animTime * animConfig.durations.idleBob) * 0.03;
         break;
       }
 
       case 'walk': {
         if (isMovingBackwards) {
           // BACKWARDS SHUFFLE: slower, shorter strides, defensive stance
-          const t = this.animTime * 3;
-          const bounceT = this.animTime * 6;
+          const t = this.animTime * animConfig.durations.backwardStride;
+          const bounceT = this.animTime * animConfig.durations.backwardBounce;
           const bouncePhase = (Math.sin(bounceT) + 1) / 2;
           this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.08;
 
@@ -586,8 +587,8 @@ export class GamePlayer {
         }
 
         // Bouncy stride — faster pace, subtler bounce
-        const t = this.animTime * 5; // faster stride
-        const bounceT = this.animTime * 10; // double freq for per-foot bounce
+        const t = this.animTime * animConfig.durations.walkStride;
+        const bounceT = this.animTime * animConfig.durations.walkBounce;
         const bouncePhase = (Math.sin(bounceT) + 1) / 2;
         this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.15; // subtler (was 0.25)
 
@@ -631,10 +632,10 @@ export class GamePlayer {
       }
 
       case 'dribble': {
-        const t = this.animTime * 5; // match walk speed
+        const t = this.animTime * animConfig.durations.walkStride; // match walk speed
 
         // Compute dribble phase (0-1 cycle) — same speed for all modes
-        const dribbleSpeed = 2.5; // Hz — cycles per second
+        const dribbleSpeed = animConfig.durations.dribbleCycle; // Hz — cycles per second
         this.dribblePhase = (this.animTime * dribbleSpeed) % 1;
 
         // Arm synced with ball phase
@@ -663,7 +664,7 @@ export class GamePlayer {
 
         if (this.velocity.lengthSq() > 0.01) {
           // Moving with ball — walk legs + phase-based dribble arm
-          const bounceT = this.animTime * 10; // match walk double-bounce
+          const bounceT = this.animTime * animConfig.durations.walkBounce; // match walk double-bounce
           const bouncePhase = (Math.sin(bounceT) + 1) / 2;
           this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.12; // subtler than walk
 
@@ -697,7 +698,7 @@ export class GamePlayer {
           }
         } else {
           // Stationary dribble
-          this.group.position.y = Math.sin(this.animTime * 1.5) * 0.03;
+          this.group.position.y = Math.sin(this.animTime * animConfig.durations.idleBob) * 0.03;
           bodyPivot.scale.set(1, 1, 1);
           bodyPivot.rotation.x = 0.1;
           hipL.rotation.x = 0;
@@ -755,14 +756,14 @@ export class GamePlayer {
         screen.visible = true;
         // Pulse the screen opacity
         const screenMat = (screen as THREE.Mesh).material as THREE.MeshBasicMaterial;
-        screenMat.opacity = 0.1 + Math.sin(this.animTime * 6) * 0.08;
+        screenMat.opacity = 0.1 + Math.sin(this.animTime * animConfig.durations.guardPulse) * 0.08;
         break;
       }
 
       case 'steal': {
         // SIDE SWIPE: arm pulls back to side, pauses, quick sweep across
         // Now with guard-like crouch throughout
-        const stealDuration = 0.6;
+        const stealDuration = animConfig.durations.stealDuration;
         const progress = 1 - (this.stealTimer / stealDuration);
 
         // Phase 1 (0-0.2): Wind back — arm pulls to the right side
@@ -853,7 +854,7 @@ export class GamePlayer {
         // Phase 2 (0.15-0.4): Quick release — right arm extends up, left peels away
         // Phase 3 (0.4-1.0): Follow through and arms back down
         bodyPivot.scale.set(1, 1, 1);
-        const shootDuration = 0.4;
+        const shootDuration = animConfig.durations.shootDuration;
         const progress = 1 - (this.shootTimer / shootDuration); // 0 to 1
 
         // Slight hop during shot — quick up, brief hang, land
@@ -994,7 +995,7 @@ export class GamePlayer {
       case 'jump': {
         bodyPivot.scale.set(1, 1, 1);
         this.jumpTimer -= dt;
-        const jumpDuration = 0.6;
+        const jumpDuration = animConfig.durations.jumpDuration;
         const progress = 1 - (this.jumpTimer / jumpDuration);
 
         // Parabolic height
@@ -1103,8 +1104,8 @@ export class GamePlayer {
       }
 
       case 'sprint': {
-        const t = this.animTime * 8; // faster than walk (5)
-        const bounceT = this.animTime * 16; // double for per-foot
+        const t = this.animTime * animConfig.durations.sprintStride;
+        const bounceT = this.animTime * animConfig.durations.sprintBounce;
         const bouncePhase = (Math.sin(bounceT) + 1) / 2;
         this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.2; // slightly bigger than walk
 
@@ -1141,8 +1142,8 @@ export class GamePlayer {
       }
 
       case 'dribble-sprint': {
-        const t = this.animTime * 7; // between walk and sprint speed
-        const bounceT = this.animTime * 14;
+        const t = this.animTime * animConfig.durations.dribbleSprintStride;
+        const bounceT = this.animTime * animConfig.durations.dribbleSprintBounce;
         const bouncePhase = (Math.sin(bounceT) + 1) / 2;
         this.group.position.y = Math.pow(bouncePhase, 0.6) * 0.18;
 
@@ -1164,7 +1165,7 @@ export class GamePlayer {
         kneeR.rotation.x = 0.2 + Math.max(0, -stride) * 0.6;
 
         // Compute dribble phase (0-1 cycle) — same speed as all dribble modes
-        const dribbleSpeed = 2.5; // Hz — cycles per second
+        const dribbleSpeed = animConfig.durations.dribbleCycle; // Hz — cycles per second
         this.dribblePhase = (this.animTime * dribbleSpeed) % 1;
 
         // Arm synced with ball phase
@@ -1212,7 +1213,7 @@ export class GamePlayer {
       case 'jump-block': {
         bodyPivot.scale.set(1, 1, 1);
         this.jumpTimer -= dt;
-        const jumpDuration = 0.6;
+        const jumpDuration = animConfig.durations.jumpBlockDuration;
         const progress = 1 - (this.jumpTimer / jumpDuration);
 
         this.jumpHeight = Math.sin(progress * Math.PI) * 1.5;
@@ -1301,7 +1302,7 @@ export class GamePlayer {
 
       case 'fall': {
         bodyPivot.scale.set(1, 1, 1);
-        const fallDuration = 0.8;
+        const fallDuration = animConfig.durations.fallDuration;
         const progress = 1 - (this.fallTimer / fallDuration);
 
         if (progress < 0.4) {
@@ -1360,7 +1361,7 @@ export class GamePlayer {
 
       case 'dunk': {
         bodyPivot.scale.set(1, 1, 1);
-        const dunkDuration = 1.2;
+        const dunkDuration = animConfig.durations.dunkDuration;
         const progress = 1 - (this.dunkTimer / dunkDuration);
 
         // Height curve — feet at 1.2 means hand reaches ~3.2 (rim height)
@@ -1565,7 +1566,7 @@ export class GamePlayer {
 
       case 'pass': {
         bodyPivot.scale.set(1, 1, 1);
-        const passDuration = 0.35;
+        const passDuration = animConfig.durations.passDuration;
         const progress = 1 - (this.passTimer / passDuration);
 
         if (progress < 0.25) {
