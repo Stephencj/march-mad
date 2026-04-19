@@ -1112,14 +1112,15 @@ export class GamePlayer {
         const bouncePhase = (Math.sin(bounceT) + 1) / 2;
         this.group.position.y = Math.pow(bouncePhase, 0.6) * animConfig.amplitudes.sprint.bounceHeight;
 
+        const ps = animConfig.poses.sprint;
         const squashStretch = bouncePhase;
         bodyPivot.scale.set(
-          1 + (1 - squashStretch) * 0.03,
-          1 - (1 - squashStretch) * 0.03 + squashStretch * 0.03,
-          1 + (1 - squashStretch) * 0.03
+          1 + (1 - squashStretch) * ps.squashStretchAmount,
+          1 - (1 - squashStretch) * ps.squashStretchAmount + squashStretch * ps.squashStretchAmount,
+          1 + (1 - squashStretch) * ps.squashStretchAmount
         );
 
-        bodyPivot.rotation.x = 0.2; // more forward lean than walk
+        bodyPivot.rotation.x = ps.bodyPivotRotX;
 
         const strideRaw = Math.sin(t);
         const stride = Math.sign(strideRaw) * Math.pow(Math.abs(strideRaw), 0.7) * animConfig.amplitudes.sprint.strideAmp;
