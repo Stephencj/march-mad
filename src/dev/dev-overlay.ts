@@ -176,7 +176,51 @@ export class DevOverlay {
     buttonRow.appendChild(this.makeButton('Import', () => this.importFromFile()));
 
     header.appendChild(buttonRow);
+
+    // Dev page navigation — opens the standalone tuning pages. Use plain
+    // <a> anchors so Ctrl/middle-click opens in a new tab/window; normal
+    // click navigates in place (game state is lost, but this is dev-only).
+    const pagesLabel = document.createElement('div');
+    pagesLabel.textContent = 'DEV PAGES';
+    Object.assign(pagesLabel.style, {
+      fontSize: '10px',
+      letterSpacing: '1.5px',
+      color: '#888',
+      marginTop: '10px',
+    });
+    header.appendChild(pagesLabel);
+
+    const pagesRow = document.createElement('div');
+    Object.assign(pagesRow.style, { display: 'flex', gap: '6px', marginTop: '4px' });
+    pagesRow.appendChild(this.makePageLink('Anim Viewer', 'anim-viewer.html'));
+    pagesRow.appendChild(this.makePageLink('Player', 'player-editor.html'));
+    pagesRow.appendChild(this.makePageLink('Level', 'level-editor.html'));
+    header.appendChild(pagesRow);
+
     return header;
+  }
+
+  private makePageLink(label: string, href: string): HTMLAnchorElement {
+    const a = document.createElement('a');
+    a.textContent = label;
+    a.href = href;
+    a.dataset.action = 'open-' + href.replace('.html', '');
+    Object.assign(a.style, {
+      flex: '1',
+      padding: '6px 8px',
+      background: '#1f2540',
+      color: '#ffffff',
+      border: '1px solid #444',
+      borderRadius: '4px',
+      cursor: 'pointer',
+      fontSize: '12px',
+      textAlign: 'center',
+      textDecoration: 'none',
+      fontFamily: 'sans-serif',
+    });
+    a.addEventListener('mouseenter', () => { a.style.background = '#2c3556'; });
+    a.addEventListener('mouseleave', () => { a.style.background = '#1f2540'; });
+    return a;
   }
 
   private importFromFile(): void {
