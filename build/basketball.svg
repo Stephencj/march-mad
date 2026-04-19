@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="ball" cx="40%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#f7a64b"/>
+      <stop offset="55%" stop-color="#d26a18"/>
+      <stop offset="100%" stop-color="#8a3f07"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="0" dy="10" result="off"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <circle cx="256" cy="256" r="232" fill="url(#ball)"/>
+    <g stroke="#1a0d02" stroke-width="10" stroke-linecap="round" fill="none">
+      <path d="M 24 256 L 488 256"/>
+      <path d="M 256 24 L 256 488"/>
+      <path d="M 86 86 Q 256 256 426 426" stroke-dasharray="0"/>
+      <path d="M 86 426 Q 256 256 426 86"/>
+    </g>
+    <circle cx="256" cy="256" r="232" fill="none" stroke="#1a0d02" stroke-width="8"/>
+    <ellipse cx="170" cy="160" rx="70" ry="40" fill="#ffffff" opacity="0.18" transform="rotate(-20 170 160)"/>
+  </g>
+</svg>
