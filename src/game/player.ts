@@ -115,6 +115,10 @@ export class GamePlayer {
   dunkTarget: { x: number; z: number } | null = null;
   private passTimer = 0;
   dribblePhase = 0; // 0-1, exposed for ball sync
+  // Sticky flag for forward-vs-backward walk animation. Hysteretic to avoid
+  // per-frame flicker when facing direction and move direction are nearly
+  // perpendicular. Updated in animate() before the walk anim branch reads it.
+  isMovingBackwards = false;
 
   /**
    * 0 = normal dad, 1 = fully transformed college-athlete mutant.
@@ -647,7 +651,6 @@ export class GamePlayer {
       beer.visible = this.fallTimer <= 0 && !this.isGuarding;
     }
 
-    let isMovingBackwards = false;
     if (isMoving) {
       const facingDir = new THREE.Vector3(0, 0, 1);
       facingDir.applyQuaternion(this.group.quaternion);
@@ -656,8 +659,19 @@ export class GamePlayer {
       const moveDir = this.velocity.clone();
       moveDir.y = 0;
       moveDir.normalize();
-      isMovingBackwards = facingDir.dot(moveDir) < -0.3;
+      const dot = facingDir.dot(moveDir);
+      // Hysteresis: once true, require dot > -0.1 to clear; once false,
+      // require dot < -0.5 to set. Keeps the walk-anim branch stable when
+      // facing wobbles (e.g. AI smooth-lerp while moving).
+      if (this.isMovingBackwards) {
+        if (dot > -0.1) this.isMovingBackwards = false;
+      } else {
+        if (dot < -0.5) this.isMovingBackwards = true;
+      }
+    } else {
+      this.isMovingBackwards = false;
     }
+    const isMovingBackwards = this.isMovingBackwards;
 
     switch (this.animState) {
       case 'idle': {

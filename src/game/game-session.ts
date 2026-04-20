@@ -560,7 +560,7 @@ export class GameSession {
     }
 
     // Make AI players face the ball/ball holder
-    this.updateAIFacing();
+    this.updateAIFacing(dt);
 
     // Update match engine clock
     if (this.matchEngine.state.phase === 'playing') {
@@ -1267,7 +1267,7 @@ export class GameSession {
 
   // --- Helpers ---
 
-  private updateAIFacing(): void {
+  private updateAIFacing(dt: number): void {
     const ballTarget = this.ball.heldBy
       ? this.getPlayerById(this.ball.heldBy)?.position ?? this.ball.mesh.position
       : this.ball.mesh.position;
@@ -1277,7 +1277,11 @@ export class GameSession {
       const dx = ballTarget.x - player.position.x;
       const dz = ballTarget.z - player.position.z;
       if (Math.abs(dx) > 0.1 || Math.abs(dz) > 0.1) {
-        player.group.rotation.y = Math.atan2(dx, dz);
+        const targetAngle = Math.atan2(dx, dz);
+        const current = player.group.rotation.y;
+        // Angle lerp with wrap-around: shortest-path delta in (-PI, PI].
+        const delta = ((targetAngle - current + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        player.group.rotation.y = current + delta * Math.min(1, 12 * dt);
       }
     }
   }
