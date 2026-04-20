@@ -86,6 +86,14 @@ ball.mesh.visible = false;
 scene.add(ball.mesh);
 
 // --- Player ---
+// Parent container so user-provided XYZ offset sliders can bump the player
+// without fighting position logic. Mirrors anim-viewer's playerContainer.
+const playerContainer = new THREE.Group();
+scene.add(playerContainer);
+let playerOffsetX = 0;
+let playerOffsetY = 0;
+let playerOffsetZ = 0;
+
 let player: GamePlayer | null = null;
 let animLoop: AnimLoop | null = null;
 
@@ -111,7 +119,7 @@ function rebuildPlayer(): void {
   const savedAnimTime: number = player?.animTime ?? 0;
 
   if (player) {
-    scene.remove(player.group);
+    playerContainer.remove(player.group);
     disposePlayerGroup(player.group);
   }
   rebuildSeq++;
@@ -128,7 +136,7 @@ function rebuildPlayer(): void {
     new THREE.Vector3(0, 0, 0),
     teamColor,
   );
-  scene.add(player.group);
+  playerContainer.add(player.group);
   player.animTime = savedAnimTime;
 
   if (animLoop) {
@@ -284,6 +292,9 @@ function buildPanel(): void {
   // Preview controls (not part of the config — affect just the editor view)
   panel.appendChild(buildPreviewSection());
 
+  // Player position offset (bump the model without changing its pose).
+  panel.appendChild(buildPlayerOffsetSection());
+
   // Animation playback (speed + state picker). Sits above body/limb sections
   // so the user can pick an anim once and then scroll down to tune dimensions.
   panel.appendChild(buildAnimationSection());
@@ -291,6 +302,91 @@ function buildPanel(): void {
   for (const section of buildSections()) {
     panel.appendChild(buildSection(section));
   }
+}
+
+function applyPlayerOffset(): void {
+  playerContainer.position.set(playerOffsetX, playerOffsetY, playerOffsetZ);
+}
+
+function buildPlayerOffsetSection(): HTMLElement {
+  const details = document.createElement('details');
+  details.open = true;
+  Object.assign(details.style, { marginBottom: '12px' });
+  persistDetails(details, detailsKey(DEVPANEL_PREFIX, 'PLAYER OFFSET'));
+
+  const summary = document.createElement('summary');
+  summary.textContent = 'PLAYER OFFSET';
+  Object.assign(summary.style, {
+    cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
+    color: '#aaa', padding: '4px 0', letterSpacing: '1px',
+  });
+  details.appendChild(summary);
+
+  const hint = document.createElement('div');
+  hint.textContent = 'Bumps the player relative to where the anim places it.';
+  Object.assign(hint.style, { fontSize: '10px', color: '#666', padding: '2px 0 6px 0' });
+  details.appendChild(hint);
+
+  const makeAxisRow = (axis: 'x' | 'y' | 'z', min: number, max: number): HTMLElement => {
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      display: 'flex', flexDirection: 'column', gap: '2px',
+      padding: '4px 0', borderBottom: '1px solid #222',
+    });
+
+    const head = document.createElement('div');
+    Object.assign(head.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
+    const label = document.createElement('label');
+    label.textContent = axis.toUpperCase();
+    Object.assign(label.style, { fontSize: '12px', color: '#ddd', fontFamily: 'monospace' });
+    head.appendChild(label);
+    const valEl = document.createElement('span');
+    valEl.textContent = '0.00';
+    Object.assign(valEl.style, { fontSize: '12px', color: '#fff', fontFamily: 'monospace' });
+    head.appendChild(valEl);
+    row.appendChild(head);
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = '0.05';
+    slider.value = '0';
+    Object.assign(slider.style, { width: '100%' });
+    slider.addEventListener('input', () => {
+      const v = parseFloat(slider.value);
+      if (axis === 'x') playerOffsetX = v;
+      else if (axis === 'y') playerOffsetY = v;
+      else playerOffsetZ = v;
+      valEl.textContent = v.toFixed(2);
+      applyPlayerOffset();
+    });
+    row.appendChild(slider);
+    return row;
+  };
+
+  details.appendChild(makeAxisRow('x', -3, 3));
+  details.appendChild(makeAxisRow('y', -2, 3));
+  details.appendChild(makeAxisRow('z', -3, 3));
+
+  const resetBtn = makeButton('Reset Offset', () => {
+    playerOffsetX = 0;
+    playerOffsetY = 0;
+    playerOffsetZ = 0;
+    applyPlayerOffset();
+    // Sync the slider DOM — rebuild the section by refreshing buildPanel
+    // would be heavy, so just zero each input in place.
+    for (const input of details.querySelectorAll<HTMLInputElement>('input[type=range]')) {
+      input.value = '0';
+    }
+    for (const span of details.querySelectorAll<HTMLElement>('span')) {
+      span.textContent = '0.00';
+    }
+  });
+  Object.assign(resetBtn.style, { marginTop: '6px' });
+  details.appendChild(resetBtn);
+
+  return details;
 }
 
 function buildAnimationSection(): HTMLElement {
