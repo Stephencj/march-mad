@@ -30,6 +30,7 @@ export class HUD {
   private staminaBarFill: HTMLElement;
   private controllerIcon: HTMLElement;
   private knockdownEl: HTMLElement;
+  private lifeSavingsEl: HTMLElement;
   private buffBannerEl: HTMLElement;
   private buffHintEl: HTMLElement;
 
@@ -107,6 +108,20 @@ export class HUD {
       zIndex: '10', display: 'none',
     });
     this.container.appendChild(this.buffHintEl);
+
+    // Life Savings badge — top-left corner, updated per tick by main.ts
+    this.lifeSavingsEl = document.createElement('div');
+    this.lifeSavingsEl.dataset.hudRole = 'life-savings';
+    Object.assign(this.lifeSavingsEl.style, {
+      position: 'absolute', top: '12px', left: '12px',
+      fontSize: '14px', fontFamily: 'sans-serif', color: '#e6ffe6',
+      background: 'rgba(26, 87, 42, 0.32)', border: '1px solid #2e8b50',
+      borderRadius: '6px', padding: '6px 10px',
+      letterSpacing: '0.5px', zIndex: '10',
+      textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
+    });
+    this.container.appendChild(this.lifeSavingsEl);
+    this.updateLifeSavings('Guest', 100, 0);
 
     // Buff banner — giant centered "INVINCIBLE" / "MUTANT" during the 30s.
     this.buffBannerEl = document.createElement('div');
@@ -237,6 +252,32 @@ export class HUD {
   }
   hideBuffHint(): void {
     this.buffHintEl.style.display = 'none';
+  }
+
+  /**
+   * Top-left Life Savings badge. `bet` is the current wager (0 if Play For
+   * Free or no bet placed). When a bet is active, shows cash + `(betting $X)`.
+   */
+  updateLifeSavings(name: string, cash: number, bet: number): void {
+    this.lifeSavingsEl.textContent = '';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = name;
+    nameSpan.style.color = '#ffffff';
+    nameSpan.style.fontWeight = 'bold';
+    const sep = document.createElement('span');
+    sep.textContent = '  ·  ';
+    sep.style.color = '#888';
+    const cashSpan = document.createElement('span');
+    cashSpan.textContent = `$${cash}`;
+    this.lifeSavingsEl.appendChild(nameSpan);
+    this.lifeSavingsEl.appendChild(sep);
+    this.lifeSavingsEl.appendChild(cashSpan);
+    if (bet > 0) {
+      const betSpan = document.createElement('span');
+      betSpan.textContent = `  (betting $${bet})`;
+      betSpan.style.color = '#ffaa55';
+      this.lifeSavingsEl.appendChild(betSpan);
+    }
   }
 
   /** Show the large centered banner while a buff is active. */

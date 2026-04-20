@@ -6,6 +6,7 @@ import { createFullCourt, FULL_COURT_DIMENSIONS } from './game/full-court';
 import { createVenue, randomVenue, type VenueId } from './game/venue';
 import { setActiveProfileId, getActiveProfile, deleteProfile, SessionWallet } from './meta/profile';
 import { BetModal } from './ui/bet-modal';
+import { SaveProfilePrompt } from './ui/save-profile-prompt';
 import { GameSession } from './game/game-session';
 import { GamePlayer } from './game/player';
 import { CameraSystem } from './game/camera';
@@ -221,6 +222,7 @@ const devOverlay = new DevOverlay(devContainer);
 const hud = new HUD(hudContainer);
 const menuUI = new MenuUI(menuContainer, handleMenuAction);
 const betModal = new BetModal(uiOverlay);
+const saveProfilePrompt = new SaveProfilePrompt(uiOverlay);
 menuUI.setNavigator(menuNavigator);
 const postGameUI = new PostGameUI(postGameContainer, handlePostGameAction);
 postGameUI.setNavigator(menuNavigator);
@@ -554,12 +556,28 @@ gameEvents.on('game-over', () => {
   const data = session.getGameOverData();
 
   // Settle the bet if one was placed. `pendingBet` is 0 for Play-For-Free.
+  let matchDelta = 0;
   if (pendingBet > 0) {
     const entry = wallet.settleMatch(pendingBet, data.humanWon ? 'win' : 'loss', { venueId: currentVenueId });
-    console.log('[bet] settled', entry);
+    matchDelta = entry.delta;
   }
-  if (wallet.isGuest()) guestMatchesThisSession++;
+  const wasGuest = wallet.isGuest();
+  if (wasGuest) guestMatchesThisSession++;
   pendingBet = 0;
+
+  // If this was a guest's FIRST match this session, pop the save-profile
+  // prompt before the post-game UI. Only fires once per session.
+  if (wasGuest && guestMatchesThisSession === 1) {
+    saveProfilePrompt.show({
+      wallet,
+      matchDelta,
+      onSaved: (name) => {
+        wallet.saveGuestAs(name);
+        refreshWallet();
+      },
+      onSkipped: () => { /* keep playing as guest */ },
+    });
+  }
 
   if (tournamentController?.isActive) {
     tournamentController.recordHumanResult(data.winner);
@@ -635,6 +653,7 @@ function update(dt: number): void {
 
     // Knockdown counters + buff hint/banner
     hud.updateKnockdowns(session.matchEngine.knockdownCount.home, session.matchEngine.knockdownCount.away);
+    hud.updateLifeSavings(wallet.getDisplayName(), wallet.getCash(), pendingBet);
     const humanTeamNow = session.getPlayerTeam(session.getHumanPlayer()?.data.id ?? '');
     if (humanTeamNow) {
       const inv = session.matchEngine.invincibility[humanTeamNow];
