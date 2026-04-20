@@ -589,10 +589,23 @@ export class GameSession {
     }
   }
 
+  /**
+   * Primary human input. For backward compatibility with single-player code
+   * that hasn't been updated; new callers should use processInputForPlayer
+   * once per controller.
+   */
   processInput(input: ControlInput, dt: number): void {
+    const primary = this.getHumanPlayer();
+    if (primary) this.processInputForPlayer(primary, input, dt);
+  }
+
+  /**
+   * Apply one controller's input to one specific player. Called once per
+   * human per frame by main.ts.
+   */
+  processInputForPlayer(human: GamePlayer, input: ControlInput, dt: number): void {
     if (this.matchEngine.state.phase === 'transitioning') return;
-    const human = this.getHumanPlayer();
-    if (!human) return;
+    if (!human || !human.isHumanControlled) return;
 
     // Lock movement during dunk — player moves toward hoop via animation
     if (human.isDunking) {

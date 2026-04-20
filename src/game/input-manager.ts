@@ -10,6 +10,10 @@ export class InputManager {
 
   lastUsedDevice: 'keyboard' | 'gamepad' | 'touch' = 'keyboard';
   gamepadIndex: number | null = null;
+  /** Ordered list of gamepad indices (index 0 drives primary player, 1 drives P2, ..). */
+  connectedGamepads: number[] = [];
+  /** Per-extra-player GamepadControls (index 1 = P2's gamepad controls, etc). */
+  private extraGamepadControls: GamepadControls[] = [];
 
   constructor(
     touch?: TouchControls,
@@ -22,13 +26,33 @@ export class InputManager {
   }
 
   handleGamepadConnected(e: GamepadEvent): void {
-    this.gamepadIndex = e.gamepad.index;
-    this.gamepadControls.detectControllerType(e.gamepad);
+    if (!this.connectedGamepads.includes(e.gamepad.index)) {
+      this.connectedGamepads.push(e.gamepad.index);
+    }
+    // First gamepad connected drives the primary player (matches existing
+    // single-player behaviour). Later gamepads get their own GamepadControls
+    // instance so button-latch state is independent.
+    if (this.gamepadIndex === null) {
+      this.gamepadIndex = e.gamepad.index;
+      this.gamepadControls.detectControllerType(e.gamepad);
+    } else {
+      // Ensure an extra-controls slot exists for this non-primary gamepad
+      while (this.extraGamepadControls.length < this.connectedGamepads.length - 1) {
+        this.extraGamepadControls.push(new GamepadControls());
+      }
+      // Detect its type (for future per-player button glyphs)
+      const slot = this.connectedGamepads.indexOf(e.gamepad.index) - 1;
+      if (slot >= 0 && this.extraGamepadControls[slot]) {
+        this.extraGamepadControls[slot].detectControllerType(e.gamepad);
+      }
+    }
   }
 
   handleGamepadDisconnected(e: GamepadEvent): void {
+    this.connectedGamepads = this.connectedGamepads.filter(i => i !== e.gamepad.index);
     if (e.gamepad.index === this.gamepadIndex) {
-      this.gamepadIndex = null;
+      // Promote the next connected gamepad to primary (or unset if none).
+      this.gamepadIndex = this.connectedGamepads[0] ?? null;
     }
   }
 
@@ -92,5 +116,29 @@ export class InputManager {
       return true;
     }
     return false;
+  }
+
+  /** Count of connected gamepads, used for the "pick how many players" menu. */
+  getConnectedCount(): number {
+    return this.connectedGamepads.length;
+  }
+
+  /**
+   * Per-player input for local multiplayer. `playerIndex` 0 is the primary
+   * human (shares keyboard + touch + gamepad[0]). Indices 1..N use extra
+   * gamepads exclusively — no keyboard sharing (we only allow one keyboard).
+   */
+  getInputForPlayer(playerIndex: number): ControlInput {
+    if (playerIndex === 0) return this.getInput();
+    const gpIndex = this.connectedGamepads[playerIndex];
+    if (gpIndex === undefined || typeof navigator.getGamepads !== 'function') {
+      return { joystick: { x: 0, y: 0 }, gesture: null, sprinting: false };
+    }
+    const pad = navigator.getGamepads()[gpIndex] ?? null;
+    const controls = this.extraGamepadControls[playerIndex - 1];
+    if (!pad || !controls) {
+      return { joystick: { x: 0, y: 0 }, gesture: null, sprinting: false };
+    }
+    return controls.getInput(pad);
   }
 }

@@ -618,10 +618,18 @@ function update(dt: number): void {
   }
 
   if (session && isPlaying && !isPaused) {
-    const input = inputManager.getInput();
+    // Route input for each human controller → the player they're bound to.
+    // Primary (index 0) gets keyboard + touch + gamepad[0]; extras get gamepad[N].
+    const humanIds = session.getHumanPlayerIds();
+    for (let i = 0; i < humanIds.length; i++) {
+      const id = humanIds[i];
+      const player = session.getAllPlayers().find(p => p.data.id === id);
+      if (!player) continue;
+      const input = inputManager.getInputForPlayer(i);
+      session.processInputForPlayer(player, input, dt);
+    }
     hud.updateControllerIcon(inputManager.getControllerType());
 
-    session.processInput(input, dt);
     session.update(dt);
 
     // Compute player spread for dynamic zoom
