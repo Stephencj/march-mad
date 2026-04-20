@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { createFullCourt } from './game/full-court';
+import { GamePlayer } from './game/player';
+import { Ball } from './game/ball';
+import { createDefaultPlayerStats } from './core/types';
+import { AnimLoop, type AnimId } from './dev/anim-loop';
 import {
   levelConfig,
   resetLevel,
@@ -70,9 +74,151 @@ function rebuildCourt(): void {
   scene.add(currentCourt);
 }
 
+// --- Preview players -------------------------------------------------------
+// A handful of looping dummies scattered on the court so the user can gauge
+// court scale while resizing. Positions are fixed in world-space so they
+// deliberately fall out of bounds when the court shrinks — the point is to
+// reveal the scale change.
+//
+// Each player drives an AnimLoop with a scripted state cycle. A single shared
+// Ball is hidden off-screen; AnimLoop needs a Ball for dribble/shoot props,
+// but sharing one is fine because our script never triggers shoot/dunk/pass
+// (only dribble + walk-family, which pickup/followHolder mutate positions but
+// don't need a unique ball per player).
+//
+// Dispose pattern mirrors anim-viewer.ts's `disposePlayerGroup`.
+function disposePlayerGroup(group: THREE.Group): void {
+  group.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.material) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) (m as THREE.Material).dispose();
+    }
+  });
+}
+
+interface PreviewPlayer {
+  gp: GamePlayer;
+  loop: AnimLoop;
+  basePos: THREE.Vector3;   // world-space position the player stands at
+  cycle: AnimId[];          // rotation of anims
+  cycleInterval: number;    // seconds between state swaps
+  cycleTimer: number;       // counts up each tick, wraps at cycleInterval
+  cycleIndex: number;       // current index into `cycle`
+}
+
+const previewPlayers: PreviewPlayer[] = [];
+// Shared ball kept hidden — AnimLoop references it for dribble/shoot logic but
+// our preview choreo (dribble / walk / sprint / shoot) either hides or reuses it.
+const previewBall = new Ball(new THREE.Vector3(0, -10, 0));
+previewBall.mesh.visible = false;
+scene.add(previewBall.mesh);
+
+function makePreviewPlayer(
+  id: string,
+  teamColor: number,
+  basePos: THREE.Vector3,
+  initialAnim: AnimId,
+  cycle: AnimId[],
+  cycleInterval: number,
+): PreviewPlayer {
+  const gp = new GamePlayer({
+    id,
+    name: `Preview ${id}`,
+    stats: createDefaultPlayerStats(),
+    personality: 'Team Player',
+    isCustom: false,
+  } as any, new THREE.Vector3(0, 0, 0), teamColor);
+  scene.add(gp.group);
+  // AnimLoop pins the player to origin each tick, so position it via a parent
+  // wrapper: move the GamePlayer.group's world position by offsetting after
+  // each tick. Simplest is to re-set it post-tick (see animate()).
+  const loop = new AnimLoop(gp, { ball: previewBall });
+  loop.setAnim(initialAnim);
+  return {
+    gp,
+    loop,
+    basePos: basePos.clone(),
+    cycle,
+    cycleInterval,
+    cycleTimer: 0,
+    cycleIndex: 0,
+  };
+}
+
+function spawnPreviewPlayers(): void {
+  // Player A: stationary dribble near home hoop.
+  previewPlayers.push(makePreviewPlayer(
+    'preview-a', HOME_COLOR, new THREE.Vector3(0, 0, -2),
+    'dribble', ['dribble'], 9999,
+  ));
+  // Player B: dribbles forward, takes a shot, repeat.
+  previewPlayers.push(makePreviewPlayer(
+    'preview-b', AWAY_COLOR, new THREE.Vector3(2, 0, 2),
+    'dribble-walk', ['dribble-walk', 'shoot'], 4,
+  ));
+  // Player C: walk / sprint / walk — simulates a defender closing out.
+  previewPlayers.push(makePreviewPlayer(
+    'preview-c', 0x2ecc71, new THREE.Vector3(-3, 0, 0),
+    'walk', ['walk', 'sprint', 'walk'], 3,
+  ));
+}
+spawnPreviewPlayers();
+
+function tickPreviewPlayers(dt: number): void {
+  for (const pp of previewPlayers) {
+    // Advance cycle timer — swap anim when it rolls past the interval.
+    if (pp.cycle.length > 1) {
+      pp.cycleTimer += dt;
+      if (pp.cycleTimer >= pp.cycleInterval) {
+        pp.cycleTimer = 0;
+        pp.cycleIndex = (pp.cycleIndex + 1) % pp.cycle.length;
+        pp.loop.setAnim(pp.cycle[pp.cycleIndex]);
+      }
+    }
+    pp.loop.tick(dt);
+    // AnimLoop.tick pins group.position.{x,z} to 0 (it expects a centered
+    // viewer). For the editor, we want each preview to stand at its assigned
+    // world-space spot. Re-apply the base position after the tick — y is
+    // preserved to keep jump / dunk arcs intact.
+    pp.gp.group.position.x = pp.basePos.x;
+    pp.gp.group.position.z = pp.basePos.z;
+  }
+  // Keep the shared ball visually hidden regardless of what AnimLoop did.
+  previewBall.mesh.visible = false;
+}
+
+function disposePreviewPlayers(): void {
+  for (const pp of previewPlayers) {
+    scene.remove(pp.gp.group);
+    disposePlayerGroup(pp.gp.group);
+  }
+  previewPlayers.length = 0;
+  scene.remove(previewBall.mesh);
+  previewBall.mesh.geometry.dispose();
+  const ballMat = previewBall.mesh.material as THREE.Material | THREE.Material[];
+  if (Array.isArray(ballMat)) for (const m of ballMat) m.dispose();
+  else ballMat.dispose();
+}
+
+function shufflePreviewPlayers(): void {
+  for (const pp of previewPlayers) {
+    pp.basePos.x = (Math.random() * 10) - 5;
+    pp.basePos.z = (Math.random() * 10) - 5;
+  }
+}
+
+window.addEventListener('beforeunload', disposePreviewPlayers);
+
 // --- Animate loop ---
+let previewLastTime = performance.now();
 function animate(): void {
   requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = Math.min((now - previewLastTime) / 1000, 0.1);
+  previewLastTime = now;
+  tickPreviewPlayers(dt);
   controls.update();
   renderer.render(scene, camera);
 }
@@ -190,6 +336,13 @@ function buildPanel(): void {
   buttonRow.appendChild(makeButton('Import JSON', importJSON));
   buttonRow.appendChild(makeButton('Export GLB', exportGLB));
   header.appendChild(buttonRow);
+
+  // Preview-player controls — scatter the 3 dummy players around the court to
+  // get a fresh sense of scale. Does not affect the choreo.
+  const previewRow = document.createElement('div');
+  Object.assign(previewRow.style, { display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' });
+  previewRow.appendChild(makeButton('Shuffle Players', shufflePreviewPlayers));
+  header.appendChild(previewRow);
 
   panel.appendChild(header);
 
