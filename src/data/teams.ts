@@ -2,28 +2,39 @@ import type { TeamData, TeamArchetype, PlayerData, PlayerStats, Position } from 
 import { POSITION_STATS } from '@/core/types';
 
 // --- Name generation pools ---
+//
+// Theme: weekend-warrior office-league. Teams are named after the dad-life
+// sponsor/workplace they're rep'ing. Names combine a PREFIX (a guy's name
+// or office job) with a SUFFIX (the sport mascot energy filtered through
+// middle-age). Mascots are what they CALL themselves, not what a logo would
+// actually look like.
 
 const NAME_PREFIXES: string[] = [
-  'State', 'Northern', 'Southern', 'Eastern', 'Western',
-  'Central', 'Pacific', 'Atlantic', 'Mountain', 'Coastal',
-  'Liberty', 'Grand', 'Royal', 'Imperial', 'National',
-  'Metro', 'Valley', 'Highland', 'Lakeside', 'Prairie',
-  'Summit', 'Frontier', 'Heritage', 'Pioneer', 'Patriot',
-  'Golden', 'Silver', 'Ironwood', 'Redstone', 'Blueridge',
+  // First-name/owner teams — "Bob's ___", etc.
+  "Dave's", "Bob's", "Steve's", "Greg's", "Rick's", "Paul's", "Doug's",
+  "Jerry's", "Terry's", "Larry's", "Barry's", "Gary's", "Harry's",
+  // Workplace-sponsor teams
+  'HR Department', 'Sales Division', 'Legal Team', 'IT Department',
+  'Breakroom', 'Warehouse', 'Accounting', 'Marketing', 'Dispatch',
+  'Loading Dock', 'Night Shift', 'Middle Management', 'Regional Office',
+  // Middle-aged-life descriptors
+  'Mid-Life', 'Weekend', 'Over-40', 'Beer League', 'Church League',
+  'YMCA', 'Rec Center', 'Cul-de-Sac', 'Suburbia', 'Minivan',
 ];
 
 const NAME_SUFFIXES: string[] = [
-  'University', 'Tech', 'Institute', 'College', 'A&M',
-  'Polytechnic', 'Academy', 'Seminary', 'State',
+  "Ballers", 'Bros', 'Brigade', 'Crew', 'Squad',
+  "Boys Club", 'Committee', 'Coalition', 'Collective', 'Crisis',
+  'Champions', 'Chumps', 'Contenders', 'Pretenders',
 ];
 
 const MASCOTS: string[] = [
-  'Wolves', 'Eagles', 'Bears', 'Tigers', 'Hawks',
-  'Panthers', 'Lions', 'Stallions', 'Bulldogs', 'Falcons',
-  'Cobras', 'Jaguars', 'Raptors', 'Hornets', 'Vipers',
-  'Sharks', 'Coyotes', 'Bison', 'Owls', 'Rams',
-  'Scorpions', 'Thunderbolts', 'Knights', 'Trojans', 'Spartans',
-  'Grizzlies', 'Timberwolves', 'Cougars', 'Mustangs', 'Wildcats',
+  'Brewers', 'Grillers', 'Mower Men', 'Khakis', 'Dad Jokes',
+  'Polo Shirts', 'Minivans', 'Lawn Kings', 'Fantasy Leaguers', 'Cornhole Kings',
+  'Recliners', 'Snorers', 'Sunday Drivers', 'Home Improvers', 'Grill Masters',
+  'Lawn Men', 'Garage Band', 'Golf Carts', 'Bourbon Bros', 'Sprinkler Squad',
+  'Lawn Chairs', 'Tool Time', 'Briefcases', 'Ties & Dies', 'Deck Chairs',
+  "Father Figures", 'Glory Days', 'Second Winds', 'Knee Braces', 'Back Spasms',
 ];
 
 const COLOR_PALETTES: { primary: string; secondary: string }[] = [
@@ -82,65 +93,68 @@ const PERSONALITIES: PlayerData['personality'][] = [
 
 // --- Marquee teams ---
 
+// Marquee teams — the #1-seeded office-league powerhouses. These are the
+// Dukes and Kansases of weekend men's ball: the team everyone pencils into
+// the Final Four of their workplace bracket.
 export const MARQUEE_TEAMS: Partial<TeamData>[] = [
   {
-    name: 'Duke Blue Devils',
-    mascot: 'Blue Devils',
-    colors: { primary: '#003087', secondary: '#FFFFFF' },
+    name: "Dave's Brewers",
+    mascot: 'Brewers',
+    colors: { primary: '#8B4513', secondary: '#F4A460' }, // bourbon brown
     archetype: 'Sharpshooters' as TeamArchetype,
   },
   {
-    name: 'North Carolina Tar Heels',
-    mascot: 'Tar Heels',
-    colors: { primary: '#7BAFD4', secondary: '#FFFFFF' },
+    name: 'Accounting Animals',
+    mascot: 'Ledger Lions',
+    colors: { primary: '#2C3E50', secondary: '#ECF0F1' }, // business casual navy
     archetype: 'Run & Gun' as TeamArchetype,
   },
   {
-    name: 'Kentucky Wildcats',
-    mascot: 'Wildcats',
-    colors: { primary: '#0033A0', secondary: '#FFFFFF' },
+    name: 'Mid-Life Crisis Crew',
+    mascot: 'Crisis',
+    colors: { primary: '#C41E3A', secondary: '#FFD700' }, // red convertible
     archetype: 'Inside Beasts' as TeamArchetype,
   },
   {
-    name: 'Kansas Jayhawks',
-    mascot: 'Jayhawks',
-    colors: { primary: '#0051BA', secondary: '#E8000D' },
+    name: 'HR Department Hammers',
+    mascot: 'Hammers',
+    colors: { primary: '#0051BA', secondary: '#E8000D' }, // corporate polo
     archetype: 'Balanced' as TeamArchetype,
   },
   {
-    name: 'Gonzaga Bulldogs',
-    mascot: 'Bulldogs',
-    colors: { primary: '#002967', secondary: '#C8102E' },
+    name: "Bob's Breakroom Ballers",
+    mascot: 'Ballers',
+    colors: { primary: '#002967', secondary: '#C8102E' }, // beverage cooler
     archetype: 'Fortress' as TeamArchetype,
   },
   {
-    name: 'Villanova Wildcats',
-    mascot: 'Wildcats',
-    colors: { primary: '#00205B', secondary: '#13B5EA' },
+    name: 'Cul-de-Sac Sharpshooters',
+    mascot: 'Sharpshooters',
+    colors: { primary: '#228B22', secondary: '#FFFFFF' }, // fresh-mowed green
     archetype: 'Sharpshooters' as TeamArchetype,
   },
   {
-    name: 'Michigan State Spartans',
+    name: 'Sunday-Drive Spartans',
     mascot: 'Spartans',
-    colors: { primary: '#18453B', secondary: '#FFFFFF' },
+    colors: { primary: '#18453B', secondary: '#FFFFFF' }, // forest-green cargo shorts
     archetype: 'Fortress' as TeamArchetype,
   },
   {
-    name: 'UCLA Bruins',
-    mascot: 'Bruins',
-    colors: { primary: '#2D68C4', secondary: '#F2A900' },
+    name: 'Grillmaster Gang',
+    mascot: 'Grillers',
+    colors: { primary: '#E65100', secondary: '#263238' }, // charcoal + flame orange
     archetype: 'Run & Gun' as TeamArchetype,
   },
   {
-    name: 'Syracuse Orange',
-    mascot: 'Orange',
-    colors: { primary: '#D44500', secondary: '#002D72' },
+    name: 'Minivan Mafia',
+    mascot: 'Minivans',
+    colors: { primary: '#D44500', secondary: '#002D72' }, // soccer-parent palette
     archetype: 'Chaos' as TeamArchetype,
   },
   {
-    name: 'Louisville Cardinals',
-    mascot: 'Cardinals',
-    colors: { primary: '#AD0000', secondary: '#000000' },
+    name: 'Back-Spasm Brigade',
+    mascot: 'Brigade',
+    colors: { primary: '#AD0000', secondary: '#000000' }, // ice-pack red
     archetype: 'Inside Beasts' as TeamArchetype,
   },
 ];
