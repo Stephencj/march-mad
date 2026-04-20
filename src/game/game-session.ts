@@ -1387,7 +1387,7 @@ export class GameSession {
         (dz / len) * impulse,
       );
       this.matchEngine.recordKnockdown(victimTeam);
-      this.events.emit('splash', { text: 'KNOCKDOWN!', color: '#e74c3c' });
+      this.events.emit('splash', { text: 'PARTY FOUL!', color: '#e74c3c' });
     }
     // else: 37% — just missed the steal, no effect (no foul, no turnover)
   }

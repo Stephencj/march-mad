@@ -291,6 +291,29 @@ export class GamePlayer {
     forearmLeft.name = 'forearm-left';
     elbowLeft.add(forearmLeft);
 
+    // ========== BEER (off-hand accessory) ==========
+    // Every player gets a beer in their non-dribble (left) hand. It hides
+    // while they're on the ground (knockdown = spilled beer), comes back
+    // once they're upright. Also hidden during the `guard` stance so the
+    // arms-up defensive pose doesn't look like they're waving a drink.
+    const beerCanBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.055, 0.055, 0.16, 14),
+      new THREE.MeshStandardMaterial({ color: 0xe8e8e8, metalness: 0.75, roughness: 0.3 }),
+    );
+    const beerLabel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.057, 0.057, 0.08, 14),
+      new THREE.MeshStandardMaterial({ color: 0xf59f2d }), // amber label
+    );
+    const beer = new THREE.Group();
+    beer.add(beerCanBody);
+    beer.add(beerLabel);
+    // Sit the can just past the fist, popped out toward the viewer's side
+    // so it reads even from the front default camera angle.
+    beer.position.set(-0.06, -0.24, 0.08);
+    beer.rotation.z = 0.25; // slight wrist cock outward
+    beer.name = 'beer';
+    elbowLeft.add(beer);
+
     const forearmRight = new THREE.Mesh(forearmGeo, skinMat);
     forearmRight.position.set(0, -0.11, 0);
     forearmRight.name = 'forearm-right';
@@ -615,6 +638,13 @@ export class GamePlayer {
       if (this.isHumanControlled) {
         indicator.position.y = 2.25 + Math.sin(this.animTime * animConfig.durations.indicatorBob) * 0.08;
       }
+    }
+
+    // Beer visibility — spills on knockdown (fall), hidden during guard
+    // (arms-up pose would have the beer up in the air, awkward).
+    const beer = this.group.getObjectByName('beer');
+    if (beer) {
+      beer.visible = this.fallTimer <= 0 && !this.isGuarding;
     }
 
     let isMovingBackwards = false;
