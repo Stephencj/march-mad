@@ -8,7 +8,32 @@ import { animConfig } from '@/dev/anim-config';
  * Hair style types for Bobblehead Ballers.
  * Each player gets a deterministic style based on their ID hash.
  */
-type HairStyle = 'flat-top' | 'afro' | 'mohawk' | 'headband';
+type HairStyle = 'bald' | 'receding' | 'flat-top' | 'afro' | 'mohawk' | 'headband';
+
+/**
+ * Weighted distribution — this is middle-aged-dad pickup-league, so
+ * chrome-dome-and-horseshoe combined dominate. Ordered: pick a random
+ * integer in [0, total), find the bucket whose cumulative weight contains it.
+ */
+const HAIR_STYLE_WEIGHTS: Array<{ style: HairStyle; weight: number }> = [
+  { style: 'bald',     weight: 40 },
+  { style: 'receding', weight: 25 },
+  { style: 'flat-top', weight: 15 },
+  { style: 'afro',     weight: 5  },
+  { style: 'mohawk',   weight: 5  },
+  { style: 'headband', weight: 10 },
+];
+const HAIR_STYLE_TOTAL_WEIGHT = HAIR_STYLE_WEIGHTS.reduce((a, b) => a + b.weight, 0);
+
+function pickHairStyleFromHash(h: number): HairStyle {
+  const pick = h % HAIR_STYLE_TOTAL_WEIGHT;
+  let cumulative = 0;
+  for (const entry of HAIR_STYLE_WEIGHTS) {
+    cumulative += entry.weight;
+    if (pick < cumulative) return entry.style;
+  }
+  return HAIR_STYLE_WEIGHTS[HAIR_STYLE_WEIGHTS.length - 1].style;
+}
 
 /**
  * Simple hash function to derive a deterministic number from a player ID.
@@ -33,7 +58,13 @@ function skinToneFromHash(h: number): number {
  * Pick a hair color that varies per player.
  */
 function hairColorFromHash(h: number): number {
-  const colors = [0x2a1a0a, 0x1a1a1a, 0x4a3728, 0x0a0a0a, 0x3b2314, 0x5c3a1e];
+  // Middle-aged palette: browns + blacks mixed with grays, salt-and-pepper,
+  // and full gray/white for the older guys. Gray variants weighted ~1/3.
+  const colors = [
+    0x2a1a0a, 0x1a1a1a, 0x4a3728, 0x0a0a0a, 0x3b2314, 0x5c3a1e, // darks
+    0x6b5a4a, 0x8a7a6a,                                          // salt-and-pepper
+    0xb8b0a8, 0xdad2c8, 0xe8e0d8,                                // gray to near-white
+  ];
   return colors[h % colors.length];
 }
 
@@ -155,9 +186,12 @@ export class GamePlayer {
     neckGroup.add(eyeRight);
 
     // ========== HAIR (added to neckGroup) ==========
-    const hairStyles: HairStyle[] = ['flat-top', 'afro', 'mohawk', 'headband'];
-    const hairIndex = (this.data as any).hairOverride ?? (h % hairStyles.length);
-    const style = hairStyles[hairIndex % hairStyles.length];
+    // hairOverride (0..5) maps to the style list in HAIR_STYLE_WEIGHTS order;
+    // otherwise the weighted distribution picks a style from the hash.
+    const hairOverride = (this.data as any).hairOverride as number | undefined;
+    const style = hairOverride !== undefined
+      ? (HAIR_STYLE_WEIGHTS[hairOverride % HAIR_STYLE_WEIGHTS.length].style)
+      : pickHairStyleFromHash(h);
     const hair = this.createHair(style, hairColor);
     hair.name = 'hair';
     neckGroup.add(hair);
@@ -351,6 +385,39 @@ export class GamePlayer {
     // Head center at y=0.35, head top at ~0.63, eyes at y=0.39 z=0.24 (front).
     // Hair should sit ON TOP and BEHIND the head, never covering the eyes.
     switch (style) {
+      case 'bald': {
+        // No hair at all — return an empty group so the mesh anchor exists
+        // but contributes nothing visible. Skin shows through.
+        return new THREE.Group();
+      }
+
+      case 'receding': {
+        // Horseshoe: three tufts placed at the sides and back of the head,
+        // with the top crown and forehead bare. Each tuft is a flattened
+        // sphere that clings to the head at ear-to-nape level.
+        const group = new THREE.Group();
+        const headR = playerConfig.head.radius;
+        const tuftY = playerConfig.head.positionY - headR * 0.15; // just below ear level
+        const ringR = headR * 0.9; // how far out from center
+        const tuftGeo = new THREE.SphereGeometry(headR * 0.35, 8, 6);
+        // Left side
+        const tuftL = new THREE.Mesh(tuftGeo, hairMat);
+        tuftL.position.set(-ringR, tuftY, 0);
+        tuftL.scale.set(0.6, 0.7, 1.0); // hug the head — flat, tall-ish, front-back stretch
+        group.add(tuftL);
+        // Right side
+        const tuftR = new THREE.Mesh(tuftGeo, hairMat);
+        tuftR.position.set(ringR, tuftY, 0);
+        tuftR.scale.set(0.6, 0.7, 1.0);
+        group.add(tuftR);
+        // Back (covers nape + crown-back)
+        const tuftB = new THREE.Mesh(tuftGeo, hairMat);
+        tuftB.position.set(0, tuftY + headR * 0.05, -ringR);
+        tuftB.scale.set(1.4, 0.6, 0.6); // wide across the back
+        group.add(tuftB);
+        return group;
+      }
+
       case 'flat-top': {
         const geo = new THREE.BoxGeometry(h.flatTopWidth, h.flatTopHeight, h.flatTopDepth);
         const mesh = new THREE.Mesh(geo, hairMat);

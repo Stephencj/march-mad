@@ -21,7 +21,8 @@ import { buildBodySections } from './dev/body-sliders';
 
 const DEVPANEL_PREFIX = 'devpanel:player-editor';
 
-const HAIR_STYLES = ['flat-top', 'afro', 'mohawk', 'headband'] as const;
+// Ordered to match HAIR_STYLE_WEIGHTS in game/player.ts
+const HAIR_STYLES = ['bald', 'receding', 'flat-top', 'afro', 'mohawk', 'headband'] as const;
 const POSITIONS: Position[] = ['PG', 'SG', 'SF', 'PF', 'C'];
 
 let teamColor = 0xe94560;

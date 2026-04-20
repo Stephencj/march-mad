@@ -66,23 +66,23 @@ describe('GamePlayer', () => {
   });
 
   it('different player IDs get different hair styles', () => {
-    const p1 = makePlayer('alpha');
-    const p2 = makePlayer('beta');
-    const p3 = makePlayer('gamma');
-    const p4 = makePlayer('delta');
-    const hair1 = p1.group.getObjectByName('hair')!;
-    const hair2 = p2.group.getObjectByName('hair')!;
-    const hair3 = p3.group.getObjectByName('hair')!;
-    const hair4 = p4.group.getObjectByName('hair')!;
-    // At least some should be geometrically different (different hair styles)
-    const types = new Set([
-      hair1.constructor.name + (hair1 as THREE.Mesh).geometry.type,
-      hair2.constructor.name + (hair2 as THREE.Mesh).geometry.type,
-      hair3.constructor.name + (hair3 as THREE.Mesh).geometry.type,
-      hair4.constructor.name + (hair4 as THREE.Mesh).geometry.type,
-    ]);
-    // With 4 styles and varied IDs, we should get at least 2 distinct
-    expect(types.size).toBeGreaterThanOrEqual(2);
+    // Six styles (bald, receding, flat-top, afro, mohawk, headband) with
+    // a weighted distribution. Each style has a distinct structural signature:
+    // bald = empty Group (0 children, no geometry); receding = Group with 3
+    // tufts (SphereGeometry ×3); flat-top/mohawk = single Mesh BoxGeometry
+    // at the root; afro = single Mesh SphereGeometry; headband = single Mesh
+    // CylinderGeometry. Stringify each and expect ≥2 distinct among 6 IDs.
+    function sig(obj: THREE.Object3D): string {
+      if (obj instanceof THREE.Mesh) {
+        return `Mesh:${obj.geometry.type}`;
+      }
+      // Group-wrapped styles (bald, receding) — sum child geo types
+      const childSigs = obj.children.map(c => c instanceof THREE.Mesh ? c.geometry.type : c.type).sort();
+      return `Group:${obj.children.length}:${childSigs.join(',')}`;
+    }
+    const ids = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'];
+    const sigs = new Set(ids.map(id => sig(makePlayer(id).group.getObjectByName('hair')!)));
+    expect(sigs.size).toBeGreaterThanOrEqual(2);
   });
 });
 
