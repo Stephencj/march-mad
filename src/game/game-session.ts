@@ -1278,6 +1278,7 @@ export class GameSession {
 
     const roll = Math.random();
     if (roll < 0.3) {
+      // Clean steal — stealer takes the ball
       ballHolder.loseBall();
       ballHolder.recordStat('turnovers', 1);
       this.setBallHolder(stealer.data.id);
@@ -1286,12 +1287,31 @@ export class GameSession {
         this.changePossession(stealerTeam, `steal by ${stealer.data.id}`);
       }
       this.events.emit('splash', { text: 'STEAL!', color: '#f39c12' });
-    } else if (roll < 0.6) {
-      const stealerTeam = this.getPlayerTeam(stealer.data.id);
-      this.matchEngine.callFoul(stealerTeam);
-      const receivingTeam: 'home' | 'away' = stealerTeam === 'home' ? 'away' : 'home';
-      this.enterDeadBall(receivingTeam);
+    } else if (roll < 0.63) {
+      // Knockdown — ball-handler gets shoved, ball flies opposite the
+      // stealer and becomes loose. Counts against the victim's team so
+      // the power-up counter ticks up on being hit.
+      const victimTeam = this.getPlayerTeam(ballHolder.data.id);
+      ballHolder.triggerFall();
+      ballHolder.loseBall();
+      ballHolder.recordStat('turnovers', 1);
+
+      // Direction: from stealer toward ball-handler, then onward (so the
+      // ball flies AWAY from the stealer, past the victim).
+      const dx = ballHolder.position.x - stealer.position.x;
+      const dz = ballHolder.position.z - stealer.position.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const impulse = 4.5;
+      this.ball.release();
+      this.ball.velocity.set(
+        (dx / len) * impulse,
+        2.5, // arc up so it's catchable
+        (dz / len) * impulse,
+      );
+      this.matchEngine.recordKnockdown(victimTeam);
+      this.events.emit('splash', { text: 'KNOCKDOWN!', color: '#e74c3c' });
     }
+    // else: 37% — just missed the steal, no effect (no foul, no turnover)
   }
 
   private findNearestTeammate(player: GamePlayer): GamePlayer | null {

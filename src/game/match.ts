@@ -7,6 +7,13 @@ interface OnFireState {
   timer: number;
 }
 
+interface InvincibilityState {
+  active: boolean;
+  timer: number;
+  /** Player that has 5-knockdown MUTANT form active (subset of invincibility). */
+  mutantPlayerId: string | null;
+}
+
 export class MatchEngine {
   public state: MatchState;
   public freeplay = false;
@@ -14,6 +21,15 @@ export class MatchEngine {
   private onFire: Record<Possession, OnFireState> = {
     home: { active: false, timer: 0 },
     away: { active: false, timer: 0 },
+  };
+  /**
+   * Per-team running count of knockdowns SUFFERED. Unlocks invincibility
+   * at 3 (manual spend) and MUTANT mode at 5 (auto-activate).
+   */
+  public knockdownCount: Record<Possession, number> = { home: 0, away: 0 };
+  public invincibility: Record<Possession, InvincibilityState> = {
+    home: { active: false, timer: 0, mutantPlayerId: null },
+    away: { active: false, timer: 0, mutantPlayerId: null },
   };
 
   constructor(events: EventBus, homeTeam?: TeamData, awayTeam?: TeamData) {
@@ -86,6 +102,21 @@ export class MatchEngine {
       }
     }
 
+    // Expire Invincibility / Mutant buffs (shared 30s timer per team)
+    for (const team of ['home', 'away'] as Possession[]) {
+      const inv = this.invincibility[team];
+      if (inv.active) {
+        inv.timer -= dt;
+        if (inv.timer <= 0) {
+          const wasMutant = inv.mutantPlayerId;
+          inv.active = false;
+          inv.timer = 0;
+          inv.mutantPlayerId = null;
+          this.events.emit('buff-expired', { team, wasMutant: wasMutant !== null, playerId: wasMutant });
+        }
+      }
+    }
+
     // Shot clock
     if (this.state.shotClockSeconds > 0) {
       this.state.shotClockSeconds -= dt;
@@ -113,6 +144,56 @@ export class MatchEngine {
     this.state.powerupMeter += balanceConfig.match.foulPowerupCharge;
 
     this.events.emit('foul', { team });
+  }
+
+  /**
+   * The defender shoved the ball-handler; count it against the victim's team.
+   * At 3 the team CAN manually spend for 30s invincibility. At 5 the team
+   * auto-activates MUTANT mode on their chosen player. Used-up resets the
+   * counter to 0.
+   */
+  recordKnockdown(victimTeam: Possession): void {
+    if (this.state.phase === 'post-game') return;
+    this.knockdownCount[victimTeam]++;
+    this.events.emit('knockdown', { victimTeam, count: this.knockdownCount[victimTeam] });
+    if (this.knockdownCount[victimTeam] === 3) {
+      this.events.emit('buff-available', { team: victimTeam, type: 'invincibility' });
+    }
+    if (this.knockdownCount[victimTeam] >= 5) {
+      this.events.emit('buff-available', { team: victimTeam, type: 'mutant' });
+    }
+  }
+
+  /** Spend the 3-knockdown invincibility buff. No-op if not eligible. */
+  activateInvincibility(team: Possession): boolean {
+    if (this.knockdownCount[team] < 3) return false;
+    if (this.invincibility[team].active) return false;
+    this.invincibility[team].active = true;
+    this.invincibility[team].timer = 30;
+    this.invincibility[team].mutantPlayerId = null;
+    this.knockdownCount[team] = 0;
+    this.events.emit('buff-activated', { team, type: 'invincibility' });
+    return true;
+  }
+
+  /** Auto-spend MUTANT on a specific player of the given team. */
+  activateMutant(team: Possession, playerId: string): boolean {
+    if (this.knockdownCount[team] < 5) return false;
+    if (this.invincibility[team].active && this.invincibility[team].mutantPlayerId) return false;
+    this.invincibility[team].active = true;
+    this.invincibility[team].timer = 30;
+    this.invincibility[team].mutantPlayerId = playerId;
+    this.knockdownCount[team] = 0;
+    this.events.emit('buff-activated', { team, type: 'mutant', playerId });
+    return true;
+  }
+
+  isInvincible(team: Possession): boolean {
+    return this.invincibility[team].active;
+  }
+
+  isMutant(playerId: string, team: Possession): boolean {
+    return this.invincibility[team].active && this.invincibility[team].mutantPlayerId === playerId;
   }
 
   activateOnFire(team: Possession): void {
