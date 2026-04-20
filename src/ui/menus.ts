@@ -150,9 +150,9 @@ export class MenuUI {
     });
     wrapper.appendChild(title);
 
-    wrapper.appendChild(this.createPrimaryButton('Quick Game', '3 Minute Game', 'quick-game'));
-    wrapper.appendChild(this.createPrimaryButton('Tournament', 'Bracket Play', 'tournament'));
-    wrapper.appendChild(this.createPrimaryButton('Full Game', 'Quarter-Based', 'full-game'));
+    wrapper.appendChild(this.createPrimaryButton('Pickup Game', '3 Minutes Before The Wife Calls', 'quick-game'));
+    wrapper.appendChild(this.createPrimaryButton('Bracket Run', 'Office-League Bracket', 'tournament'));
+    wrapper.appendChild(this.createPrimaryButton('Full Game', 'All Four Quarters — Bring Ibuprofen', 'full-game'));
     wrapper.appendChild(this.createSecondaryButton('Controls', 'settings'));
     wrapper.appendChild(this.createSecondaryButton('Freeplay', 'freeplay'));
 
