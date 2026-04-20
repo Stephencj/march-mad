@@ -20,7 +20,7 @@ describe('anim-config', () => {
     expect(animConfig.poses.guard.shoulderLRotX).toBe(d.poses.guard.shoulderLRotX);
   });
 
-  it('defaults match the values that used to be hardcoded in player.ts', () => {
+  it('defaults match expected tuned values (dad-bod walk/run tuning)', () => {
     const d = getDefaults();
     expect(d.durations.stealDuration).toBe(0.6);
     expect(d.durations.shootDuration).toBe(0.4);
@@ -28,8 +28,8 @@ describe('anim-config', () => {
     expect(d.durations.passDuration).toBe(0.35);
     expect(d.durations.jumpDuration).toBe(0.6);
     expect(d.durations.fallDuration).toBe(0.8);
-    expect(d.amplitudes.walk.strideAmp).toBe(0.6);
-    expect(d.amplitudes.sprint.strideAmp).toBe(0.8);
+    expect(d.amplitudes.walk.strideAmp).toBe(0.48);
+    expect(d.amplitudes.sprint.strideAmp).toBe(0.64);
     expect(d.amplitudes.jump.apexHeight).toBe(1.8);
     expect(d.amplitudes.dunk.apexHeight).toBe(1.2);
     expect(d.poses.idle.kneeLRotX).toBe(0.05);
