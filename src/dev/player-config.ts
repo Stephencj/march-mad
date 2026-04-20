@@ -79,44 +79,52 @@ export interface PlayerBodyConfig {
   };
 }
 
+/**
+ * Defaults — weekend-warrior office-league aesthetic. These values define
+ * "Average Middle-Aged Dad" as the baseline: wider torso and deeper belly,
+ * slightly slumped shoulders, thinner arms relative to the body, stockier
+ * short legs. The old athletic proportions live in the git history (from
+ * before the theme pivot); the Mutant transformation in Phase 10 will
+ * temporarily revert toward those as the "college-athlete self."
+ */
 const DEFAULTS: PlayerBodyConfig = Object.freeze({
-  __version: 1,
+  __version: 2,
   head: Object.freeze({
     radius: 0.28,
     eyeRadius: 0.04,
-    positionY: 0.35,
+    positionY: 0.32,          // sits lower (slight slump, shorter neck)
     eyeOffsetX: 0.1,
-    eyeOffsetY: 0.39,
+    eyeOffsetY: 0.36,         // eyes track with lower head
     eyeOffsetZ: 0.24,
   }),
   body: Object.freeze({
-    torsoWidth: 0.28,
-    torsoHeight: 0.4,
-    torsoDepth: 0.16,
-    shoulderBarWidth: 0.42,
+    torsoWidth: 0.36,         // wider — dad torso
+    torsoHeight: 0.36,        // shorter — beer belly drops the ribcage
+    torsoDepth: 0.24,         // much deeper — beer belly
+    shoulderBarWidth: 0.46,   // slightly wider than athletic to match torso
     shoulderBarHeight: 0.06,
-    shoulderBarDepth: 0.12,
-    shoulderCapRadius: 0.08,
-    shoulderCapY: 0.35,
-    shoulderBarY: 0.37,
-    hipWidth: 0.28,
-    hipHeight: 0.1,
-    hipDepth: 0.15,
-    hipMeshY: -0.05,
+    shoulderBarDepth: 0.13,
+    shoulderCapRadius: 0.09,
+    shoulderCapY: 0.31,       // slumped shoulders — a couple notches lower
+    shoulderBarY: 0.33,       // slumped
+    hipWidth: 0.34,           // broader hips
+    hipHeight: 0.12,          // more padding
+    hipDepth: 0.2,            // deeper — carries the gut
+    hipMeshY: -0.07,
   }),
   limbs: Object.freeze({
-    upperArmRadiusTop: 0.035,
-    upperArmRadiusBottom: 0.04,
-    upperArmLength: 0.28,
-    forearmRadiusTop: 0.03,
-    forearmRadiusBottom: 0.035,
-    forearmLength: 0.22,
-    upperLegRadiusTop: 0.06,
-    upperLegRadiusBottom: 0.05,
-    upperLegLength: 0.35,
-    lowerLegRadiusTop: 0.05,
-    lowerLegRadiusBottom: 0.06,
-    lowerLegLength: 0.35,
+    upperArmRadiusTop: 0.04,      // slightly thicker but not muscular
+    upperArmRadiusBottom: 0.04,   // same — no tapering = soft arm
+    upperArmLength: 0.26,         // shorter
+    forearmRadiusTop: 0.035,
+    forearmRadiusBottom: 0.04,    // widens toward wrist (the opposite of athletic)
+    forearmLength: 0.2,           // shorter
+    upperLegRadiusTop: 0.08,      // thicker thighs
+    upperLegRadiusBottom: 0.06,
+    upperLegLength: 0.3,          // shorter
+    lowerLegRadiusTop: 0.06,
+    lowerLegRadiusBottom: 0.065,  // calves that fill the socks
+    lowerLegLength: 0.3,          // shorter
   }),
   shoes: Object.freeze({
     width: 0.14,
