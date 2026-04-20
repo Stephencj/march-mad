@@ -318,6 +318,90 @@ export class HUD {
     }
   }
 
+  // --- Per-player HUD (local multiplayer) ---
+  // Index 0 reuses the primary bars above. Indices 1..5 get their own
+  // stacked bars along the left edge (lazily created).
+  private extraBars: Array<{ container: HTMLElement; stamina: HTMLElement; charge: HTMLElement; label: HTMLElement }> = [];
+
+  private ensureExtraBar(index: number): { container: HTMLElement; stamina: HTMLElement; charge: HTMLElement; label: HTMLElement } {
+    if (this.extraBars[index - 1]) return this.extraBars[index - 1];
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      position: 'absolute', left: '20px',
+      bottom: `${60 + (index - 1) * 28}px`, // stack above P1's charge bar
+      display: 'flex', alignItems: 'center', gap: '6px',
+      zIndex: '10',
+    });
+    const label = document.createElement('div');
+    label.textContent = `P${index + 1}`;
+    Object.assign(label.style, {
+      fontFamily: 'monospace', fontSize: '11px', color: '#ffffff',
+      width: '22px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
+    });
+    row.appendChild(label);
+
+    const stamContainer = document.createElement('div');
+    Object.assign(stamContainer.style, {
+      width: '80px', height: '8px',
+      backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: '4px',
+      border: '1px solid rgba(255,255,255,0.3)', overflow: 'hidden',
+    });
+    const stamFill = document.createElement('div');
+    Object.assign(stamFill.style, {
+      height: '100%', width: '100%', backgroundColor: '#4caf50',
+      transition: 'width 0.1s linear',
+    });
+    stamContainer.appendChild(stamFill);
+    row.appendChild(stamContainer);
+
+    const chContainer = document.createElement('div');
+    Object.assign(chContainer.style, {
+      width: '80px', height: '8px',
+      backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: '4px',
+      border: '1px solid rgba(255,255,255,0.3)', overflow: 'hidden',
+      display: 'none',
+    });
+    const chFill = document.createElement('div');
+    Object.assign(chFill.style, { height: '100%', width: '0%', backgroundColor: '#ff9800', transition: 'width 0.05s linear' });
+    chContainer.appendChild(chFill);
+    row.appendChild(chContainer);
+
+    this.container.appendChild(row);
+    const entry = { container: row, stamina: stamFill, charge: chFill, label };
+    this.extraBars[index - 1] = entry;
+    return entry;
+  }
+
+  updatePlayerBars(index: number, stamina: number, isCharging: boolean, chargeLevel: number): void {
+    if (index === 0) {
+      this.updateStaminaBar(stamina);
+      this.updateChargeBar(isCharging, chargeLevel);
+      return;
+    }
+    const entry = this.ensureExtraBar(index);
+    const stamPct = Math.min(stamina * 100, 100);
+    entry.stamina.style.width = `${stamPct}%`;
+    entry.stamina.style.backgroundColor = stamina > 0.5 ? '#4caf50' : stamina > 0.2 ? '#ffeb3b' : '#f44336';
+    const chContainer = entry.charge.parentElement as HTMLElement;
+    if (!isCharging) {
+      chContainer.style.display = 'none';
+    } else {
+      chContainer.style.display = 'block';
+      const pct = Math.min(chargeLevel * 100, 100);
+      entry.charge.style.width = `${pct}%`;
+      entry.charge.style.backgroundColor = chargeLevel >= 0.8 ? '#4caf50' : '#ff9800';
+    }
+  }
+
+  /** Remove any extra-player bars past `maxIndex`. Called when leaving a multiplayer match. */
+  clearExtraBars(maxIndex = 0): void {
+    for (let i = maxIndex; i < this.extraBars.length; i++) {
+      const entry = this.extraBars[i];
+      if (entry && entry.container.parentNode) entry.container.parentNode.removeChild(entry.container);
+    }
+    this.extraBars.length = maxIndex;
+  }
+
   showPowerup(type: string, remaining: number): void {
     this.powerupEl.textContent = '';
     this.powerupEl.style.display = '';

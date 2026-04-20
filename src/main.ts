@@ -688,12 +688,14 @@ function update(dt: number): void {
       hud.hideBuffHint();
     }
 
-    // Charge bar
-    const human = session.getHumanPlayer();
-    if (human) {
-      hud.updateChargeBar(human.isCharging, human.chargeTimer / 1.5);
-      hud.updateStaminaBar(human.stamina);
+    // Per-player charge + stamina bars (primary uses the big bottom-center
+    // bars, extras stack above each other along the bottom-left).
+    const barHumanIds = session.getHumanPlayerIds();
+    for (let i = 0; i < barHumanIds.length; i++) {
+      const p = session.getAllPlayers().find(q => q.data.id === barHumanIds[i]);
+      if (p) hud.updatePlayerBars(i, p.stamina, p.isCharging, p.chargeTimer / 1.5);
     }
+    hud.clearExtraBars(barHumanIds.length - 1); // prune if a controller disconnected
 
     // Powerup HUD notification
     if (session.lastPowerupPickup) {
