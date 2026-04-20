@@ -34,6 +34,24 @@
     #anim-tuning input[type=range] { width: 100%; }
     #anim-tuning-buttons { display: flex; gap: 4px; }
     #anim-tuning-buttons .btn { flex: 1; font-size: 12px; padding: 6px; }
+    /* PLAYER BODY panel — mirrors anim-tuning visual density. */
+    #body-tuning { display: flex; flex-direction: column; gap: 4px; }
+    #body-tuning details { background: #1a1a2e; border: 1px solid #2a2a4e; border-radius: 4px; padding: 4px 6px; }
+    #body-tuning details > summary { cursor: pointer; font-size: 11px; color: #ccc; text-transform: uppercase; letter-spacing: 1px; padding: 2px 0; }
+    #body-tuning details[open] > summary { color: #ffd700; }
+    #body-tuning details.body-root > summary { color: #e94560; font-size: 12px; }
+    #body-tuning details.body-root[open] > summary { color: #e94560; }
+    #body-tuning .bt-slider-row { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; border-bottom: 1px solid #222; }
+    #body-tuning .bt-slider-row:last-child { border-bottom: none; }
+    #body-tuning .bt-slider-head { display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+    #body-tuning .bt-slider-label { font-size: 11px; color: #ddd; font-family: monospace; }
+    #body-tuning .bt-slider-num { width: 70px; padding: 1px 3px; background: #0d101e; color: #fff; border: 1px solid #333; border-radius: 3px; font-size: 11px; font-family: monospace; }
+    #body-tuning .bt-slider-default { font-size: 9px; color: #666; }
+    #body-tuning .bt-color-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #222; }
+    #body-tuning .bt-color-row:last-child { border-bottom: none; }
+    #body-tuning .bt-color-label { font-size: 11px; color: #ddd; font-family: monospace; }
+    #body-tuning input[type=color] { width: 48px; height: 20px; cursor: pointer; background: transparent; border: 1px solid #444; border-radius: 3px; }
+    #body-tuning details.body-root > details { margin-left: 6px; }
   </style>
 </head>
 <body>
@@ -98,6 +116,10 @@
       <h3>Export</h3>
       <div class="btn" id="export-glb">Export Player GLB</div>
       <label style="font-size:11px;color:#888;">Snapshot only — Blender edits don't flow back yet.</label>
+
+      <h3>Player Body</h3>
+      <label style="font-size:11px;color:#888;">Edits rebuild the player mesh — the selected animation keeps looping.</label>
+      <div id="body-tuning"></div>
 
       <h3>Animation Tuning</h3>
       <div id="anim-tuning-buttons">

@@ -17,6 +17,14 @@ import { serializeLevel, applyLevelJSON, resetLevel } from './dev/level-config';
 import { serializePlayer, applyPlayerJSON, resetPlayer } from './dev/player-config';
 import { pickSliderRange, type RangeTier } from './dev/shared-ranges';
 import { persistDetails, detailsKey } from './dev/details-state';
+import {
+  buildBodySections,
+  numToHex,
+  hexToNum,
+  type BodyNumericSpec,
+  type BodyColorSpec,
+  type BodySectionSpec,
+} from './dev/body-sliders';
 
 const DEVPANEL_PREFIX = 'devpanel:anim-viewer';
 
@@ -90,9 +98,24 @@ let shootIdleTimer = 0;
 let player: GamePlayer;
 let passTarget: GamePlayer | null = null;
 
+// Dispose every geometry / material under a THREE.Group so rebuilding the
+// player mesh while tuning body dimensions doesn't leak GPU resources.
+// Same shape as level-editor.ts's `disposeCourt`.
+function disposePlayerGroup(group: THREE.Group): void {
+  group.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.material) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) (m as THREE.Material).dispose();
+    }
+  });
+}
+
 function createPlayer(teamColor: number, hairId: number, position?: Position) {
   if (player) {
     scene.remove(player.group);
+    disposePlayerGroup(player.group);
   }
   const stats = createDefaultPlayerStats();
   player = new GamePlayer({
@@ -955,3 +978,233 @@ document.getElementById('anim-import')?.addEventListener('click', () => {
 
 // Initial build for the default-selected animation.
 rebuildAnimTuning();
+
+// =============================================================================
+// PLAYER BODY TUNING PANEL
+// Rebuilds the player mesh on every slider change while the selected animation
+// continues to loop. For timed animations (shoot/dunk/fall/pass/steal/jump/
+// jump-block), the timer is re-triggered after rebuild so the loop continues
+// cleanly — a brief restart is acceptable per the phase 2 spec.
+// =============================================================================
+
+const BODY_TIMED_ANIMS = new Set(['shoot', 'dunk', 'fall', 'pass', 'steal', 'jump', 'jump-block']);
+
+// Track shared numeric + color inputs so we can re-sync them after a full
+// player re-roll (via position/hair change) — keeps the UI consistent.
+const bodyNumericBindings: Array<{ spec: BodyNumericSpec; slider: HTMLInputElement; numeric: HTMLInputElement }> = [];
+const bodyColorBindings: Array<{ spec: BodyColorSpec; picker: HTMLInputElement }> = [];
+
+// Rebuild the player mesh from current playerConfig while preserving the
+// currently selected animation. Avoids the full createPlayer() path because
+// that reads position/hair from DOM — for body edits we want the same
+// position/hair, we're only picking up the new body dimensions.
+function rebuildPlayerForBodyEdit(): void {
+  const savedAnim = currentAnim;
+  const savedIsJumping = player.isJumping;
+  const savedIsSprinting = player.isSprinting;
+
+  const hairSel = document.getElementById('hair-style') as HTMLSelectElement;
+  const colorEl = document.getElementById('team-color') as HTMLInputElement;
+  const posSel = document.getElementById('position') as HTMLSelectElement;
+  const color = parseInt(colorEl.value.replace('#', ''), 16);
+  const hairId = parseInt(hairSel.value);
+  const pos = (posSel.value as Position | '') || undefined;
+
+  // Drop and dispose the prior mesh, build a fresh one.
+  createPlayer(color, hairId, pos);
+
+  // Re-apply sprint flag (dribble-sprint / sprint drive it every tick but
+  // jump-block doesn't — keep the flag live across the rebuild).
+  player.isSprinting = savedIsSprinting;
+
+  // For timed animations, re-trigger the timer so the loop continues cleanly.
+  // Flat-state animations (idle / walk / dribble / dribble-walk / dribble-sprint
+  // / sprint / guard) resume naturally via the animate-loop switch.
+  shootReleased = false;
+  dunkReleased = false;
+  passReleased = false;
+  shootResetDelay = 0;
+  shootBallFalling = false;
+  shootInIdle = false;
+  shootIdleTimer = 0;
+
+  if (savedAnim === 'guard') {
+    player.forceAnimState('guard');
+  } else if (savedAnim === 'fall') {
+    player.forceAnimState('fall');
+    player.triggerFall();
+  } else if (savedAnim === 'dunk') {
+    player.forceAnimState('dunk');
+    ball.pickup('viewer');
+    ball.isInFlight = false;
+    player.triggerDunk();
+  } else if (savedAnim === 'shoot') {
+    player.hasBall = true;
+    ball.pickup('viewer');
+    ball.isInFlight = false;
+    player.triggerShoot();
+  } else if (savedAnim === 'pass') {
+    player.hasBall = true;
+    ball.pickup('viewer');
+    ball.isInFlight = false;
+    player.triggerPass();
+  } else if (savedAnim === 'steal') {
+    player.triggerSteal();
+  } else if (savedAnim === 'jump' || savedAnim === 'jump-block') {
+    if (savedIsJumping) {
+      // The jump flag is re-armed by the switch dispatch on the next tick,
+      // but priming it here avoids a one-frame "idle" flash.
+      player.jump();
+    }
+  }
+
+  void BODY_TIMED_ANIMS; // retained for documentation; switch above handles each case explicitly.
+}
+
+function syncBodyInputsFromConfig(): void {
+  for (const b of bodyNumericBindings) {
+    const v = b.spec.get();
+    b.slider.value = String(v);
+    b.numeric.value = String(v);
+  }
+  for (const b of bodyColorBindings) {
+    b.picker.value = numToHex(b.spec.get());
+  }
+}
+
+function buildBodyNumericRow(spec: BodyNumericSpec): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'bt-slider-row';
+
+  const head = document.createElement('div');
+  head.className = 'bt-slider-head';
+
+  const label = document.createElement('span');
+  label.className = 'bt-slider-label';
+  label.textContent = spec.label;
+  head.appendChild(label);
+
+  const numeric = document.createElement('input');
+  numeric.type = 'number';
+  numeric.className = 'bt-slider-num';
+  numeric.min = String(spec.min);
+  numeric.max = String(spec.max);
+  numeric.step = String(spec.step);
+  numeric.value = String(spec.get());
+  head.appendChild(numeric);
+
+  row.appendChild(head);
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = String(spec.min);
+  slider.max = String(spec.max);
+  slider.step = String(spec.step);
+  slider.value = String(spec.get());
+  row.appendChild(slider);
+
+  const defLabel = document.createElement('div');
+  defLabel.className = 'bt-slider-default';
+  defLabel.textContent = `default: ${spec.defaultValue}`;
+  row.appendChild(defLabel);
+
+  const apply = (raw: string) => {
+    if (raw.trim() === '') return;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) return;
+    spec.set(v);
+    slider.value = String(v);
+    numeric.value = String(v);
+    rebuildPlayerForBodyEdit();
+  };
+  slider.addEventListener('input', () => apply(slider.value));
+  numeric.addEventListener('input', () => apply(numeric.value));
+
+  bodyNumericBindings.push({ spec, slider, numeric });
+  return row;
+}
+
+function buildBodyColorRow(spec: BodyColorSpec): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'bt-color-row';
+
+  const label = document.createElement('span');
+  label.className = 'bt-color-label';
+  label.textContent = spec.label;
+  row.appendChild(label);
+
+  const picker = document.createElement('input');
+  picker.type = 'color';
+  picker.value = numToHex(spec.get());
+  picker.addEventListener('input', () => {
+    spec.set(hexToNum(picker.value));
+    rebuildPlayerForBodyEdit();
+  });
+  row.appendChild(picker);
+
+  bodyColorBindings.push({ spec, picker });
+  return row;
+}
+
+function buildBodySubsection(spec: BodySectionSpec, open: boolean): HTMLDetailsElement {
+  const details = document.createElement('details');
+  if (open) details.open = true;
+  const summary = document.createElement('summary');
+  summary.textContent = spec.title;
+  details.appendChild(summary);
+
+  for (const n of spec.numerics ?? []) details.appendChild(buildBodyNumericRow(n));
+  for (const c of spec.colors ?? []) details.appendChild(buildBodyColorRow(c));
+
+  persistDetails(details, detailsKey(DEVPANEL_PREFIX, 'PLAYER BODY', spec.title));
+  return details;
+}
+
+function buildBodyPanel(): void {
+  const host = document.getElementById('body-tuning');
+  if (!host) return;
+  host.innerHTML = '';
+  bodyNumericBindings.length = 0;
+  bodyColorBindings.length = 0;
+
+  const root = document.createElement('details');
+  root.className = 'body-root';
+  root.open = true;
+  const rootSummary = document.createElement('summary');
+  rootSummary.textContent = 'PLAYER BODY';
+  root.appendChild(rootSummary);
+  persistDetails(root, detailsKey(DEVPANEL_PREFIX, 'PLAYER BODY'));
+
+  const sections = buildBodySections();
+  for (let i = 0; i < sections.length; i++) {
+    // HEAD open by default (landing point), others collapsed — matches dev-overlay.
+    root.appendChild(buildBodySubsection(sections[i], i === 0));
+  }
+
+  host.appendChild(root);
+}
+
+buildBodyPanel();
+
+// Reset/Import may mutate playerConfig — the existing Reset All / Import All /
+// Reset handlers already call rebuildAnimTuning() after applying. Hook a
+// MutationObserver-free sync by patching the buttons we already own: after any
+// click on the existing anim-tuning / all-config reset/import buttons, re-read
+// body inputs from playerConfig and rebuild the mesh.
+(['anim-reset', 'anim-import'] as const).forEach((id) => {
+  document.getElementById(id)?.addEventListener('click', () => {
+    syncBodyInputsFromConfig();
+    rebuildPlayerForBodyEdit();
+  });
+});
+const allBtnRow = document.getElementById('anim-tuning-all-buttons');
+if (allBtnRow) {
+  allBtnRow.addEventListener('click', () => {
+    // Fires for any Reset All / Import All button click — re-sync on the next
+    // tick so applyXxxJSON / resetXxx have already mutated playerConfig.
+    setTimeout(() => {
+      syncBodyInputsFromConfig();
+      rebuildPlayerForBodyEdit();
+    }, 0);
+  });
+}
