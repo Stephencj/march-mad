@@ -139,18 +139,18 @@ export class GamePlayer {
 
     // Head on top of neck
     const head = new THREE.Mesh(new THREE.SphereGeometry(cfg.head.radius, 8, 6), skinMat);
-    head.position.set(0, 0.35, 0);
+    head.position.set(0, cfg.head.positionY, 0);
     head.name = 'head';
     neckGroup.add(head);
 
     // Eyes on head (relative to neck group)
     const eyeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
     const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(cfg.head.eyeRadius, 4, 4), eyeMat);
-    eyeLeft.position.set(-0.1, 0.39, 0.24);
+    eyeLeft.position.set(-cfg.head.eyeOffsetX, cfg.head.eyeOffsetY, cfg.head.eyeOffsetZ);
     eyeLeft.name = 'eye-left';
     neckGroup.add(eyeLeft);
     const eyeRight = eyeLeft.clone();
-    eyeRight.position.set(0.1, 0.39, 0.24);
+    eyeRight.position.set(cfg.head.eyeOffsetX, cfg.head.eyeOffsetY, cfg.head.eyeOffsetZ);
     eyeRight.name = 'eye-right';
     neckGroup.add(eyeRight);
 
@@ -166,12 +166,12 @@ export class GamePlayer {
     // Shoulder cap meshes to bridge torso to arm joints
     const shoulderCapGeo = new THREE.SphereGeometry(cfg.body.shoulderCapRadius, 6, 4);
     const shoulderCapLeft = new THREE.Mesh(shoulderCapGeo, jerseyMat);
-    shoulderCapLeft.position.set(-0.16, 0.35, 0);
+    shoulderCapLeft.position.set(-0.16, cfg.body.shoulderCapY, 0);
     shoulderCapLeft.name = 'shoulder-cap-left';
     bodyPivot.add(shoulderCapLeft);
 
     const shoulderCapRight = new THREE.Mesh(shoulderCapGeo, jerseyMat);
-    shoulderCapRight.position.set(0.16, 0.35, 0);
+    shoulderCapRight.position.set(0.16, cfg.body.shoulderCapY, 0);
     shoulderCapRight.name = 'shoulder-cap-right';
     bodyPivot.add(shoulderCapRight);
 
@@ -180,7 +180,7 @@ export class GamePlayer {
       cfg.body.shoulderBarWidth, cfg.body.shoulderBarHeight, cfg.body.shoulderBarDepth,
     );
     const shoulderBar = new THREE.Mesh(shoulderBarGeo, jerseyMat);
-    shoulderBar.position.set(0, 0.37, 0);
+    shoulderBar.position.set(0, cfg.body.shoulderBarY, 0);
     shoulderBar.name = 'shoulder-bar';
     bodyPivot.add(shoulderBar);
 
@@ -237,7 +237,7 @@ export class GamePlayer {
     // ========== HIP/GROIN (bridges torso bottom to leg tops) ==========
     const hipGeo = new THREE.BoxGeometry(cfg.body.hipWidth, cfg.body.hipHeight, cfg.body.hipDepth);
     const hipMesh = new THREE.Mesh(hipGeo, jerseyMat); // same color as jersey
-    hipMesh.position.set(0, -0.05, 0); // just below body-pivot origin (which is at hip height)
+    hipMesh.position.set(0, cfg.body.hipMeshY, 0);
     hipMesh.name = 'hip-mesh';
     bodyPivot.add(hipMesh);
 
@@ -306,12 +306,12 @@ export class GamePlayer {
     const shoeGeo = new THREE.BoxGeometry(cfg.shoes.width, cfg.shoes.height, cfg.shoes.depth);
     const shoeMat = new THREE.MeshStandardMaterial({ color: cfg.shoes.color });
     const shoeLeft = new THREE.Mesh(shoeGeo, shoeMat);
-    shoeLeft.position.set(0, -0.04, 0.02);
+    shoeLeft.position.set(0, cfg.shoes.offsetY, cfg.shoes.offsetZ);
     shoeLeft.name = 'shoe-left';
     ankleLeft.add(shoeLeft);
 
     const shoeRight = new THREE.Mesh(shoeGeo, shoeMat);
-    shoeRight.position.set(0, -0.04, 0.02);
+    shoeRight.position.set(0, cfg.shoes.offsetY, cfg.shoes.offsetZ);
     shoeRight.name = 'shoe-right';
     ankleRight.add(shoeRight);
 
@@ -352,36 +352,31 @@ export class GamePlayer {
     // Hair should sit ON TOP and BEHIND the head, never covering the eyes.
     switch (style) {
       case 'flat-top': {
-        // Sinks INTO the head slightly so edges don't float
         const geo = new THREE.BoxGeometry(h.flatTopWidth, h.flatTopHeight, h.flatTopDepth);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.60, -0.03); // overlaps into head sphere
+        mesh.position.set(0, h.flatTopY, h.flatTopZ);
         return mesh;
       }
 
       case 'afro': {
-        // Solid, envelops top/back of head
         const geo = new THREE.SphereGeometry(h.afroRadius, 8, 6);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.50, -0.06);
+        mesh.position.set(0, h.afroY, h.afroZ);
         return mesh;
       }
 
       case 'mohawk': {
-        // Sinks into head so it looks planted
         const geo = new THREE.BoxGeometry(h.mohawkWidth, h.mohawkHeight, h.mohawkDepth);
         const mesh = new THREE.Mesh(geo, hairMat);
-        mesh.position.set(0, 0.60, -0.03); // overlaps into head
+        mesh.position.set(0, h.mohawkY, h.mohawkZ);
         return mesh;
       }
 
       case 'headband': {
-        // Basketball sweatband wrapped around forehead — like LeBron's headband
-        // Head radius matches to hug the head
         const geo = new THREE.CylinderGeometry(h.headbandRadius, h.headbandRadius, h.headbandThickness, 16, 1, true);
         const mat = new THREE.MeshStandardMaterial({ color: h.headbandColor, side: THREE.DoubleSide });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(0, 0.48, 0); // around forehead, above eyes (y=0.39)
+        mesh.position.set(0, h.headbandY, 0);
         return mesh;
       }
     }

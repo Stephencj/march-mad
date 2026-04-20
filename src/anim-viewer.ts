@@ -48,7 +48,10 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.target.set(0, 0.8, 0);
-controls.enabled = false; // toggled by the Auto-rotate checkbox
+// Enabled when auto-rotate is OFF (the default). Without this init line,
+// click-drag was silently ignored because `controls.enabled` was hardcoded
+// to false even though `autoRotate = false` — both paths were dead.
+controls.enabled = true;
 
 function resize() {
   const wrap = document.getElementById('canvas-wrap')!;
