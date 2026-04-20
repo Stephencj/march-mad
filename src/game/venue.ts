@@ -181,15 +181,14 @@ function buildGym(): THREE.Group {
   const wallFront = wallBack.clone();
   wallFront.position.z = halfL + 1;
   group.add(wallFront);
+  // Only far-side sidewall (negative X). Camera-side wall removed so the
+  // camera (at +X ≈ 6-12) has a clean view into the court.
   const wallLeft = new THREE.Mesh(
     new THREE.BoxGeometry(0.2, d.wallHeight, halfL * 2 + 2),
     wallMat,
   );
   wallLeft.position.set(-halfW - 1, d.wallHeight / 2, 0);
   group.add(wallLeft);
-  const wallRight = wallLeft.clone();
-  wallRight.position.x = halfW + 1;
-  group.add(wallRight);
 
   // Ceiling — soft gray drop-tile with fluorescents
   const ceilingMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.95 });
@@ -229,30 +228,50 @@ function buildGym(): THREE.Group {
     group.add(banner);
   }
 
-  // Bleachers — stepped box seats along both sidelines
+  // Bleachers — stepped box seats along the FAR sideline only (negative X).
+  // Rows step AWAY from the court (each row deeper into -X, slightly higher).
+  // Length runs along Z so spectators face +X (toward the court / camera).
   const bleacherMat = new THREE.MeshStandardMaterial({ color: 0x5c3e1d, roughness: 0.9 });
-  const buildBleachers = (zCenter: number, flip: number) => {
-    const rows = 5;
-    for (let r = 0; r < rows; r++) {
-      const bench = new THREE.Mesh(
-        new THREE.BoxGeometry(halfW * 2 - 1, 0.35, 0.8),
-        bleacherMat,
-      );
-      bench.position.set(0, 0.35 / 2 + r * 0.4, zCenter + flip * (0.8 * r + 0.4));
-      group.add(bench);
-    }
-  };
-  buildBleachers(-halfL + 0.5, -1); // left sideline outside
-  buildBleachers(halfL - 0.5, 1);
+  const bleacherRows = 5;
+  const bleacherRowDepth = 0.9;
+  const bleacherStepH = 0.4;
+  const bleacherLen = 26;     // spans Z ≈ [-13, +13]
+  const bleacherInnerX = -8.5; // front edge of row 0 (court side)
+  for (let r = 0; r < bleacherRows; r++) {
+    const bench = new THREE.Mesh(
+      new THREE.BoxGeometry(bleacherRowDepth, 0.35, bleacherLen),
+      bleacherMat,
+    );
+    // Each successive row shifts into -X and upward
+    const x = bleacherInnerX - bleacherRowDepth / 2 - r * bleacherRowDepth;
+    const y = 0.35 / 2 + r * bleacherStepH;
+    bench.position.set(x, y, 0);
+    group.add(bench);
+  }
 
-  // Crowd on the bleachers — pack rows with bored wives/kids/other dads.
-  // The bleachers span halfW*2 - 1 wide; put ~8 people per row, 3 rows visible.
+  // Crowd on the far-side bleachers — fill 3 rows facing +X.
+  // Seats spaced ~1.3 along Z; 20 per row over 26 units of length.
+  const crowdPerRow = 20;
+  const crowdSpacing = bleacherLen / crowdPerRow; // 1.3
   for (let row = 0; row < 3; row++) {
-    const yBase = 0.35 / 2 + row * 0.4 + 0.35; // bench top + shin height
-    const zNear = -halfL + 0.5 + 0.8 * row + 0.4 + 0.1;
-    group.add(fillCrowd(-halfW + 2, -zNear - 0.05, 8, (halfW * 2 - 4) / 7, yBase, row * 17));
-    const zFar = halfL - 0.5 - (0.8 * row + 0.4 + 0.1);
-    group.add(fillCrowd(-halfW + 2, zFar + 0.05, 8, (halfW * 2 - 4) / 7, yBase, row * 17 + 100));
+    const x = bleacherInnerX - bleacherRowDepth / 2 - row * bleacherRowDepth;
+    const yBase = 0.35 / 2 + row * bleacherStepH + 0.35; // bench top + shin height
+    const zStart = -bleacherLen / 2 + crowdSpacing / 2;
+    const rowGroup = new THREE.Group();
+    rowGroup.name = 'crowd-row';
+    for (let i = 0; i < crowdPerRow; i++) {
+      const seed = row * 37 + i;
+      const r = ((seed * 53) % 100) / 100;
+      const type: CrowdType = r < 0.5 ? 'dad' : r < 0.8 ? 'wife' : 'kid';
+      const person = createCrowdPerson(type, seed);
+      person.position.set(x, yBase, zStart + i * crowdSpacing);
+      // Face +X (toward the court / camera). createCrowdPerson applies a
+      // small random y-rotation; we add +PI/2 so the default -Z facing
+      // becomes +X facing.
+      person.rotation.y += Math.PI / 2;
+      rowGroup.add(person);
+    }
+    group.add(rowGroup);
   }
 
   return group;
@@ -269,13 +288,13 @@ function buildRecCenter(): THREE.Group {
   const halfW = d.courtW / 2 + d.wallOffset;
   const halfL = d.courtL / 2 + d.wallOffset;
 
-  // Walls — beige-gray cinderblock
+  // Walls — beige-gray cinderblock. Camera-side (+X) wall omitted so the
+  // play-cam has an unobstructed view in.
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xaea89b, roughness: 0.95 });
   const walls = [
     { geo: new THREE.BoxGeometry(halfW * 2 + 2, d.wallHeight, 0.2), pos: [0, d.wallHeight / 2, -halfL - 1] },
     { geo: new THREE.BoxGeometry(halfW * 2 + 2, d.wallHeight, 0.2), pos: [0, d.wallHeight / 2,  halfL + 1] },
     { geo: new THREE.BoxGeometry(0.2, d.wallHeight, halfL * 2 + 2), pos: [-halfW - 1, d.wallHeight / 2, 0] },
-    { geo: new THREE.BoxGeometry(0.2, d.wallHeight, halfL * 2 + 2), pos: [ halfW + 1, d.wallHeight / 2, 0] },
   ];
   for (const w of walls) {
     const m = new THREE.Mesh(w.geo, wallMat);
@@ -310,28 +329,39 @@ function buildRecCenter(): THREE.Group {
   banner.position.set(0, d.wallHeight - 2, -halfL - 0.85);
   group.add(banner);
 
-  // Folding chairs — single row along each sideline
+  // Folding chairs — single row along the FAR sideline (negative X) only.
+  // Chairs face +X (toward the court), so the seat-back sits on the -X side.
   const chairMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 });
-  const buildChairs = (zLine: number) => {
-    for (let x = -halfW + 1.5; x < halfW - 0.5; x += 1.2) {
-      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.5), chairMat);
-      seat.position.set(x, 0.5, zLine);
-      group.add(seat);
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.05), chairMat);
-      back.position.set(x, 0.8, zLine + Math.sign(zLine) * 0.22);
-      group.add(back);
-      // Legs — skip, save geometry
-    }
-  };
-  buildChairs(-halfL + 1);
-  buildChairs(halfL - 1);
-
-  // Crowd on the folding chairs — one per chair, on both sidelines.
-  const chairCount = Math.floor((halfW * 2 - 2) / 1.2);
-  for (let side = 0 as number; side < 2; side++) {
-    const z = side === 0 ? -halfL + 1 : halfL - 1;
-    group.add(fillCrowd(-halfW + 1.5, z, chairCount, 1.2, 0.55, side * 50));
+  const chairLineX = -8.5;
+  const chairZStart = -halfL + 1.5;
+  const chairZEnd = halfL - 0.5;
+  const chairSpacing = 1.2;
+  for (let z = chairZStart; z < chairZEnd; z += chairSpacing) {
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.5), chairMat);
+    seat.position.set(chairLineX, 0.5, z);
+    group.add(seat);
+    // Back is on the far-X side of the seat so the chair faces +X
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.7, 0.5), chairMat);
+    back.position.set(chairLineX - 0.22, 0.8, z);
+    group.add(back);
+    // Legs — skip, save geometry
   }
+
+  // Crowd on the folding chairs — one per chair, all along the far sideline,
+  // rotated to face +X (toward the court).
+  const chairCount = Math.floor((chairZEnd - chairZStart) / chairSpacing);
+  const rowGroup = new THREE.Group();
+  rowGroup.name = 'crowd-row';
+  for (let i = 0; i < chairCount; i++) {
+    const seed = i;
+    const r = ((seed * 53) % 100) / 100;
+    const type: CrowdType = r < 0.5 ? 'dad' : r < 0.8 ? 'wife' : 'kid';
+    const person = createCrowdPerson(type, seed);
+    person.position.set(chairLineX, 0.55, chairZStart + i * chairSpacing);
+    person.rotation.y += Math.PI / 2; // face +X
+    rowGroup.add(person);
+  }
+  group.add(rowGroup);
 
   return group;
 }
@@ -363,11 +393,12 @@ function buildPark(): THREE.Group {
     color: 0x333333, transparent: true, opacity: 0.55, roughness: 0.8,
   });
   const fenceH = 3;
+  // Three sides only — camera-side (+X) fence omitted so the play-cam has
+  // a clean view in. Park still reads as fenced from far-side / behind-hoop.
   const fences = [
     { geo: new THREE.BoxGeometry(halfW * 2 + 2, fenceH, 0.05), pos: [0, fenceH / 2, -halfL - 0.5] },
     { geo: new THREE.BoxGeometry(halfW * 2 + 2, fenceH, 0.05), pos: [0, fenceH / 2,  halfL + 0.5] },
     { geo: new THREE.BoxGeometry(0.05, fenceH, halfL * 2 + 2), pos: [-halfW - 0.5, fenceH / 2, 0] },
-    { geo: new THREE.BoxGeometry(0.05, fenceH, halfL * 2 + 2), pos: [ halfW + 0.5, fenceH / 2, 0] },
   ];
   for (const f of fences) {
     const m = new THREE.Mesh(f.geo, fenceMat);
@@ -407,16 +438,32 @@ function buildPark(): THREE.Group {
     leg2.position.x = x + 0.9;
     group.add(leg2);
   };
-  placeTable(-halfW - 4, halfL + 2);
-  placeTable( halfW + 4, halfL + 2);
+  // Two picnic tables, both on the far (-X) side — one behind each hoop.
+  placeTable(-halfW - 4,  halfL + 2);
+  placeTable(-halfW - 4, -halfL - 2);
 
-  // Crowd at the park — couple of dads leaning on the fence, wives and kids
-  // near the picnic tables. Positions outside the court perimeter.
-  group.add(fillCrowd(-halfW - 2, -halfL - 1.3, 4, 1.2, 0.3, 200));
-  group.add(fillCrowd(-halfW - 2,  halfL + 1.3, 4, 1.2, 0.3, 210));
-  // A few at each picnic table
-  group.add(fillCrowd(-halfW - 5,  halfL + 2, 2, 1.0, 0.75, 220)); // seated at L table
-  group.add(fillCrowd( halfW + 3,  halfL + 2, 2, 1.0, 0.75, 230)); // seated at R table
+  // Crowd at the park — leaners/standers along the far sideline (negative X),
+  // rotated to face +X. A few more seated at the picnic tables.
+  const leanX = -halfW - 1.5;
+  const leanCount = 6;
+  const leanSpacing = 2.2;
+  const leanZStart = -((leanCount - 1) * leanSpacing) / 2;
+  const leaners = new THREE.Group();
+  leaners.name = 'crowd-row';
+  for (let i = 0; i < leanCount; i++) {
+    const seed = 200 + i;
+    const r = ((seed * 53) % 100) / 100;
+    const type: CrowdType = r < 0.5 ? 'dad' : r < 0.8 ? 'wife' : 'kid';
+    const person = createCrowdPerson(type, seed);
+    person.position.set(leanX, 0.3, leanZStart + i * leanSpacing);
+    person.rotation.y += Math.PI / 2; // face +X toward the court
+    leaners.add(person);
+  }
+  group.add(leaners);
+
+  // Seated at each (far-side) picnic table
+  group.add(fillCrowd(-halfW - 5,  halfL + 2, 2, 1.0, 0.75, 220));
+  group.add(fillCrowd(-halfW - 5, -halfL - 2, 2, 1.0, 0.75, 230));
 
   return group;
 }
