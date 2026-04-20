@@ -42,7 +42,17 @@ export class GameSession {
   private mode: GameMode;
   private cameraRef: THREE.Camera | null = null;
   private events: EventBus;
+  /**
+   * Primary human — the "keyboard player" / camera focus / the wallet that
+   * settles bets in single-player. Always one of `humanPlayerIds`.
+   */
   private humanPlayerId: string;
+  /**
+   * All humans — primary + any local-multiplayer gamepads 2..N. Logic like
+   * "is this player driven by AI" uses `isHumanControlled(id)` which checks
+   * this set. Single-player matches have just `humanPlayerId` in here.
+   */
+  private humanPlayerIds: Set<string>;
   private shotDetector: ShotDetector;
   private playerAIs = new Map<string, PlayerAI>();
   private scene: THREE.Scene | null = null;
@@ -64,10 +74,11 @@ export class GameSession {
   private pendingDunkShooterId: string | null = null;
 
 
-  constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3') {
+  constructor(events: EventBus, homeTeam: TeamData, awayTeam: TeamData, humanPlayerId: string, mode: GameMode = '3v3', additionalHumanIds: string[] = []) {
     this.events = events;
     this.mode = mode;
     this.humanPlayerId = humanPlayerId;
+    this.humanPlayerIds = new Set<string>([humanPlayerId, ...additionalHumanIds]);
     this.ball = new Ball(new THREE.Vector3(0, 1, 2));
     this.matchEngine = new MatchEngine(events, homeTeam, awayTeam);
     this.powerupSystem = new PowerupSystem(events);
@@ -138,9 +149,9 @@ export class GameSession {
     }
     homeTeam.players.forEach((pd, i) => {
       const gp = new GamePlayer(pd, homePositions[i] ?? homePositions[0], homeColor);
-      if (pd.id === humanPlayerId) gp.isHumanControlled = true;
+      if (this.humanPlayerIds.has(pd.id)) gp.isHumanControlled = true;
       this.homePlayers.push(gp);
-      if (pd.id !== humanPlayerId) {
+      if (!this.humanPlayerIds.has(pd.id)) {
         this.playerAIs.set(pd.id, new PlayerAI(pd.stats, pd.personality));
       }
     });
@@ -165,9 +176,22 @@ export class GameSession {
     }
     awayTeam.players.forEach((pd, i) => {
       const gp = new GamePlayer(pd, awayPositions[i] ?? awayPositions[0], awayColor);
+      if (this.humanPlayerIds.has(pd.id)) gp.isHumanControlled = true;
       this.awayPlayers.push(gp);
-      this.playerAIs.set(pd.id, new PlayerAI(pd.stats, pd.personality));
+      if (!this.humanPlayerIds.has(pd.id)) {
+        this.playerAIs.set(pd.id, new PlayerAI(pd.stats, pd.personality));
+      }
     });
+  }
+
+  /** True iff this player is driven by any human controller (keyboard or gamepad). */
+  isHumanControlled(playerId: string): boolean {
+    return this.humanPlayerIds.has(playerId);
+  }
+
+  /** All human player IDs (primary first). Useful for per-player HUD + input routing. */
+  getHumanPlayerIds(): string[] {
+    return [this.humanPlayerId, ...Array.from(this.humanPlayerIds).filter(id => id !== this.humanPlayerId)];
   }
 
   // --- Per-team hoop helpers ---
@@ -301,7 +325,7 @@ export class GameSession {
       this.deadBallTimer -= dt;
       // All players move toward reset positions
       for (const p of this.getAllPlayers()) {
-        if (p.data.id === this.humanPlayerId) continue;
+        if (this.humanPlayerIds.has(p.data.id)) continue;
         if (p.aiTarget) p.moveToward(p.aiTarget, dt);
         p.animate(dt);
       }
@@ -521,7 +545,7 @@ export class GameSession {
     // Loose ball — everyone chases
     if (!this.ball.heldBy && !this.ball.isInFlight) {
       for (const p of this.getAllPlayers()) {
-        if (p.data.id === this.humanPlayerId) continue;
+        if (this.humanPlayerIds.has(p.data.id)) continue;
         p.aiTarget = this.ball.mesh.position.clone();
         p.moveToward(p.aiTarget, dt);
       }
@@ -548,7 +572,7 @@ export class GameSession {
 
     // AI stamina management
     for (const player of this.getAllPlayers()) {
-      if (player.data.id === this.humanPlayerId) continue;
+      if (this.humanPlayerIds.has(player.data.id)) continue;
       if (player.isSprinting && player.stamina > 0 && !player.isExhausted) {
         player.stamina -= 0.3 * dt;
         if (player.stamina <= 0) {
@@ -1018,7 +1042,7 @@ export class GameSession {
     const possession = this.matchEngine.state.possession;
 
     for (const player of this.getAllPlayers()) {
-      if (player.data.id === this.humanPlayerId) continue;
+      if (this.humanPlayerIds.has(player.data.id)) continue;
       if (this.aiDisabledPlayers.has(player.data.id)) continue;
 
       const isHome = this.isHomePlayer(player);
@@ -1236,7 +1260,7 @@ export class GameSession {
       : this.ball.mesh.position;
 
     for (const player of this.getAllPlayers()) {
-      if (player.data.id === this.humanPlayerId) continue;
+      if (this.humanPlayerIds.has(player.data.id)) continue;
       const dx = ballTarget.x - player.position.x;
       const dz = ballTarget.z - player.position.z;
       if (Math.abs(dx) > 0.1 || Math.abs(dz) > 0.1) {
