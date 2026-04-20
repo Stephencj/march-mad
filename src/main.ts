@@ -281,7 +281,7 @@ function startMainGame(opts: StartMatchOptions): void {
   GamePlayer.courtBoundsZ = [-13.5, 13.5];
   cameraSystem.fullCourt = true;
 
-  session = new GameSession(gameEvents, opts.homeTeam, opts.awayTeam, opts.homeTeam.players[0].id, '5v5');
+  session = new GameSession(gameEvents, opts.homeTeam, opts.awayTeam, opts.homeTeam.players[0].id, '3v3');
   session.addToScene(scene);
   session.setCameraRef(camera);
   session.setHapticManager(hapticManager);
@@ -322,7 +322,7 @@ function startFreeplay(): void {
   cameraSystem.fullCourt = true;
 
   const teams = generateTeams(5);
-  session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id, '5v5');
+  session = new GameSession(gameEvents, teams[0], teams[1], teams[0].players[0].id, '3v3');
   session.addToScene(scene);
   session.setCameraRef(camera);
   session.setHapticManager(hapticManager);
