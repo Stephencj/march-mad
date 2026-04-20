@@ -58,22 +58,47 @@ function stageDims() {
 }
 
 /**
- * Crowd archetypes — low-poly seated figures. Each is a head + torso + legs,
- * no arms (keeps the triangle count manageable with a few dozen per venue).
- * Slight y-offset rotation so they're not all facing the same way.
+ * Crowd archetypes — low-poly seated figures. Each is a head + torso + legs
+ * + simple arms (upper + forearm per side). Keeps the triangle count
+ * manageable while giving enough anatomy for mood poses to read.
+ *
+ * Mood is picked inline from the seed so callers don't need to know:
+ *   (seed * 7919) % 100   <  10  → 'head-in-hands' (~10%)
+ *                         < 13   → 'sleeping' old guy (~3%, forced to 'dad')
+ *                         else   → 'normal'
+ * 7919 is a prime chosen to decorrelate mood from the other seed uses
+ * (hair/shirt/skin at %5/6, type at %53, y-rotation at %37).
  */
 type CrowdType = 'dad' | 'wife' | 'kid';
+type CrowdMood = 'normal' | 'head-in-hands' | 'sleeping';
 
-function createCrowdPerson(type: CrowdType, seed: number): THREE.Group {
+function pickMood(seed: number): CrowdMood {
+  const roll = (seed * 7919) % 100;
+  if (roll < 10) return 'head-in-hands';
+  if (roll < 13) return 'sleeping';
+  return 'normal';
+}
+
+function createCrowdPerson(typeIn: CrowdType, seed: number): THREE.Group {
   const g = new THREE.Group();
 
+  // Mood drives pose AND (for 'sleeping') forces archetype to 'dad' so we
+  // can render an elderly figure with gray hair.
+  const mood = pickMood(seed);
+  const type: CrowdType = mood === 'sleeping' ? 'dad' : typeIn;
+
   // Pseudo-random per-seed color choice so the crowd doesn't look cloned.
-  const hair = [0x3a2a1a, 0x5a4030, 0x1a1a1a, 0x806050, 0xc8b8a8, 0xe8d8c8][seed % 6];
+  // Sleeping old guy overrides hair to gray/white regardless of seed.
+  const hairPalette = [0x3a2a1a, 0x5a4030, 0x1a1a1a, 0x806050, 0xc8b8a8, 0xe8d8c8];
+  const hair = mood === 'sleeping'
+    ? (seed % 2 === 0 ? 0xdadada : 0xb0b0b0) // white or silver
+    : hairPalette[seed % 6];
   const shirtPalette =
     type === 'dad' ? [0x3c5a8a, 0x8a3c3c, 0x4a5a6a, 0x6a5a4a, 0x2a5a2a] :
     type === 'wife' ? [0xa86ba8, 0x6a8aaa, 0xc86a8a, 0x8aaa6a, 0xcaa86a] :
     /* kid */ [0xff8c00, 0x00a8ff, 0xff4466, 0x66cc44, 0xffc500];
   const shirt = shirtPalette[seed % shirtPalette.length];
+  const shirtMat = new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.9 });
 
   const skinColor = [0xd4956a, 0xc68642, 0x8d5524, 0xf1c27d, 0xe0ac69][seed % 5];
   const skinMat = new THREE.MeshStandardMaterial({ color: skinColor });
@@ -84,34 +109,51 @@ function createCrowdPerson(type: CrowdType, seed: number): THREE.Group {
   const torsoH = 0.6 * s;
   const torsoD = (type === 'dad' ? 0.36 : 0.22) * s;
 
-  // Torso (seated)
+  // Torso (seated). For moods that slump (head-in-hands, sleeping) we tilt
+  // the torso forward/back a touch so the silhouette reads at a distance.
   const torso = new THREE.Mesh(
     new THREE.BoxGeometry(torsoW, torsoH, torsoD),
-    new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.9 }),
+    shirtMat,
   );
   torso.position.y = 0.55 * s;
+  if (mood === 'head-in-hands') {
+    torso.rotation.x = 0.18; // shirt sags forward
+    torso.position.z += 0.03 * s;
+  } else if (mood === 'sleeping') {
+    torso.rotation.x = -0.12; // leaning back
+  }
   g.add(torso);
 
-  // Head
+  // Head — pivot is at neck so rotating around X tilts the face.
+  const headPivot = new THREE.Group();
+  headPivot.position.y = 0.82 * s;
+  g.add(headPivot);
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.18 * s, 8, 6),
     skinMat,
   );
-  head.position.y = 0.95 * s;
-  g.add(head);
+  head.position.y = 0.13 * s;
+  headPivot.add(head);
+
+  if (mood === 'head-in-hands') {
+    headPivot.rotation.x = 0.6; // tilt face-down into hands
+  } else if (mood === 'sleeping') {
+    headPivot.rotation.x = -0.5; // tilt back (nodded off)
+  }
 
   // Hair — big afro if wife, small mat if dad (only 50% chance because
-  // middle-aged guys are bald-weighted), bright stub for kid.
+  // middle-aged guys are bald-weighted), bright stub for kid. Sleeping
+  // old guy always gets a cap of gray hair regardless of the 50/50.
   const hairMat = new THREE.MeshStandardMaterial({ color: hair });
   if (type === 'wife') {
     const mane = new THREE.Mesh(new THREE.SphereGeometry(0.22 * s, 8, 6), hairMat);
-    mane.position.y = 0.96 * s;
+    mane.position.y = 0.14 * s;
     mane.scale.set(1, 0.9, 1.15);
-    g.add(mane);
-  } else if (type === 'kid' || (type === 'dad' && seed % 2 === 0)) {
+    headPivot.add(mane);
+  } else if (mood === 'sleeping' || type === 'kid' || (type === 'dad' && seed % 2 === 0)) {
     const cap = new THREE.Mesh(new THREE.BoxGeometry(0.26 * s, 0.1 * s, 0.2 * s), hairMat);
-    cap.position.y = (1.06 - 0.04) * s;
-    g.add(cap);
+    cap.position.y = 0.2 * s;
+    headPivot.add(cap);
   }
 
   // Legs (knees bent — seated): two boxes angled forward
@@ -125,8 +167,61 @@ function createCrowdPerson(type: CrowdType, seed: number): THREE.Group {
   legR.position.x = 0.1 * s;
   g.add(legR);
 
-  // Dads get a beer can in their right "hand" (just a cylinder floating at hip height)
-  if (type === 'dad') {
+  // Arms — one pivot per side at the shoulder, upper arm hanging down from
+  // it, with a forearm pivoted at the elbow. Rotating the shoulder pivot
+  // around X swings the arm forward/up; the elbow bend stays relative.
+  const armLen = 0.28 * s;
+  const armThick = 0.09 * s;
+  const shoulderY = (0.55 + torsoH / 2 - 0.06) * s; // just inside the torso top
+  const shoulderX = (torsoW / 2 + armThick / 2 - 0.02);
+  const armGeo = new THREE.BoxGeometry(armThick, armLen, armThick);
+
+  const makeArm = (side: 1 | -1): THREE.Group => {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(side * shoulderX, shoulderY, 0);
+
+    // Upper arm — origin at shoulder, hanging down by default
+    const upper = new THREE.Mesh(armGeo, shirtMat);
+    upper.position.y = -armLen / 2;
+    shoulder.add(upper);
+
+    // Elbow pivot at the bottom of the upper arm
+    const elbow = new THREE.Group();
+    elbow.position.y = -armLen;
+    shoulder.add(elbow);
+
+    const forearm = new THREE.Mesh(armGeo, skinMat);
+    forearm.position.y = -armLen / 2;
+    elbow.add(forearm);
+
+    // Default pose: arms at sides with a touch of outward tilt
+    shoulder.rotation.z = side * 0.08;
+    elbow.rotation.x = -0.2; // slight forward bend
+
+    if (mood === 'head-in-hands') {
+      // Upper arms swing up and slightly inward, elbows bend hard so the
+      // forearms come back toward the face. Rotation around X is positive
+      // -> the arm (which hangs -Y) swings toward +Z (forward).
+      shoulder.rotation.x = 1.9;
+      shoulder.rotation.z = side * 0.35; // elbows out, hands in
+      elbow.rotation.x = -2.2; // tight fold so hand reaches face
+    } else if (mood === 'sleeping') {
+      // Arms cross on the lap — shoulders swing forward ~90 deg, elbows
+      // bend inward so forearms meet at the belly/lap.
+      shoulder.rotation.x = 1.4;
+      shoulder.rotation.z = side * 0.55; // elbows out at ribs
+      elbow.rotation.x = -1.2;
+    }
+
+    return shoulder;
+  };
+
+  g.add(makeArm(1));
+  g.add(makeArm(-1));
+
+  // Dads get a beer can in their right "hand" — skip when in head-in-hands
+  // (both hands busy) or sleeping (dropped it somewhere).
+  if (type === 'dad' && mood === 'normal') {
     const beer = new THREE.Mesh(
       new THREE.CylinderGeometry(0.05, 0.05, 0.14, 10),
       new THREE.MeshStandardMaterial({ color: 0xe8e8e8, metalness: 0.7, roughness: 0.35 }),
@@ -249,10 +344,11 @@ function buildGym(): THREE.Group {
     group.add(bench);
   }
 
-  // Crowd on the far-side bleachers — fill 3 rows facing +X.
-  // Seats spaced ~1.3 along Z; 20 per row over 26 units of length.
-  const crowdPerRow = 20;
-  const crowdSpacing = bleacherLen / crowdPerRow; // 1.3
+  // Crowd on the far-side bleachers — fill 3 rows facing +X. Reduced from
+  // 20 per row to 13 (~35% fewer total figures), spacing scaled up to match.
+  // 3 rows × 13 = 39 figures.
+  const crowdPerRow = 13;
+  const crowdSpacing = bleacherLen / crowdPerRow; // ~2.0
   for (let row = 0; row < 3; row++) {
     const x = bleacherInnerX - bleacherRowDepth / 2 - row * bleacherRowDepth;
     const yBase = 0.35 / 2 + row * bleacherStepH + 0.35; // bench top + shin height
@@ -335,7 +431,9 @@ function buildRecCenter(): THREE.Group {
   const chairLineX = -8.5;
   const chairZStart = -halfL + 1.5;
   const chairZEnd = halfL - 0.5;
-  const chairSpacing = 1.2;
+  // Spaced out from 1.2 → 2.3 so a row of ~32 units carries ~14 chairs
+  // instead of ~26 (cuts crowd ~45%).
+  const chairSpacing = 2.3;
   for (let z = chairZStart; z < chairZEnd; z += chairSpacing) {
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.5), chairMat);
     seat.position.set(chairLineX, 0.5, z);
@@ -445,8 +543,10 @@ function buildPark(): THREE.Group {
   // Crowd at the park — leaners/standers along the far sideline (negative X),
   // rotated to face +X. A few more seated at the picnic tables.
   const leanX = -halfW - 1.5;
-  const leanCount = 6;
-  const leanSpacing = 2.2;
+  // Dropped from 6 → 3 leaners; combined with 2+2 picnic seats this gives 7
+  // total park-goers (was 10).
+  const leanCount = 3;
+  const leanSpacing = 4.0;
   const leanZStart = -((leanCount - 1) * leanSpacing) / 2;
   const leaners = new THREE.Group();
   leaners.name = 'crowd-row';
