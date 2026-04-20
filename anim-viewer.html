@@ -96,6 +96,15 @@
         <option value="C">C (Center)</option>
       </select>
 
+      <h3>Player Offset</h3>
+      <input type="range" id="player-offset-x" min="-3" max="3" step="0.05" value="0" />
+      <label>X: <span id="player-offset-x-val">0.00</span></label>
+      <input type="range" id="player-offset-y" min="-2" max="3" step="0.05" value="0" />
+      <label>Y: <span id="player-offset-y-val">0.00</span></label>
+      <input type="range" id="player-offset-z" min="-3" max="3" step="0.05" value="0" />
+      <label>Z: <span id="player-offset-z-val">0.00</span></label>
+      <div class="btn" id="player-offset-reset" style="font-size:12px;padding:6px;">Reset Offset</div>
+
       <h3>Camera</h3>
       <label><input type="checkbox" id="auto-rotate" checked /> Auto-rotate</label>
       <input type="range" id="cam-height" min="0" max="4" step="0.1" value="1.5" />

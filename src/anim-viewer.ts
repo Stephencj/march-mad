@@ -98,6 +98,15 @@ let shootIdleTimer = 0;
 let player: GamePlayer;
 let passTarget: GamePlayer | null = null;
 
+// Parent container so user-provided XYZ offset sliders can bump the player
+// without fighting the per-animation position logic. Child transforms
+// compose automatically, so ball.followHolder() still tracks correctly.
+const playerContainer = new THREE.Group();
+scene.add(playerContainer);
+let playerOffsetX = 0;
+let playerOffsetY = 0;
+let playerOffsetZ = 0;
+
 // Dispose every geometry / material under a THREE.Group so rebuilding the
 // player mesh while tuning body dimensions doesn't leak GPU resources.
 // Same shape as level-editor.ts's `disposeCourt`.
@@ -114,7 +123,7 @@ function disposePlayerGroup(group: THREE.Group): void {
 
 function createPlayer(teamColor: number, hairId: number, position?: Position) {
   if (player) {
-    scene.remove(player.group);
+    playerContainer.remove(player.group);
     disposePlayerGroup(player.group);
   }
   const stats = createDefaultPlayerStats();
@@ -129,7 +138,7 @@ function createPlayer(teamColor: number, hairId: number, position?: Position) {
   } as any, new THREE.Vector3(0, 0, 0), teamColor);
 
   player.isHumanControlled = true; // show the indicator
-  scene.add(player.group);
+  playerContainer.add(player.group);
 }
 
 createPlayer(0xe94560, 0);
@@ -608,6 +617,41 @@ const camDistSlider = document.getElementById('cam-dist') as HTMLInputElement;
 camDistSlider.addEventListener('input', () => {
   camDist = parseFloat(camDistSlider.value);
   document.getElementById('cam-dist-val')!.textContent = camDist.toFixed(1);
+});
+
+// Player XYZ offset — bumps the player from its per-animation baseline
+// position. Applied on the parent container so the per-tick animation code
+// is untouched and ball.followHolder() tracks correctly via world matrix.
+function applyPlayerOffset(): void {
+  playerContainer.position.set(playerOffsetX, playerOffsetY, playerOffsetZ);
+}
+function wireOffsetSlider(axis: 'x' | 'y' | 'z'): void {
+  const slider = document.getElementById(`player-offset-${axis}`) as HTMLInputElement;
+  const valEl = document.getElementById(`player-offset-${axis}-val`)!;
+  slider.addEventListener('input', () => {
+    const v = parseFloat(slider.value);
+    if (axis === 'x') playerOffsetX = v;
+    else if (axis === 'y') playerOffsetY = v;
+    else playerOffsetZ = v;
+    valEl.textContent = v.toFixed(2);
+    applyPlayerOffset();
+  });
+}
+wireOffsetSlider('x');
+wireOffsetSlider('y');
+wireOffsetSlider('z');
+
+const offsetResetBtn = document.getElementById('player-offset-reset')!;
+offsetResetBtn.addEventListener('click', () => {
+  playerOffsetX = 0;
+  playerOffsetY = 0;
+  playerOffsetZ = 0;
+  for (const axis of ['x', 'y', 'z'] as const) {
+    const s = document.getElementById(`player-offset-${axis}`) as HTMLInputElement;
+    s.value = '0';
+    document.getElementById(`player-offset-${axis}-val`)!.textContent = '0.00';
+  }
+  applyPlayerOffset();
 });
 
 // Appearance
