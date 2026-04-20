@@ -3,6 +3,7 @@ import { GameLoop } from './core/game-loop';
 import { gameEvents } from './core/events';
 import { GameStateMachine, type StateTransition } from './core/state-machine';
 import { createFullCourt, FULL_COURT_DIMENSIONS } from './game/full-court';
+import { createVenue, randomVenue, type VenueId } from './game/venue';
 import { GameSession } from './game/game-session';
 import { GamePlayer } from './game/player';
 import { CameraSystem } from './game/camera';
@@ -87,6 +88,12 @@ export const stateMachine = new GameStateMachine(transitions);
 const court = createFullCourt(0xe94560, 0x3498db);
 scene.add(court);
 let currentCourt: THREE.Group = court;
+
+// Venue scenery — walls/crowd/props around the court. Starts as 'gym'
+// (bracket default); quick-match flow can swap to 'rec' / 'park'.
+let currentVenueId: VenueId = 'gym';
+let currentVenue: THREE.Group = createVenue(currentVenueId);
+scene.add(currentVenue);
 
 let session: GameSession | null = null;
 
@@ -276,15 +283,19 @@ interface StartMatchOptions {
   clockSeconds: number;
 }
 
-function startMainGame(opts: StartMatchOptions): void {
+function startMainGame(opts: StartMatchOptions & { venueId?: VenueId }): void {
   if (session) {
     session.removeFromScene(scene);
   }
-  // Swap to full court
+  // Swap to full court + venue scenery
   scene.remove(currentCourt);
   const fullCourt = createFullCourt(0xe94560, 0x3498db);
   scene.add(fullCourt);
   currentCourt = fullCourt;
+  scene.remove(currentVenue);
+  currentVenueId = opts.venueId ?? 'gym';
+  currentVenue = createVenue(currentVenueId);
+  scene.add(currentVenue);
   GamePlayer.courtBoundsZ = [-13.5, 13.5];
   cameraSystem.fullCourt = true;
 
@@ -300,15 +311,16 @@ function startMainGame(opts: StartMatchOptions): void {
 }
 
 /** Wrap startMainGame for non-tournament callers that want auto-generated teams. */
-function startQuickMatch(clockSeconds: number): void {
+function startQuickMatch(clockSeconds: number, venueId?: VenueId): void {
   const teams = generateTeams(5);
-  startMainGame({ homeTeam: teams[0], awayTeam: teams[1], clockSeconds });
+  startMainGame({ homeTeam: teams[0], awayTeam: teams[1], clockSeconds, venueId });
 }
 
 function enterTournamentMatch(matchId: string): void {
   if (!tournamentController) return;
   const ctx = tournamentController.enterMatch(matchId);
-  startMainGame({ homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam, clockSeconds: 180 });
+  // Bracket matches always use the high-school gym.
+  startMainGame({ homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam, clockSeconds: 180, venueId: 'gym' });
 }
 
 function startTournament(tier: TournamentTier): void {
