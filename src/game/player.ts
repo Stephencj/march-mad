@@ -116,6 +116,16 @@ export class GamePlayer {
   private passTimer = 0;
   dribblePhase = 0; // 0-1, exposed for ball sync
 
+  /**
+   * 0 = normal dad, 1 = fully transformed college-athlete mutant.
+   * Game-session sets this per-frame based on match.isMutant + elapsed
+   * time since the buff activated. Player.applyMutantTransform() consumes
+   * it and scales the mesh. Mutation scale layers on top of POSITION_SCALES
+   * — we capture the base scale in the constructor so we can compose.
+   */
+  mutantFactor = 0;
+  private baseScale = new THREE.Vector3(1, 1, 1);
+
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
     this.moveSpeed = 2 + data.stats.speed * 0.35; // 2.35 to 5.5 m/s — deliberate, not frantic
@@ -128,6 +138,24 @@ export class GamePlayer {
       const scales = POSITION_SCALES[data.position];
       this.group.scale.set(scales.body, scales.height, scales.body);
     }
+    this.baseScale.copy(this.group.scale);
+  }
+
+  /**
+   * Called each frame from game-session when this player is the mutant.
+   * `factor` is a 0..1 progress value (the 0.5s transformation ramp + hold
+   * at 1 while active + ramp back to 0 on expire). Applies the
+   * "college-athlete self" look: bigger overall + proportional emphasis.
+   */
+  applyMutantTransform(factor: number): void {
+    this.mutantFactor = factor;
+    // Overall scale: 1.0 baseline → 1.6 peak, biased toward Y (taller) and X (wider)
+    const mul = 1 + factor * 0.6;
+    this.group.scale.set(
+      this.baseScale.x * mul,
+      this.baseScale.y * (1 + factor * 0.75), // extra height
+      this.baseScale.z * mul,
+    );
   }
 
   private createMesh(color: number): THREE.Group {

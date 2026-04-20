@@ -237,6 +237,41 @@ export class GameSession {
   }
 
   update(dt: number): void {
+    // === MUTANT TRANSFORM + KNOCKBACK AURA ===
+    // Find the mutant player per team (if any), ramp their transform factor
+    // over the first 0.5s of the buff and the last 0.5s before expire. In
+    // the sustain window between, apply full factor=1. Also knock down
+    // nearby opponents on contact.
+    for (const team of ['home', 'away'] as const) {
+      const inv = this.matchEngine.invincibility[team];
+      const roster = team === 'home' ? this.homePlayers : this.awayPlayers;
+      for (const p of roster) {
+        if (inv.active && inv.mutantPlayerId === p.data.id) {
+          // Ramp up: first 0.5s after activation (timer is counting DOWN from 30)
+          const elapsed = 30 - inv.timer;
+          const rampIn = Math.min(1, elapsed / 0.5);
+          const rampOut = Math.min(1, inv.timer / 0.5);
+          const factor = Math.min(rampIn, rampOut);
+          p.applyMutantTransform(factor);
+
+          // Knockback aura: once mostly transformed, nearby opposing
+          // players (within 1.5u) get knocked down. Does NOT record as a
+          // knockdown on the victim's counter — that would stack infinitely.
+          if (factor > 0.8) {
+            const opponents = team === 'home' ? this.awayPlayers : this.homePlayers;
+            for (const foe of opponents) {
+              if (foe.distanceTo(p.position) < 1.5 && !(foe as any).fallTimer) {
+                foe.triggerFall();
+              }
+            }
+          }
+        } else if (p.mutantFactor > 0) {
+          // Cleanup when buff ended — smoothly return to baseline
+          p.applyMutantTransform(0);
+        }
+      }
+    }
+
     // === INBOUND AUTO-PASS ===
     if (this.inboundTimer > 0) {
       this.inboundTimer -= dt;
