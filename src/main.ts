@@ -220,6 +220,10 @@ const devOverlay = new DevOverlay(devContainer);
 
 // Create UIs with their OWN containers
 const hud = new HUD(hudContainer);
+// HUD is only visible during gameplay (YourGame/Freeplay); hide on launch
+// while we sit in MainMenu. State-machine onEnter/onExit hooks keep it in sync
+// from there.
+hud.hide();
 const menuUI = new MenuUI(menuContainer, handleMenuAction);
 const betModal = new BetModal(uiOverlay);
 const saveProfilePrompt = new SaveProfilePrompt(uiOverlay);
@@ -516,6 +520,7 @@ function handleMenuAction(action: string, _data?: unknown) {
 // --- State Machine Hooks ---
 stateMachine.onEnter('MainMenu', () => {
   menuUI.show('main');
+  hud.hide();
 });
 
 stateMachine.onExit('MainMenu', () => {
@@ -535,11 +540,16 @@ stateMachine.onEnter('YourGame', () => {
   hud.show();
 });
 
+stateMachine.onExit('YourGame', () => {
+  hud.hide();
+});
+
 stateMachine.onExit('Freeplay', () => {
   if (freeplayPanel) {
     freeplayPanel.destroy();
     freeplayPanel = null;
   }
+  hud.hide();
 });
 
 stateMachine.onEnter('PostGame', () => {
