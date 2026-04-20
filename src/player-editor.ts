@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { GamePlayer } from './game/player';
+import { Ball } from './game/ball';
+import { createHoop } from './game/hoop';
 import { createDefaultPlayerStats, type Position } from './core/types';
 import {
   playerConfig,
@@ -14,6 +16,7 @@ import { serializeBalance, applyBalanceJSON, resetBalance } from './dev/balance-
 import { serializeLevel, applyLevelJSON, resetLevel } from './dev/level-config';
 import { serializeAnim, applyAnimJSON, resetAnim } from './dev/anim-config';
 import { persistDetails, detailsKey } from './dev/details-state';
+import { AnimLoop, ANIM_IDS, type AnimId } from './dev/anim-loop';
 
 const DEVPANEL_PREFIX = 'devpanel:player-editor';
 
@@ -24,6 +27,11 @@ let teamColor = 0xe94560;
 let hairOverride: number = 0; // 0..3
 let positionOverride: Position | undefined = undefined;
 let rebuildSeq = 0; // bump to vary player id (changes skin/hair color rolls)
+
+// Animation playback state — the editor plays a looping anim so the user can
+// tune body dimensions while watching the character in motion, not a static pose.
+let currentAnim: AnimId = 'idle';
+let speedMultiplier = 1.0;
 
 // --- Renderer / Scene / Camera ---
 const canvas = document.getElementById('editor-canvas') as HTMLCanvasElement;
@@ -66,12 +74,45 @@ const platform = new THREE.Mesh(
 platform.position.y = -0.025;
 scene.add(platform);
 
+// --- Hoop + ball props (for shoot/dunk/pass animations) ---
+const hoopPos = new THREE.Vector3(0, 3.05, 2.5);
+const hoop = createHoop(hoopPos, 0xe94560);
+hoop.rotation.y = Math.PI; // backboard faces the player
+hoop.visible = false; // only visible for shoot/dunk/pass
+scene.add(hoop);
+
+const ball = new Ball(new THREE.Vector3(0, 1, 0));
+ball.mesh.visible = false;
+scene.add(ball.mesh);
+
 // --- Player ---
 let player: GamePlayer | null = null;
+let animLoop: AnimLoop | null = null;
+
+/** Walk a three.js group and dispose every geometry + material. Mirrors
+ * level-editor's disposeCourt — without this, rebuildPlayer() leaks on every
+ * slider tick. */
+function disposePlayerGroup(group: THREE.Group): void {
+  group.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.material) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) (m as THREE.Material).dispose();
+    }
+  });
+}
 
 function rebuildPlayer(): void {
+  // Capture current anim context so body rebuilds don't pop back to idle.
+  // Re-trigger fresh rather than preserving animTime for timed anims — body
+  // rebuilds are rare enough that a brief animation restart is fine.
+  const savedAnim: AnimId = currentAnim;
+  const savedAnimTime: number = player?.animTime ?? 0;
+
   if (player) {
     scene.remove(player.group);
+    disposePlayerGroup(player.group);
   }
   rebuildSeq++;
   player = new GamePlayer(
@@ -88,17 +129,43 @@ function rebuildPlayer(): void {
     teamColor,
   );
   scene.add(player.group);
+  player.animTime = savedAnimTime;
+
+  if (animLoop) {
+    animLoop.setPlayer(player);
+  } else {
+    animLoop = new AnimLoop(player, { ball, hoopPos });
+  }
+  animLoop.setAnim(savedAnim); // resets per-anim timers; next tick re-triggers fresh
+  applyAnimPropsVisibility();
 }
+
+/** Hoop + ball show only for the animations that use them. */
+function applyAnimPropsVisibility(): void {
+  const needsHoop = currentAnim === 'shoot' || currentAnim === 'dunk';
+  const needsBall =
+    needsHoop ||
+    currentAnim === 'pass' ||
+    currentAnim === 'dribble' ||
+    currentAnim === 'dribble-walk' ||
+    currentAnim === 'dribble-sprint';
+  hoop.visible = needsHoop;
+  ball.mesh.visible = needsBall;
+}
+
 rebuildPlayer();
 
 // --- Animate loop ---
+let lastTime = performance.now();
 function animate(): void {
   requestAnimationFrame(animate);
+  const now = performance.now();
+  const rawDt = (now - lastTime) / 1000;
+  lastTime = now;
+
   controls.update();
-  // Idle animation tick so the player breathes a bit
-  if (player) {
-    player.velocity.set(0, 0, 0);
-    player.animate(1 / 60);
+  if (animLoop) {
+    animLoop.tick(rawDt * speedMultiplier);
   }
   renderer.render(scene, camera);
 }
@@ -213,9 +280,107 @@ function buildPanel(): void {
   // Preview controls (not part of the config — affect just the editor view)
   panel.appendChild(buildPreviewSection());
 
+  // Animation playback (speed + state picker). Sits above body/limb sections
+  // so the user can pick an anim once and then scroll down to tune dimensions.
+  panel.appendChild(buildAnimationSection());
+
   for (const section of buildSections()) {
     panel.appendChild(buildSection(section));
   }
+}
+
+function buildAnimationSection(): HTMLElement {
+  const details = document.createElement('details');
+  details.open = true;
+  Object.assign(details.style, { marginBottom: '12px' });
+  persistDetails(details, detailsKey(DEVPANEL_PREFIX, 'ANIMATION'));
+
+  const summary = document.createElement('summary');
+  summary.textContent = 'ANIMATION';
+  Object.assign(summary.style, {
+    cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
+    color: '#aaa', padding: '4px 0', letterSpacing: '1px',
+  });
+  details.appendChild(summary);
+
+  // --- Speed slider ---
+  const speedRow = document.createElement('div');
+  Object.assign(speedRow.style, {
+    display: 'flex', flexDirection: 'column', gap: '4px',
+    padding: '6px 0', borderBottom: '1px solid #222',
+  });
+
+  const speedHead = document.createElement('div');
+  Object.assign(speedHead.style, { display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
+  const speedLabel = document.createElement('label');
+  speedLabel.textContent = 'Speed';
+  Object.assign(speedLabel.style, { fontSize: '12px', color: '#ddd' });
+  speedHead.appendChild(speedLabel);
+  const speedVal = document.createElement('span');
+  speedVal.textContent = speedMultiplier.toFixed(1) + 'x';
+  Object.assign(speedVal.style, { fontSize: '12px', color: '#fff', fontFamily: 'monospace' });
+  speedHead.appendChild(speedVal);
+  speedRow.appendChild(speedHead);
+
+  const speedSlider = document.createElement('input');
+  speedSlider.type = 'range';
+  speedSlider.min = '0.1';
+  speedSlider.max = '2.0';
+  speedSlider.step = '0.1';
+  speedSlider.value = String(speedMultiplier);
+  Object.assign(speedSlider.style, { width: '100%' });
+  speedSlider.addEventListener('input', () => {
+    speedMultiplier = parseFloat(speedSlider.value);
+    speedVal.textContent = speedMultiplier.toFixed(1) + 'x';
+  });
+  speedRow.appendChild(speedSlider);
+  details.appendChild(speedRow);
+
+  // --- Animation button grid ---
+  const animGridLabel = document.createElement('div');
+  animGridLabel.textContent = 'State';
+  Object.assign(animGridLabel.style, {
+    fontSize: '12px', color: '#ddd', padding: '6px 0 4px 0',
+  });
+  details.appendChild(animGridLabel);
+
+  const grid = document.createElement('div');
+  Object.assign(grid.style, {
+    display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)',
+    gap: '4px', paddingBottom: '6px',
+  });
+  const buttons: HTMLButtonElement[] = [];
+
+  const markActive = () => {
+    for (const b of buttons) {
+      const isActive = b.dataset.anim === currentAnim;
+      b.style.background = isActive ? '#e94560' : '#1f2540';
+      b.style.borderColor = isActive ? '#e94560' : '#444';
+      b.style.color = '#fff';
+    }
+  };
+
+  for (const id of ANIM_IDS) {
+    const btn = document.createElement('button');
+    btn.textContent = id;
+    btn.dataset.anim = id;
+    Object.assign(btn.style, {
+      padding: '6px 4px', fontSize: '11px', fontFamily: 'sans-serif',
+      background: '#1f2540', color: '#fff', border: '1px solid #444',
+      borderRadius: '3px', cursor: 'pointer', letterSpacing: '0.5px',
+    });
+    btn.addEventListener('click', () => {
+      currentAnim = id;
+      if (animLoop) animLoop.setAnim(id);
+      applyAnimPropsVisibility();
+      markActive();
+    });
+    buttons.push(btn);
+    grid.appendChild(btn);
+  }
+  details.appendChild(grid);
+  markActive();
+  return details;
 }
 
 function buildPreviewSection(): HTMLElement {
