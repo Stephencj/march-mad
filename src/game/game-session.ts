@@ -83,6 +83,34 @@ export class GameSession {
       this.events.emit('splash', { text: 'FOUL!', color: '#ffaa00' });
     });
 
+    // Knockdown counter milestones — 3 = invincibility is SPEND-able,
+    // 5 = mutant auto-activates on the team's chosen player.
+    this.events.on('buff-available', (data: { team: 'home' | 'away'; type: 'invincibility' | 'mutant' }) => {
+      if (data.type === 'mutant') {
+        // Auto-activate mutant. Pick the human if this is the human's team,
+        // otherwise pick the team's top scorer.
+        const humanTeam = this.getPlayerTeam(this.humanPlayerId);
+        let chosenId: string;
+        if (data.team === humanTeam) {
+          chosenId = this.humanPlayerId;
+        } else {
+          const roster = data.team === 'home' ? this.homePlayers : this.awayPlayers;
+          const best = roster.reduce<GamePlayer | null>((acc, p) =>
+            acc == null || (p.data.stats.shooting > acc.data.stats.shooting) ? p : acc, null);
+          chosenId = best ? best.data.id : roster[0]?.data.id ?? '';
+        }
+        if (chosenId) this.matchEngine.activateMutant(data.team, chosenId);
+      }
+      // Invincibility at 3 is manual-spend — we just let the hint render in HUD.
+    });
+    this.events.on('buff-activated', (data: { team: 'home' | 'away'; type: 'invincibility' | 'mutant'; playerId?: string }) => {
+      if (data.type === 'mutant') {
+        this.events.emit('splash', { text: 'MUTANT MODE!', color: '#ff00ff' });
+      } else {
+        this.events.emit('splash', { text: 'INVINCIBLE!', color: '#ffd700' });
+      }
+    });
+
     // Fixed per-team hoops — set once, NEVER change
     this.homeAttackHoop = FULL_COURT_DIMENSIONS.hoopAway.clone();  // z=+13
     this.homeDefendHoop = FULL_COURT_DIMENSIONS.hoopHome.clone();  // z=-13
@@ -336,7 +364,7 @@ export class GameSession {
           }
         }
 
-        const goesIn = calculateShotSuccess({
+        let goesIn = calculateShotSuccess({
           distance,
           shootingStat: shooter?.data.stats.shooting ?? 5,
           defenderDistance: defDist,
@@ -346,6 +374,13 @@ export class GameSession {
           isDefenderGuarding,
         });
         this.lastChargeMultiplier = 1.0; // reset after use
+
+        // INVINCIBILITY / MUTANT override — all shots/dunks auto-score.
+        // The buff is on the shooter's team, not the shooter's individual
+        // player (except mutant, which is a subset of invincibility).
+        if (this.matchEngine.isInvincible(team)) {
+          goesIn = true;
+        }
 
         if (goesIn) {
           this.handleMadeShot(team, shotType);
@@ -1273,6 +1308,14 @@ export class GameSession {
     const ballHolder = this.getAllPlayers().find(p => p.hasBall);
     if (!ballHolder) return;
     if (stealer.distanceTo(ballHolder.position) > 2) return;
+
+    // Invincibility gate — the ball-handler's team cannot be stolen from
+    // or knocked down while invincible (or mutant, which is a subset).
+    const holderTeam = this.getPlayerTeam(ballHolder.data.id);
+    if (this.matchEngine.isInvincible(holderTeam)) {
+      stealer.triggerSteal(); // animation still plays but nothing happens
+      return;
+    }
 
     stealer.triggerSteal();
 

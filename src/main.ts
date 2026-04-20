@@ -152,6 +152,13 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
+  // V = spend the 3-knockdown INVINCIBILITY buff on the human's team.
+  // No-op if count < 3 or already active or session is paused.
+  if (e.code === 'KeyV' && !isPaused && session && stateMachine.current === 'YourGame') {
+    const humanTeam = session.getPlayerTeam(session.getHumanPlayer()?.data.id ?? '');
+    if (humanTeam) session.matchEngine.activateInvincibility(humanTeam);
+    return;
+  }
   if (!isPaused) {
     inputManager.keyboardControls.handleKeyDown(e.code);
   }
@@ -539,6 +546,34 @@ function update(dt: number): void {
     hud.updateClock(session.matchEngine.state.clockSeconds);
     hud.updateShotClock(session.matchEngine.state.shotClockSeconds);
     hud.updateCrowdLevel(crowdSystem.getLevel());
+
+    // Knockdown counters + buff hint/banner
+    hud.updateKnockdowns(session.matchEngine.knockdownCount.home, session.matchEngine.knockdownCount.away);
+    const humanTeamNow = session.getPlayerTeam(session.getHumanPlayer()?.data.id ?? '');
+    if (humanTeamNow) {
+      const inv = session.matchEngine.invincibility[humanTeamNow];
+      if (inv.active) {
+        if (inv.mutantPlayerId) {
+          hud.showBuffBanner('MUTANT — ' + Math.ceil(inv.timer) + 's', '#ff00ff');
+        } else {
+          hud.showBuffBanner('INVINCIBLE — ' + Math.ceil(inv.timer) + 's', '#ffd700');
+        }
+        hud.hideBuffHint();
+      } else {
+        hud.hideBuffBanner();
+        const count = session.matchEngine.knockdownCount[humanTeamNow];
+        if (count >= 5) {
+          hud.showBuffHint('MUTANT READY — firing…'); // auto-activates next tick
+        } else if (count >= 3) {
+          hud.showBuffHint('Press V to go INVINCIBLE (' + count + '/5)');
+        } else {
+          hud.hideBuffHint();
+        }
+      }
+    } else {
+      hud.hideBuffBanner();
+      hud.hideBuffHint();
+    }
 
     // Charge bar
     const human = session.getHumanPlayer();

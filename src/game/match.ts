@@ -63,6 +63,12 @@ export class MatchEngine {
       points = basePoints;
     }
 
+    // MUTANT doubles points on top of anything else — it's the user-earned
+    // top-tier buff at 5 knockdowns.
+    if (this.invincibility[team].active && this.invincibility[team].mutantPlayerId) {
+      points *= 2;
+    }
+
     if (team === 'home') {
       this.state.homeScore += points;
     } else {

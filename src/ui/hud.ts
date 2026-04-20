@@ -29,6 +29,9 @@ export class HUD {
   private staminaBarContainer: HTMLElement;
   private staminaBarFill: HTMLElement;
   private controllerIcon: HTMLElement;
+  private knockdownEl: HTMLElement;
+  private buffBannerEl: HTMLElement;
+  private buffHintEl: HTMLElement;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -78,6 +81,46 @@ export class HUD {
     this.container.appendChild(this.powerupEl);
     this.container.appendChild(this.crowdEl);
     this.container.appendChild(this.subInEl);
+
+    // Knockdown pip counter: HOME ●●●○○  AWAY ●○○○○ — under the clock.
+    this.knockdownEl = document.createElement('div');
+    this.knockdownEl.dataset.hudRole = 'knockdowns';
+    Object.assign(this.knockdownEl.style, {
+      position: 'absolute', top: '78px', left: '50%',
+      transform: 'translateX(-50%)', fontSize: '13px',
+      color: 'rgba(255,255,255,0.85)',
+      fontFamily: 'monospace', letterSpacing: '1px',
+      textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
+      zIndex: '10', whiteSpace: 'pre',
+    });
+    this.container.appendChild(this.knockdownEl);
+    this.updateKnockdowns(0, 0);
+
+    // Buff hint — "Press V to go INVINCIBLE" when the human team has ≥3.
+    this.buffHintEl = document.createElement('div');
+    this.buffHintEl.dataset.hudRole = 'buff-hint';
+    Object.assign(this.buffHintEl.style, {
+      position: 'absolute', top: '102px', left: '50%',
+      transform: 'translateX(-50%)', fontSize: '14px',
+      color: '#ffd700', fontFamily: 'sans-serif',
+      textShadow: '0 0 8px #ffd700',
+      zIndex: '10', display: 'none',
+    });
+    this.container.appendChild(this.buffHintEl);
+
+    // Buff banner — giant centered "INVINCIBLE" / "MUTANT" during the 30s.
+    this.buffBannerEl = document.createElement('div');
+    this.buffBannerEl.dataset.hudRole = 'buff-banner';
+    Object.assign(this.buffBannerEl.style, {
+      position: 'absolute', top: '130px', left: '50%',
+      transform: 'translateX(-50%)',
+      fontSize: '28px', fontWeight: 'bold',
+      color: '#ffd700', fontFamily: 'sans-serif',
+      letterSpacing: '2px',
+      textShadow: '0 0 16px #ffd700, 0 0 32px #ffd700',
+      zIndex: '10', display: 'none',
+    });
+    this.container.appendChild(this.buffBannerEl);
 
     this.chargeBarContainer = document.createElement('div');
     Object.assign(this.chargeBarContainer.style, {
@@ -156,6 +199,55 @@ export class HUD {
     const display = Math.ceil(seconds);
     this.shotClockEl.textContent = String(display);
     this.shotClockEl.style.color = seconds < 5 ? '#f44336' : '';
+  }
+
+  /**
+   * Pip display under the clock for each team's knockdown count. Pips fill
+   * on each knockdown (0-5); color ramps toward gold at 3 and magenta at 5.
+   */
+  updateKnockdowns(home: number, away: number): void {
+    const pip = (n: number): string => {
+      const filled = '●'.repeat(Math.min(n, 5));
+      const empty = '○'.repeat(Math.max(0, 5 - n));
+      return filled + empty;
+    };
+    const colorFor = (n: number): string => {
+      if (n >= 5) return '#ff00ff';
+      if (n >= 3) return '#ffd700';
+      return 'rgba(255,255,255,0.85)';
+    };
+    this.knockdownEl.textContent = '';
+    const homeSpan = document.createElement('span');
+    homeSpan.textContent = `HOME ${pip(home)}`;
+    homeSpan.style.color = colorFor(home);
+    const sepSpan = document.createElement('span');
+    sepSpan.textContent = '    ';
+    const awaySpan = document.createElement('span');
+    awaySpan.textContent = `${pip(away)} AWAY`;
+    awaySpan.style.color = colorFor(away);
+    this.knockdownEl.appendChild(homeSpan);
+    this.knockdownEl.appendChild(sepSpan);
+    this.knockdownEl.appendChild(awaySpan);
+  }
+
+  /** Show the "Press V to go INVINCIBLE" prompt when count ≥3 and not already active. */
+  showBuffHint(text: string): void {
+    this.buffHintEl.textContent = text;
+    this.buffHintEl.style.display = 'block';
+  }
+  hideBuffHint(): void {
+    this.buffHintEl.style.display = 'none';
+  }
+
+  /** Show the large centered banner while a buff is active. */
+  showBuffBanner(text: string, color = '#ffd700'): void {
+    this.buffBannerEl.textContent = text;
+    this.buffBannerEl.style.color = color;
+    this.buffBannerEl.style.textShadow = `0 0 16px ${color}, 0 0 32px ${color}`;
+    this.buffBannerEl.style.display = 'block';
+  }
+  hideBuffBanner(): void {
+    this.buffBannerEl.style.display = 'none';
   }
 
   updateChargeBar(isCharging: boolean, chargeLevel: number): void {
