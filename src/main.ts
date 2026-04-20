@@ -300,6 +300,18 @@ interface StartMatchOptions {
   clockSeconds: number;
 }
 
+/**
+ * B4 scope: in couch co-op, P1 (the host) is the session's wagerholder — their
+ * wallet stakes the match and settles on P1's team result. P2+ play but don't
+ * individually bet (would need a profile-picker per controller + modal per
+ * player; out of scope for this pass).
+ *
+ * This array maps player-slot-index (0 = P1 host, 1 = P2, ...) to team choice
+ * so startMainGame can derive `additionalHumanIds` from the chosen teams. P1 is
+ * always on home team at slot 0. Cleared after each match.
+ */
+let multiSlotTeams: Array<'home' | 'away' | 'skip'> = [];
+
 function startMainGame(opts: StartMatchOptions & { venueId?: VenueId }): void {
   if (session) {
     session.removeFromScene(scene);
@@ -316,7 +328,23 @@ function startMainGame(opts: StartMatchOptions & { venueId?: VenueId }): void {
   GamePlayer.courtBoundsZ = [-13.5, 13.5];
   cameraSystem.fullCourt = true;
 
-  session = new GameSession(gameEvents, opts.homeTeam, opts.awayTeam, opts.homeTeam.players[0].id, '3v3');
+  // Map P2+ slot team choices to player IDs: each home-slot consumes the next
+  // home-team bench player; same for away. P1 is always homeTeam.players[0].
+  const additionalHumanIds: string[] = [];
+  let homeSlotIdx = 1;
+  let awaySlotIdx = 0;
+  for (let i = 1; i < multiSlotTeams.length; i++) {
+    const team = multiSlotTeams[i];
+    if (team === 'home' && opts.homeTeam.players[homeSlotIdx]) {
+      additionalHumanIds.push(opts.homeTeam.players[homeSlotIdx].id);
+      homeSlotIdx++;
+    } else if (team === 'away' && opts.awayTeam.players[awaySlotIdx]) {
+      additionalHumanIds.push(opts.awayTeam.players[awaySlotIdx].id);
+      awaySlotIdx++;
+    }
+  }
+
+  session = new GameSession(gameEvents, opts.homeTeam, opts.awayTeam, opts.homeTeam.players[0].id, '3v3', additionalHumanIds);
   session.addToScene(scene);
   session.setCameraRef(camera);
   session.setHapticManager(hapticManager);
@@ -433,6 +461,16 @@ function startFreeplay(): void {
 
 function handleMenuAction(action: string, _data?: unknown) {
   if (action === 'play' || action === 'quick-play' || action === 'quick-game') {
+    // Solo — clear any prior co-op slot config.
+    multiSlotTeams = [];
+    menuUI.show('venue-select');
+  }
+  if (action === 'multiplayer') {
+    menuUI.show('multiplayer-select');
+  }
+  if (action === 'multi-start') {
+    // Snapshot the slot config from the menu and advance to venue-select.
+    multiSlotTeams = menuUI.getMultiSlotTeams();
     menuUI.show('venue-select');
   }
   if (action === 'venue-gym') promptBetThenQuickMatch(180, 'gym');
@@ -564,6 +602,8 @@ gameEvents.on('game-over', () => {
   const wasGuest = wallet.isGuest();
   if (wasGuest) guestMatchesThisSession++;
   pendingBet = 0;
+  // Clear co-op slot config so the next solo match doesn't carry extras.
+  multiSlotTeams = [];
 
   // If this was a guest's FIRST match this session, pop the save-profile
   // prompt before the post-game UI. Only fires once per session.

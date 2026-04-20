@@ -8,7 +8,7 @@ import {
   type Profile,
 } from '@/meta/profile';
 
-type MenuScreen = 'main' | 'tournament-select' | 'full-game-select' | 'venue-select' | 'profile' | 'profile-create' | 'settings';
+type MenuScreen = 'main' | 'tournament-select' | 'full-game-select' | 'venue-select' | 'multiplayer-select' | 'profile' | 'profile-create' | 'settings';
 
 export const CONTROLS_DATA: [string, string, string, string, string][] = [
   // [Action, Keyboard, Xbox, PlayStation, Nintendo]
@@ -54,6 +54,9 @@ export class MenuUI {
         break;
       case 'venue-select':
         this.renderVenueMenu();
+        break;
+      case 'multiplayer-select':
+        this.renderMultiplayerMenu();
         break;
       case 'profile':
         this.renderProfileMenu();
@@ -172,6 +175,7 @@ export class MenuUI {
     if (savingsBadge) wrapper.appendChild(savingsBadge);
 
     wrapper.appendChild(this.createPrimaryButton('Pickup Game', '3 Minutes Before The Wife Calls', 'quick-game'));
+    wrapper.appendChild(this.createPrimaryButton('Couch Co-Op', 'Grab a second controller, grab a beer', 'multiplayer'));
     wrapper.appendChild(this.createPrimaryButton('Bracket Run', 'Office-League Bracket', 'tournament'));
     wrapper.appendChild(this.createPrimaryButton('Full Game', 'All Four Quarters — Bring Ibuprofen', 'full-game'));
     wrapper.appendChild(this.createSecondaryButton('Profile', 'profile'));
@@ -390,6 +394,137 @@ export class MenuUI {
         this.show('profile');
       }
     });
+  }
+
+  /**
+   * Couch co-op slot picker. Shows one row per connected extra gamepad (P2+),
+   * each with Home / Away / Skip toggle. "Start" flows into venue-select with
+   * the chosen config carried in module state.
+   *
+   * Keyboard + first gamepad drive P1 (host); betting uses the host wallet.
+   * Secondary humans play without wagering — see B4 scope in main.ts.
+   */
+  private renderMultiplayerMenu(): void {
+    const wrapper = this.createWrapper();
+
+    const title = document.createElement('h1');
+    title.textContent = 'COUCH CO-OP';
+    Object.assign(title.style, {
+      fontSize: '48px', fontWeight: 'bold', color: '#ffffff',
+      fontFamily: 'sans-serif', margin: '0 0 16px 0',
+      textShadow: '0 0 20px #e94560',
+    });
+    wrapper.appendChild(title);
+
+    const blurb = document.createElement('div');
+    blurb.textContent = 'P1 is the host (keyboard + 1st gamepad). Extra gamepads get their own slot.';
+    Object.assign(blurb.style, {
+      fontSize: '13px', color: '#aaa', fontFamily: 'sans-serif',
+      marginBottom: '20px', textAlign: 'center', maxWidth: '460px',
+    });
+    wrapper.appendChild(blurb);
+
+    const extraCount = this.getExtraPadCount();
+    if (extraCount === 0) {
+      const empty = document.createElement('div');
+      empty.textContent = 'No extra gamepads detected. Plug in controllers and press any button to connect.';
+      Object.assign(empty.style, {
+        fontSize: '14px', color: '#ffaa55', fontFamily: 'sans-serif',
+        marginBottom: '20px', textAlign: 'center', maxWidth: '440px',
+      });
+      wrapper.appendChild(empty);
+    }
+
+    // P1 row — always host, always Home, not toggleable.
+    const p1Row = this.buildSlotRow('P1 (Host)', 'home', null);
+    wrapper.appendChild(p1Row);
+
+    // P2..PN rows — one per extra pad detected.
+    for (let i = 0; i < extraCount; i++) {
+      const playerIdx = i + 1;
+      const current = this.getSlotTeam(playerIdx);
+      const row = this.buildSlotRow(`P${playerIdx + 1}`, current, (team) => {
+        this.setSlotTeam(playerIdx, team);
+        this.show('multiplayer-select');
+      });
+      wrapper.appendChild(row);
+    }
+
+    const startBtn = this.createPrimaryButton('Start', 'Pick a court next', 'multi-start');
+    startBtn.style.marginTop = '16px';
+    wrapper.appendChild(startBtn);
+    wrapper.appendChild(this.createSecondaryButton('Back', 'back-to-main'));
+
+    this.container.appendChild(wrapper);
+
+    const buttons = wrapper.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
+    this.navigator?.setBackHandler(() => this.show('main'));
+  }
+
+  /** Renders one slot row: label + team toggle. `onChange=null` = read-only. */
+  private buildSlotRow(
+    label: string,
+    team: 'home' | 'away' | 'skip',
+    onChange: ((team: 'home' | 'away' | 'skip') => void) | null,
+  ): HTMLElement {
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      gap: '12px', margin: '4px 0', minWidth: '420px',
+    });
+
+    const name = document.createElement('div');
+    name.textContent = label;
+    Object.assign(name.style, {
+      fontSize: '15px', color: '#fff', fontFamily: 'sans-serif',
+      fontWeight: 'bold', minWidth: '80px', textAlign: 'right',
+    });
+    row.appendChild(name);
+
+    const mkPill = (text: string, value: 'home' | 'away' | 'skip', color: string): HTMLButtonElement => {
+      const pill = document.createElement('button');
+      pill.textContent = text;
+      const isActive = team === value;
+      Object.assign(pill.style, {
+        padding: '8px 14px', borderRadius: '6px',
+        border: isActive ? `2px solid ${color}` : '1px solid #444',
+        background: isActive ? color : 'transparent',
+        color: isActive ? '#fff' : '#aaa',
+        fontSize: '13px', fontFamily: 'sans-serif',
+        cursor: onChange ? 'pointer' : 'default',
+        pointerEvents: onChange ? 'auto' : 'none',
+        fontWeight: 'bold', letterSpacing: '0.5px',
+      });
+      if (onChange) pill.addEventListener('click', () => onChange(value));
+      return pill;
+    };
+    row.appendChild(mkPill('HOME', 'home', '#e94560'));
+    row.appendChild(mkPill('AWAY', 'away', '#3498db'));
+    row.appendChild(mkPill('SKIP', 'skip', '#555'));
+
+    return row;
+  }
+
+  /** Overridable probe — defaults to navigator.getGamepads. Main.ts overrides. */
+  private getExtraPadCount(): number {
+    if (typeof navigator.getGamepads !== 'function') return 0;
+    const pads = navigator.getGamepads();
+    const connected: number[] = [];
+    for (let i = 0; i < pads.length; i++) if (pads[i]) connected.push(i);
+    return Math.max(0, connected.length - 1);
+  }
+
+  /** Slot state lives on the MenuUI so it persists across re-renders. */
+  private slotTeams: Array<'home' | 'away' | 'skip'> = [];
+  private getSlotTeam(playerIdx: number): 'home' | 'away' | 'skip' {
+    return this.slotTeams[playerIdx] ?? 'home';
+  }
+  private setSlotTeam(playerIdx: number, team: 'home' | 'away' | 'skip'): void {
+    this.slotTeams[playerIdx] = team;
+  }
+  getMultiSlotTeams(): Array<'home' | 'away' | 'skip'> {
+    return [...this.slotTeams];
   }
 
   private renderVenueMenu(): void {
