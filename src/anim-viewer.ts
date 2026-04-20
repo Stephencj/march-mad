@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GamePlayer } from './game/player';
 import { Ball } from './game/ball';
 import { createHoop } from './game/hoop';
@@ -38,6 +39,16 @@ scene.background = new THREE.Color(0x1a1a2e);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 50);
 camera.position.set(0, 1.5, 4);
 camera.lookAt(0, 0.8, 0);
+
+// OrbitControls: click-drag to rotate around the model, scroll to zoom.
+// Disabled while auto-rotate is on (we drive the camera manually via camAngle
+// so the existing per-animation camera tweaks — pull back for jumps, shift
+// focus for shoot/dunk/pass — keep working). Enabled when auto-rotate is off.
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 0.8, 0);
+controls.enabled = false; // toggled by the Auto-rotate checkbox
 
 function resize() {
   const wrap = document.getElementById('canvas-wrap')!;
@@ -83,7 +94,7 @@ scene.add(grid2);
 // --- Player ---
 let currentAnim = 'idle';
 let animSpeed = 1;
-let autoRotate = true;
+let autoRotate = false;
 let camAngle = 0;
 let camHeight = 1.5;
 let camDist = 4;
@@ -519,28 +530,31 @@ function animate() {
     }
   }
 
-  // Camera orbit
+  // Camera: either the built-in orbit (autoRotate) drives it with the
+  // per-animation framing tweaks, or OrbitControls drives it from user drag.
   if (autoRotate) {
     camAngle += rawDt * 0.5;
-  }
-  // Pull camera back for airborne animations
-  let viewCamDist = camDist;
-  let viewCamHeight = camHeight;
-  if (currentAnim === 'dunk' || currentAnim === 'jump' || currentAnim === 'jump-block' || currentAnim === 'fall') {
-    viewCamDist = Math.max(camDist, 6); // at least 6 units back
-    viewCamHeight = Math.max(camHeight, 3); // higher to see the arc
-  }
-  camera.position.set(
-    Math.sin(camAngle) * viewCamDist,
-    viewCamHeight,
-    Math.cos(camAngle) * viewCamDist
-  );
-  if (currentAnim === 'shoot' || currentAnim === 'dunk') {
-    camera.lookAt(0, 1.5, 1.25); // between player and hoop (hoop at z=2.5)
-  } else if (currentAnim === 'pass') {
-    camera.lookAt(0, 1.0, 1.5); // between passer and target (target at z=3)
+    // Pull camera back for airborne animations
+    let viewCamDist = camDist;
+    let viewCamHeight = camHeight;
+    if (currentAnim === 'dunk' || currentAnim === 'jump' || currentAnim === 'jump-block' || currentAnim === 'fall') {
+      viewCamDist = Math.max(camDist, 6);
+      viewCamHeight = Math.max(camHeight, 3);
+    }
+    camera.position.set(
+      Math.sin(camAngle) * viewCamDist,
+      viewCamHeight,
+      Math.cos(camAngle) * viewCamDist
+    );
+    if (currentAnim === 'shoot' || currentAnim === 'dunk') {
+      camera.lookAt(0, 1.5, 1.25); // between player and hoop (hoop at z=2.5)
+    } else if (currentAnim === 'pass') {
+      camera.lookAt(0, 1.0, 1.5); // between passer and target (target at z=3)
+    } else {
+      camera.lookAt(0, 0.8, 0);
+    }
   } else {
-    camera.lookAt(0, 0.8, 0);
+    controls.update();
   }
 
   renderer.render(scene, camera);
@@ -605,7 +619,16 @@ posSelect.addEventListener('change', () => {
 
 // Camera controls
 const autoRotateCheck = document.getElementById('auto-rotate') as HTMLInputElement;
-autoRotateCheck.addEventListener('change', () => { autoRotate = autoRotateCheck.checked; });
+autoRotateCheck.addEventListener('change', () => {
+  autoRotate = autoRotateCheck.checked;
+  controls.enabled = !autoRotate;
+  if (!autoRotate) {
+    // Sync OrbitControls' internal spherical state to wherever the auto-
+    // rotate camera was just parked, so the first drag doesn't snap.
+    controls.target.set(0, 0.8, 0);
+    controls.update();
+  }
+});
 
 const camHeightSlider = document.getElementById('cam-height') as HTMLInputElement;
 camHeightSlider.addEventListener('input', () => {
