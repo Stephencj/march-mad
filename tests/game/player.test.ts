@@ -56,8 +56,12 @@ describe('GamePlayer', () => {
     expect(player.performanceScore).toBe(6);
   });
 
-  it('faces movement direction', () => {
+  it('faces movement direction (human player: instant turn)', () => {
     const player = makePlayer();
+    // AI rotation is now owned by GameSession.updateAIFacing() (lerped) to
+    // avoid flicker when the AI target jitters; moveToward() only writes the
+    // instant-turn rotation for human-controlled players.
+    player.isHumanControlled = true;
     player.moveToward(new THREE.Vector3(0, 0, -10), 1 / 60);
     const expectedFacing = new THREE.Vector3(0, 0, -1);
     // In Three.js, default forward is +Z; apply quaternion to get actual facing

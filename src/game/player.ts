@@ -80,6 +80,11 @@ export class GamePlayer {
   data: PlayerData;
   hasBall = false;
   aiTarget: THREE.Vector3 | null = null;
+  // Low-pass-filtered version of the current aiTarget, used by AI movement to
+  // damp input-jitter feedback (human stick wiggle -> ball pos wiggle -> zone
+  // defense target wiggle -> visible AI jitter). Populated from game-session
+  // just before each moveToward() call on AI players.
+  smoothedAiTarget: THREE.Vector3 | null = null;
   isHumanControlled = false;
   aiMovementState: 'holding' | 'moving' | 'reacting' = 'holding';
   aiHoldTimer = 0; // seconds remaining in hold state
@@ -1877,8 +1882,14 @@ export class GamePlayer {
       GamePlayer.courtBoundsZ[1]
     );
 
-    const angle = Math.atan2(direction.x, direction.z);
-    this.group.rotation.y = angle;
+    if (this.isHumanControlled) {
+      // Human stays instant-turn for responsive feel.
+      const angle = Math.atan2(direction.x, direction.z);
+      this.group.rotation.y = angle;
+    }
+    // AI rotation is owned by GameSession.updateAIFacing() which lerps smoothly.
+    // Skipping the instant-snap write here avoids fighting that lerp (which
+    // otherwise produces per-frame rotation flicker when the AI target moves).
 
     this.animate(dt);
   }

@@ -326,7 +326,15 @@ export class GameSession {
       // All players move toward reset positions
       for (const p of this.getAllPlayers()) {
         if (this.humanPlayerIds.has(p.data.id)) continue;
-        if (p.aiTarget) p.moveToward(p.aiTarget, dt);
+        if (p.aiTarget) {
+          // ~5 Hz low-pass on the AI target to damp input-jitter feedback.
+          if (!p.smoothedAiTarget) {
+            p.smoothedAiTarget = p.aiTarget.clone();
+          } else {
+            p.smoothedAiTarget.lerp(p.aiTarget, Math.min(1, 5 * dt));
+          }
+          p.moveToward(p.smoothedAiTarget, dt);
+        }
         p.animate(dt);
       }
       // When timer expires, give ball and resume
@@ -547,7 +555,13 @@ export class GameSession {
       for (const p of this.getAllPlayers()) {
         if (this.humanPlayerIds.has(p.data.id)) continue;
         p.aiTarget = this.ball.mesh.position.clone();
-        p.moveToward(p.aiTarget, dt);
+        // ~5 Hz low-pass on the AI target to damp input-jitter feedback.
+        if (!p.smoothedAiTarget) {
+          p.smoothedAiTarget = p.aiTarget.clone();
+        } else {
+          p.smoothedAiTarget.lerp(p.aiTarget, Math.min(1, 5 * dt));
+        }
+        p.moveToward(p.smoothedAiTarget, dt);
       }
     } else {
       // Normal AI positioning
@@ -754,6 +768,12 @@ export class GameSession {
     this.matchEngine.resetShotClock();
     this.aiShootTimer = 0;
     this.tabCycleIndex = 0;
+    // Stale smoothed AI targets from the previous possession can lag a long
+    // distance behind — null them so the new offensive/defensive targets are
+    // adopted instantly (and the 5 Hz lerp re-seeds from the new target).
+    for (const p of this.getAllPlayers()) {
+      p.smoothedAiTarget = null;
+    }
   }
 
   getGameOverData(): GameOverData {
@@ -1129,7 +1149,14 @@ export class GameSession {
       }
 
       player.aiTarget = target;
-      player.moveToward(target, dt);
+      // ~5 Hz low-pass on the AI target to damp input-jitter feedback
+      // (human stick -> ball pos -> zone defense target -> velocity flip).
+      if (!player.smoothedAiTarget) {
+        player.smoothedAiTarget = target.clone();
+      } else {
+        player.smoothedAiTarget.lerp(target, Math.min(1, 5 * dt));
+      }
+      player.moveToward(player.smoothedAiTarget, dt);
     }
   }
 
@@ -1196,7 +1223,15 @@ export class GameSession {
 
     // Always keep driving toward hoop
     player.aiTarget = attackHoop.clone();
-    player.moveToward(player.aiTarget, dt);
+    // ~5 Hz low-pass on the AI target to damp input-jitter feedback.
+    // (Hoop itself is stationary, so this is effectively a no-op once
+    // settled, but keeps state consistent across behavior branches.)
+    if (!player.smoothedAiTarget) {
+      player.smoothedAiTarget = player.aiTarget.clone();
+    } else {
+      player.smoothedAiTarget.lerp(player.aiTarget, Math.min(1, 5 * dt));
+    }
+    player.moveToward(player.smoothedAiTarget, dt);
 
     // Minimum 0.3s before shooting
     if (this.aiShootTimer < 0.3) return;
