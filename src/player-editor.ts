@@ -171,10 +171,10 @@ function animate(): void {
 }
 animate();
 
-// --- Side panel ---
-const panel = document.getElementById('panel')!;
-buildPanel();
-
+// --- Side panel types + binding registries (must be declared BEFORE
+//     buildPanel() runs, otherwise the slider builders that call
+//     numericBindings.push(...) hit a temporal-dead-zone crash and the
+//     whole page fails to render anything but the red panel border). ---
 interface NumericFieldSpec {
   label: string;
   min: number;
@@ -200,6 +200,10 @@ interface SectionSpec {
 
 const numericBindings: Array<{ spec: NumericFieldSpec; slider: HTMLInputElement; numeric: HTMLInputElement }> = [];
 const colorBindings: Array<{ spec: ColorFieldSpec; picker: HTMLInputElement }> = [];
+
+// --- Side panel ---
+const panel = document.getElementById('panel')!;
+buildPanel();
 
 function syncFromConfig(): void {
   for (const b of numericBindings) {
