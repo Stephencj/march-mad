@@ -4,7 +4,8 @@ import { gameEvents } from './core/events';
 import { GameStateMachine, type StateTransition } from './core/state-machine';
 import { createFullCourt, FULL_COURT_DIMENSIONS } from './game/full-court';
 import { createVenue, randomVenue, type VenueId } from './game/venue';
-import { setActiveProfileId, getActiveProfile, deleteProfile } from './meta/profile';
+import { setActiveProfileId, getActiveProfile, deleteProfile, SessionWallet } from './meta/profile';
+import { BetModal } from './ui/bet-modal';
 import { GameSession } from './game/game-session';
 import { GamePlayer } from './game/player';
 import { CameraSystem } from './game/camera';
@@ -219,6 +220,7 @@ const devOverlay = new DevOverlay(devContainer);
 // Create UIs with their OWN containers
 const hud = new HUD(hudContainer);
 const menuUI = new MenuUI(menuContainer, handleMenuAction);
+const betModal = new BetModal(uiOverlay);
 menuUI.setNavigator(menuNavigator);
 const postGameUI = new PostGameUI(postGameContainer, handlePostGameAction);
 postGameUI.setNavigator(menuNavigator);
@@ -228,6 +230,18 @@ bracketViewUI.setNavigator(menuNavigator);
 let tournamentController: TournamentController | null = null;
 
 let isPaused = false;
+
+// Betting / wallet state.
+// The wallet lives across the session so life-savings accumulates across
+// multiple matches. Recreated on profile switch via `refreshWallet()`.
+let wallet: SessionWallet = SessionWallet.fromActive();
+let pendingBet = 0;
+/** Number of matches played this session (for the first-game profile-save prompt). */
+let guestMatchesThisSession = 0;
+
+function refreshWallet(): void {
+  wallet = SessionWallet.fromActive();
+}
 const pauseMenu = new PauseMenu(pauseContainer, (action) => {
   if (action === 'resume') {
     isPaused = false;
@@ -317,6 +331,24 @@ function startQuickMatch(clockSeconds: number, venueId?: VenueId): void {
   startMainGame({ homeTeam: teams[0], awayTeam: teams[1], clockSeconds, venueId });
 }
 
+/**
+ * Venue chosen — pop the bet modal before starting the match. "Play For Free"
+ * is offered too (sets bet = 0 so settlement is a no-op).
+ */
+function promptBetThenQuickMatch(clockSeconds: number, venueId: VenueId): void {
+  const venueLabel = venueId === 'gym' ? 'High School Gym' : venueId === 'rec' ? 'Rec Center' : 'Suburban Park';
+  betModal.show({
+    wallet,
+    matchLabel: `Pickup Game — ${venueLabel}`,
+    allowSkip: true,
+    onCancel: () => menuUI.show('venue-select'),
+    onConfirm: (amount) => {
+      pendingBet = amount;
+      startQuickMatch(clockSeconds, venueId);
+    },
+  });
+}
+
 function enterTournamentMatch(matchId: string): void {
   if (!tournamentController) return;
   const ctx = tournamentController.enterMatch(matchId);
@@ -388,9 +420,9 @@ function handleMenuAction(action: string, _data?: unknown) {
   if (action === 'play' || action === 'quick-play' || action === 'quick-game') {
     menuUI.show('venue-select');
   }
-  if (action === 'venue-gym') startQuickMatch(180, 'gym');
-  if (action === 'venue-rec') startQuickMatch(180, 'rec');
-  if (action === 'venue-park') startQuickMatch(180, 'park');
+  if (action === 'venue-gym') promptBetThenQuickMatch(180, 'gym');
+  if (action === 'venue-rec') promptBetThenQuickMatch(180, 'rec');
+  if (action === 'venue-park') promptBetThenQuickMatch(180, 'park');
   if (action === 'profile') menuUI.show('profile');
   if (action === 'profile-create') menuUI.show('profile-create');
   if (action === 'profile-play-as-guest') {
@@ -401,7 +433,12 @@ function handleMenuAction(action: string, _data?: unknown) {
   if (action === 'profile-delete-active') {
     const active = getActiveProfile();
     if (active) deleteProfile(active.id);
+    refreshWallet();
     menuUI.show('profile');
+  }
+  if (action === 'profile' || action === 'profile-play-as-guest') {
+    // Refresh wallet whenever we re-enter the profile menu so switches land.
+    refreshWallet();
   }
   if (action === 'tournament') {
     menuUI.show('tournament-select');
@@ -502,6 +539,14 @@ gameEvents.on('powerup', () => hapticManager.onPowerupPickup());
 gameEvents.on('game-over', () => {
   if (!session) return;
   const data = session.getGameOverData();
+
+  // Settle the bet if one was placed. `pendingBet` is 0 for Play-For-Free.
+  if (pendingBet > 0) {
+    const entry = wallet.settleMatch(pendingBet, data.humanWon ? 'win' : 'loss', { venueId: currentVenueId });
+    console.log('[bet] settled', entry);
+  }
+  if (wallet.isGuest()) guestMatchesThisSession++;
+  pendingBet = 0;
 
   if (tournamentController?.isActive) {
     tournamentController.recordHumanResult(data.winner);
