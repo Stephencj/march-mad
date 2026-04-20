@@ -4,6 +4,7 @@ import { gameEvents } from './core/events';
 import { GameStateMachine, type StateTransition } from './core/state-machine';
 import { createFullCourt, FULL_COURT_DIMENSIONS } from './game/full-court';
 import { createVenue, randomVenue, type VenueId } from './game/venue';
+import { setActiveProfileId, getActiveProfile, deleteProfile } from './meta/profile';
 import { GameSession } from './game/game-session';
 import { GamePlayer } from './game/player';
 import { CameraSystem } from './game/camera';
@@ -390,6 +391,18 @@ function handleMenuAction(action: string, _data?: unknown) {
   if (action === 'venue-gym') startQuickMatch(180, 'gym');
   if (action === 'venue-rec') startQuickMatch(180, 'rec');
   if (action === 'venue-park') startQuickMatch(180, 'park');
+  if (action === 'profile') menuUI.show('profile');
+  if (action === 'profile-create') menuUI.show('profile-create');
+  if (action === 'profile-play-as-guest') {
+    // Clear the active pointer; the menu will redraw with guest state.
+    setActiveProfileId(null);
+    menuUI.show('profile');
+  }
+  if (action === 'profile-delete-active') {
+    const active = getActiveProfile();
+    if (active) deleteProfile(active.id);
+    menuUI.show('profile');
+  }
   if (action === 'tournament') {
     menuUI.show('tournament-select');
   }
