@@ -427,7 +427,7 @@ export class GameSession {
       const courtHalfLength = this.mode === '5v5' ? 14 : 7;
 
       if (Math.abs(ballPos.x) > courtHalfWidth || Math.abs(ballPos.z) > courtHalfLength) {
-        this.events.emit('splash', { text: 'BALL DROPPED!', color: '#95a5a6' });
+        this.events.emit('splash', { text: 'BUTTERFINGERS!', color: '#95a5a6' });
         const currentPossession = this.matchEngine.state.possession;
         const otherTeam: 'home' | 'away' = currentPossession === 'home' ? 'away' : 'home';
 
@@ -572,7 +572,7 @@ export class GameSession {
     if (shotType === 'dunk' || shotType === 'powerup-dunk') {
       this.events.emit('splash', { text: 'SLAAAAAAMMM DUNK!!!!', color: '#ff4500' });
     } else {
-      this.events.emit('splash', { text: 'SCORE!!!', color: '#2ecc71' });
+      this.events.emit('splash', { text: 'BUCKET!!!', color: '#2ecc71' });
     }
 
     this.matchEngine.score(team, shotType);
@@ -796,7 +796,7 @@ export class GameSession {
               human.triggerFall();
               this.ball.release();
               this.ball.velocity.set((Math.random() - 0.5) * 5, 3, (Math.random() - 0.5) * 5);
-              this.events.emit('splash', { text: 'BLOCKED!', color: '#e74c3c' });
+              this.events.emit('splash', { text: 'REJECTED!', color: '#e74c3c' });
               break;
             }
 
