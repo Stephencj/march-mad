@@ -352,8 +352,21 @@ function promptBetThenQuickMatch(clockSeconds: number, venueId: VenueId): void {
 function enterTournamentMatch(matchId: string): void {
   if (!tournamentController) return;
   const ctx = tournamentController.enterMatch(matchId);
-  // Bracket matches always use the high-school gym.
-  startMainGame({ homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam, clockSeconds: 180, venueId: 'gym' });
+  // Bracket matches always use the high-school gym. Pop the bet modal
+  // first — "Play For Free" is allowed here too since a bracket run can
+  // be a lot of matches and the user might want to coast one out.
+  const homeName = ctx.homeTeam.name;
+  const awayName = ctx.awayTeam.name;
+  betModal.show({
+    wallet,
+    matchLabel: `${homeName} vs ${awayName}`,
+    allowSkip: true,
+    onCancel: () => stateMachine.transition('BracketView'),
+    onConfirm: (amount) => {
+      pendingBet = amount;
+      startMainGame({ homeTeam: ctx.homeTeam, awayTeam: ctx.awayTeam, clockSeconds: 180, venueId: 'gym' });
+    },
+  });
 }
 
 function startTournament(tier: TournamentTier): void {
