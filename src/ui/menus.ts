@@ -1,6 +1,6 @@
 import { MenuNavigator } from './menu-navigator';
 
-type MenuScreen = 'main' | 'tournament-select' | 'full-game-select' | 'settings';
+type MenuScreen = 'main' | 'tournament-select' | 'full-game-select' | 'venue-select' | 'settings';
 
 export const CONTROLS_DATA: [string, string, string, string, string][] = [
   // [Action, Keyboard, Xbox, PlayStation, Nintendo]
@@ -43,6 +43,9 @@ export class MenuUI {
         break;
       case 'full-game-select':
         this.renderFullGameMenu();
+        break;
+      case 'venue-select':
+        this.renderVenueMenu();
         break;
       case 'settings':
         this.renderSettings();
@@ -160,6 +163,33 @@ export class MenuUI {
 
     const buttons = wrapper.querySelectorAll('button');
     this.navigator?.register(Array.from(buttons));
+  }
+
+  private renderVenueMenu(): void {
+    const wrapper = this.createWrapper();
+
+    const title = document.createElement('h1');
+    title.textContent = 'PICK YOUR COURT';
+    Object.assign(title.style, {
+      fontSize: '48px',
+      fontWeight: 'bold',
+      color: '#ffffff',
+      fontFamily: 'sans-serif',
+      margin: '0 0 32px 0',
+      textShadow: '0 0 20px #e94560',
+    });
+    wrapper.appendChild(title);
+
+    wrapper.appendChild(this.createPrimaryButton('High School Gym', 'Rented Saturday — fluorescents + banners', 'venue-gym'));
+    wrapper.appendChild(this.createPrimaryButton('Rec Center',      'Cinderblock walls, folding chairs, scuffed floor', 'venue-rec'));
+    wrapper.appendChild(this.createPrimaryButton('Suburban Park',   'Cracked blacktop, chain-link, lawn chairs, open sky', 'venue-park'));
+    wrapper.appendChild(this.createSecondaryButton('Back', 'back-to-main'));
+
+    this.container.appendChild(wrapper);
+
+    const buttons = wrapper.querySelectorAll('button');
+    this.navigator?.register(Array.from(buttons));
+    this.navigator?.setBackHandler(() => this.show('main'));
   }
 
   private renderTournamentMenu(): void {

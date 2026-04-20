@@ -385,8 +385,11 @@ function startFreeplay(): void {
 
 function handleMenuAction(action: string, _data?: unknown) {
   if (action === 'play' || action === 'quick-play' || action === 'quick-game') {
-    startQuickMatch(180); // 3 minutes
+    menuUI.show('venue-select');
   }
+  if (action === 'venue-gym') startQuickMatch(180, 'gym');
+  if (action === 'venue-rec') startQuickMatch(180, 'rec');
+  if (action === 'venue-park') startQuickMatch(180, 'park');
   if (action === 'tournament') {
     menuUI.show('tournament-select');
   }
