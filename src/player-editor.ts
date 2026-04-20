@@ -26,7 +26,10 @@ const POSITIONS: Position[] = ['PG', 'SG', 'SF', 'PF', 'C'];
 let teamColor = 0xe94560;
 let hairOverride: number = 0; // 0..3
 let positionOverride: Position | undefined = undefined;
-let rebuildSeq = 0; // bump to vary player id (changes skin/hair color rolls)
+// Stable id across body-slider rebuilds so skin tone + hair-color RNG rolls
+// don't flicker while the user tunes dimensions. Only the explicit Re-roll
+// button bumps this to generate a new appearance.
+let rebuildSeq = 0;
 
 // Animation playback state — the editor plays a looping anim so the user can
 // tune body dimensions while watching the character in motion, not a static pose.
@@ -122,7 +125,6 @@ function rebuildPlayer(): void {
     playerContainer.remove(player.group);
     disposePlayerGroup(player.group);
   }
-  rebuildSeq++;
   player = new GamePlayer(
     {
       id: `editor-${rebuildSeq}`,
@@ -284,7 +286,7 @@ function buildPanel(): void {
   buttonRow.appendChild(makeButton('Export JSON', exportJSON));
   buttonRow.appendChild(makeButton('Import JSON', importJSON));
   buttonRow.appendChild(makeButton('Export GLB', exportGLB));
-  buttonRow.appendChild(makeButton('Re-roll', () => { rebuildPlayer(); }));
+  buttonRow.appendChild(makeButton('Re-roll', () => { rebuildSeq++; rebuildPlayer(); }));
   header.appendChild(buttonRow);
 
   panel.appendChild(header);

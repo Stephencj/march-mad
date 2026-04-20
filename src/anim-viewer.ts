@@ -75,9 +75,13 @@ platform.position.y = -0.025;
 scene.add(platform);
 
 // --- Hoop ---
+// Hidden by default — the 3.5u team-colored pole sits directly between
+// the default camera and player, blocking the view as a giant red column.
+// Only shown for animations that visibly need the rim: shoot / dunk / pass.
 const hoopPos = new THREE.Vector3(0, 3.05, 2.5); // closer for dunking
 const hoop = createHoop(hoopPos, 0xe94560);
 hoop.rotation.y = Math.PI; // rotate 180° so backboard faces the player
+hoop.visible = false;
 scene.add(hoop);
 
 // Grid lines on platform for reference
@@ -563,12 +567,18 @@ animate();
 
 // --- UI Wiring ---
 // Animation buttons
+function applyHoopVisibility(): void {
+  // Hoop (and its team-colored pole) only rendered for anims that need it.
+  hoop.visible = currentAnim === 'shoot' || currentAnim === 'dunk' || currentAnim === 'pass';
+}
+
 document.querySelectorAll('[data-anim]').forEach(btn => {
   btn.addEventListener('click', () => {
     currentAnim = (btn as HTMLElement).dataset.anim!;
     document.querySelectorAll('[data-anim]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById('state-label')!.textContent = currentAnim;
+    applyHoopVisibility();
     // Reset timers and forced state so the new animation can start fresh
     (player as unknown as { stealTimer: number }).stealTimer = 0;
     (player as unknown as { shootTimer: number }).shootTimer = 0;
