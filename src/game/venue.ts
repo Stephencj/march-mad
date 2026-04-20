@@ -57,6 +57,108 @@ function stageDims() {
   };
 }
 
+/**
+ * Crowd archetypes — low-poly seated figures. Each is a head + torso + legs,
+ * no arms (keeps the triangle count manageable with a few dozen per venue).
+ * Slight y-offset rotation so they're not all facing the same way.
+ */
+type CrowdType = 'dad' | 'wife' | 'kid';
+
+function createCrowdPerson(type: CrowdType, seed: number): THREE.Group {
+  const g = new THREE.Group();
+
+  // Pseudo-random per-seed color choice so the crowd doesn't look cloned.
+  const hair = [0x3a2a1a, 0x5a4030, 0x1a1a1a, 0x806050, 0xc8b8a8, 0xe8d8c8][seed % 6];
+  const shirtPalette =
+    type === 'dad' ? [0x3c5a8a, 0x8a3c3c, 0x4a5a6a, 0x6a5a4a, 0x2a5a2a] :
+    type === 'wife' ? [0xa86ba8, 0x6a8aaa, 0xc86a8a, 0x8aaa6a, 0xcaa86a] :
+    /* kid */ [0xff8c00, 0x00a8ff, 0xff4466, 0x66cc44, 0xffc500];
+  const shirt = shirtPalette[seed % shirtPalette.length];
+
+  const skinColor = [0xd4956a, 0xc68642, 0x8d5524, 0xf1c27d, 0xe0ac69][seed % 5];
+  const skinMat = new THREE.MeshStandardMaterial({ color: skinColor });
+
+  // Size by type
+  const s = type === 'kid' ? 0.7 : 1.0;
+  const torsoW = (type === 'dad' ? 0.5 : type === 'wife' ? 0.38 : 0.32) * s;
+  const torsoH = 0.6 * s;
+  const torsoD = (type === 'dad' ? 0.36 : 0.22) * s;
+
+  // Torso (seated)
+  const torso = new THREE.Mesh(
+    new THREE.BoxGeometry(torsoW, torsoH, torsoD),
+    new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.9 }),
+  );
+  torso.position.y = 0.55 * s;
+  g.add(torso);
+
+  // Head
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.18 * s, 8, 6),
+    skinMat,
+  );
+  head.position.y = 0.95 * s;
+  g.add(head);
+
+  // Hair — big afro if wife, small mat if dad (only 50% chance because
+  // middle-aged guys are bald-weighted), bright stub for kid.
+  const hairMat = new THREE.MeshStandardMaterial({ color: hair });
+  if (type === 'wife') {
+    const mane = new THREE.Mesh(new THREE.SphereGeometry(0.22 * s, 8, 6), hairMat);
+    mane.position.y = 0.96 * s;
+    mane.scale.set(1, 0.9, 1.15);
+    g.add(mane);
+  } else if (type === 'kid' || (type === 'dad' && seed % 2 === 0)) {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.26 * s, 0.1 * s, 0.2 * s), hairMat);
+    cap.position.y = (1.06 - 0.04) * s;
+    g.add(cap);
+  }
+
+  // Legs (knees bent — seated): two boxes angled forward
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.9 });
+  const legGeo = new THREE.BoxGeometry(0.12 * s, 0.35 * s, 0.12 * s);
+  const legL = new THREE.Mesh(legGeo, legMat);
+  legL.position.set(-0.1 * s, 0.27 * s, 0.15 * s);
+  legL.rotation.x = -0.6; // knees forward
+  g.add(legL);
+  const legR = legL.clone();
+  legR.position.x = 0.1 * s;
+  g.add(legR);
+
+  // Dads get a beer can in their right "hand" (just a cylinder floating at hip height)
+  if (type === 'dad') {
+    const beer = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, 0.14, 10),
+      new THREE.MeshStandardMaterial({ color: 0xe8e8e8, metalness: 0.7, roughness: 0.35 }),
+    );
+    beer.position.set(0.25 * s, 0.55 * s, 0.12 * s);
+    g.add(beer);
+  }
+
+  // Slight random y-rotation so a packed crowd doesn't look identical
+  g.rotation.y = ((seed * 37) % 100) / 100 * 0.6 - 0.3;
+  return g;
+}
+
+/**
+ * Fill a rectangle of seat slots with a distribution of dads/wives/kids.
+ * Returns the crowd group for the caller to add to the venue.
+ */
+function fillCrowd(startX: number, z: number, count: number, spacing: number, yBase: number, seedOffset = 0): THREE.Group {
+  const crowd = new THREE.Group();
+  crowd.name = 'crowd-row';
+  for (let i = 0; i < count; i++) {
+    const seed = seedOffset + i;
+    // 50% dads, 30% wives, 20% kids
+    const r = ((seed * 53) % 100) / 100;
+    const type: CrowdType = r < 0.5 ? 'dad' : r < 0.8 ? 'wife' : 'kid';
+    const person = createCrowdPerson(type, seed);
+    person.position.set(startX + i * spacing, yBase, z);
+    crowd.add(person);
+  }
+  return crowd;
+}
+
 // ============================================================================
 // GYM — polished wood, bleachers, banners, fluorescents
 // ============================================================================
@@ -143,6 +245,16 @@ function buildGym(): THREE.Group {
   buildBleachers(-halfL + 0.5, -1); // left sideline outside
   buildBleachers(halfL - 0.5, 1);
 
+  // Crowd on the bleachers — pack rows with bored wives/kids/other dads.
+  // The bleachers span halfW*2 - 1 wide; put ~8 people per row, 3 rows visible.
+  for (let row = 0; row < 3; row++) {
+    const yBase = 0.35 / 2 + row * 0.4 + 0.35; // bench top + shin height
+    const zNear = -halfL + 0.5 + 0.8 * row + 0.4 + 0.1;
+    group.add(fillCrowd(-halfW + 2, -zNear - 0.05, 8, (halfW * 2 - 4) / 7, yBase, row * 17));
+    const zFar = halfL - 0.5 - (0.8 * row + 0.4 + 0.1);
+    group.add(fillCrowd(-halfW + 2, zFar + 0.05, 8, (halfW * 2 - 4) / 7, yBase, row * 17 + 100));
+  }
+
   return group;
 }
 
@@ -213,6 +325,13 @@ function buildRecCenter(): THREE.Group {
   };
   buildChairs(-halfL + 1);
   buildChairs(halfL - 1);
+
+  // Crowd on the folding chairs — one per chair, on both sidelines.
+  const chairCount = Math.floor((halfW * 2 - 2) / 1.2);
+  for (let side = 0 as number; side < 2; side++) {
+    const z = side === 0 ? -halfL + 1 : halfL - 1;
+    group.add(fillCrowd(-halfW + 1.5, z, chairCount, 1.2, 0.55, side * 50));
+  }
 
   return group;
 }
@@ -290,6 +409,14 @@ function buildPark(): THREE.Group {
   };
   placeTable(-halfW - 4, halfL + 2);
   placeTable( halfW + 4, halfL + 2);
+
+  // Crowd at the park — couple of dads leaning on the fence, wives and kids
+  // near the picnic tables. Positions outside the court perimeter.
+  group.add(fillCrowd(-halfW - 2, -halfL - 1.3, 4, 1.2, 0.3, 200));
+  group.add(fillCrowd(-halfW - 2,  halfL + 1.3, 4, 1.2, 0.3, 210));
+  // A few at each picnic table
+  group.add(fillCrowd(-halfW - 5,  halfL + 2, 2, 1.0, 0.75, 220)); // seated at L table
+  group.add(fillCrowd( halfW + 3,  halfL + 2, 2, 1.0, 0.75, 230)); // seated at R table
 
   return group;
 }
