@@ -410,7 +410,34 @@ export async function buildMiiFace(
     const target = TARGET_SIZE_M[name];
     const w = Math.max(1e-4, target.w);
     const h = Math.max(1e-4, target.h);
-    const geom = new THREE.PlaneGeometry(w, h);
+    // The facePlate gets curved to match the cranium's front-pole curvature
+    // so the photographic face wraps around the head shape instead of
+    // appearing as a flat billboard. From 3/4 and side angles this lets
+    // the face read as part of a 3D head, not a Polaroid stuck on a sphere.
+    // Other features (eyes/brows/etc when overlay-mounted) stay flat.
+    let geom: THREE.BufferGeometry;
+    if (name === 'facePlate') {
+      // Subdivide the plane more so the curve renders smoothly.
+      const plane = new THREE.PlaneGeometry(w, h, 16, 20);
+      // Bend the plane vertices into a gentle dome whose center stays at
+      // z=0 (closest to the camera) and edges recede to -z (toward the
+      // cranium body). Curvature radius R chosen to roughly match the
+      // cranium's front-pole curvature: at 0.20m wide the rim recedes
+      // about 1.5cm, which approximates the head's rounding.
+      const CURVE_R = 0.22;
+      const pos = plane.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const z = -(x * x + y * y) / (2 * CURVE_R);
+        pos.setZ(i, z);
+      }
+      pos.needsUpdate = true;
+      plane.computeVertexNormals();
+      geom = plane;
+    } else {
+      geom = new THREE.PlaneGeometry(w, h);
+    }
     ownedGeometries.push(geom);
 
     const mat = new THREE.MeshBasicMaterial({

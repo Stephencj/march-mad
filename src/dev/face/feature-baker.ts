@@ -1153,8 +1153,12 @@ function applyEllipticalVignette(
   const grad = mctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, h) / 2);
   // Generous solid region so the plate covers the area between the eye
   // anchors (±0.090m → ~0.18m wide). Fade only at the outermost 15%.
+  // Tighter feather start (0.70 vs 0.85) so by the corners the alpha is
+  // well below alphaTest=0.5; otherwise the plane's corners — pushed up
+  // by the geometry curve — render as faint "horns" past the silhouette.
   grad.addColorStop(0.0, 'rgba(0,0,0,1.0)');
-  grad.addColorStop(0.85, 'rgba(0,0,0,1.0)');
+  grad.addColorStop(0.70, 'rgba(0,0,0,1.0)');
+  grad.addColorStop(0.92, 'rgba(0,0,0,0.4)');
   grad.addColorStop(1.0, 'rgba(0,0,0,0.0)');
   // Stretch the gradient across the canvas so it covers the full
   // rectangle as an ellipse.
