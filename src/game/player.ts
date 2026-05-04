@@ -26,6 +26,10 @@ import {
   type FeatureTrack,
   type TrackState,
 } from '@/dev/face/face-keyframe-anim';
+import {
+  createFaceLiveDriver,
+  type FaceLiveDriver,
+} from '@/dev/face/face-live-driver';
 import type { FeatureImagesBundle } from '@/dev/face/types';
 
 /**
@@ -979,6 +983,14 @@ export class GamePlayer {
    *  teeth/tongue gating reading the same contract. */
   private faceMixer: FaceKeyframeMixer | null = null;
 
+  /** Phase H5 — live MediaPipe puppet → keyframe mixer driver. When a
+   *  FacePuppet is attached via `attachFaceLivePuppet`, this reads its
+   *  EMA-smoothed blendshape coefficients each frame and translates
+   *  them into mixer track claims at priority 'live-puppet'. Null when
+   *  no live puppet is attached (most of the time — only the face-mirror,
+   *  player-editor, and anim-viewer dev pages wire one up). */
+  private faceLiveDriver: FaceLiveDriver | null = null;
+
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
     this.moveSpeed = 2 + data.stats.speed * 0.35; // 2.35 to 5.5 m/s — deliberate, not frantic
@@ -1827,6 +1839,14 @@ export class GamePlayer {
       this.faceMiiBuilt.dispose();
       this.faceMiiBuilt = null;
     }
+    // Phase H5 — drop the live-puppet driver too. It holds a ref to
+    // the (about-to-be-disposed) mixer; calling tick() after dispose
+    // would still be safe (mixer no-ops post-dispose) but leaving the
+    // driver attached past a face swap leaks the previous puppet ref.
+    if (this.faceLiveDriver) {
+      this.faceLiveDriver.detach();
+      this.faceLiveDriver = null;
+    }
     // Phase H4 — tear down the keyframe mixer too, so a face swap
     // doesn't carry over an in-progress blink scheduler / driver
     // claims into a freshly-mounted face.
@@ -1912,6 +1932,42 @@ export class GamePlayer {
     this.faceProcedural?.setBlendshapeSource(src);
   }
 
+  /**
+   * Phase H5 — attach (or detach) a live blendshape puppet that drives
+   * the keyframe mixer's per-track claims at priority 'live-puppet'.
+   *
+   * When `puppet` is non-null and a Mii face's mixer is mounted, we
+   * spin up a `FaceLiveDriver` wrapping it. Each animate() tick reads
+   * the puppet's EMA-smoothed coefficients and translates them into
+   * setTrack claims (per the H5 mapping table — eye blink/squint/wide,
+   * brow up/down/furrowed, mouth smile/frown/open/pucker/etc., cheek).
+   *
+   * When `puppet` is null we detach the existing driver and release
+   * all 'live-puppet' claims so lower-priority drivers (game-state,
+   * idle-blink) regain control of the tracks.
+   *
+   * Safe to call when no Mii face is mounted (no-op — the mixer only
+   * exists in Mii mode). Safe to call repeatedly with the same puppet
+   * — the previous driver is detached before a new one replaces it.
+   */
+  attachFaceLivePuppet(puppet: BlendshapeSource | null): void {
+    // Always detach the existing driver first so calls with the same
+    // puppet ref don't accumulate stale state.
+    if (this.faceLiveDriver) {
+      this.faceLiveDriver.detach();
+      this.faceLiveDriver = null;
+    }
+    // Release any leftover live-puppet claims even if no driver was
+    // active (defensive — a previous attach() may have crashed mid-way
+    // and left claims on the mixer).
+    if (this.faceMixer) {
+      this.faceMixer.releaseDriver('live-puppet');
+    }
+    if (!puppet) return;
+    if (!this.faceMixer) return; // non-Mii face mode — nothing to drive.
+    this.faceLiveDriver = createFaceLiveDriver(this.faceMixer, puppet);
+  }
+
   /** Shared cleanup for the 3D mesh slot. Disposes geometry, material, and
    *  texture of the previous mesh (if any), and removes it from the slot.
    *  Also restores the head sphere's scale to the rig default (Phase 7.8 —
@@ -1936,6 +1992,11 @@ export class GamePlayer {
       if (slot) slot.remove(this.faceMiiBuilt.group);
       this.faceMiiBuilt.dispose();
       this.faceMiiBuilt = null;
+    }
+    // Phase H5 — drop the live-puppet driver alongside the mixer.
+    if (this.faceLiveDriver) {
+      this.faceLiveDriver.detach();
+      this.faceLiveDriver = null;
     }
     // Phase H4 — dispose the keyframe mixer with the Mii face. Holding
     // it past a clear would leak the scheduler state into the next
@@ -3948,6 +4009,11 @@ export class GamePlayer {
     // into the Mii face's plane visibility. A no-op when the mixer
     // isn't mounted (non-Mii face mode).
     if (this.faceMixer && this.faceMiiBuilt) {
+      // Phase H5 — let the live-puppet driver place its track claims
+      // BEFORE the mixer ticks, so this frame's resolved TrackState
+      // already reflects the latest blendshape coefficients (no 1-frame
+      // lag between the user smiling and the Mii face responding).
+      this.faceLiveDriver?.tick();
       const state = this.faceMixer.tick(dt * 1000);
       applyMixerStateToFaceMii(state, this.faceMiiBuilt);
     }

@@ -521,10 +521,12 @@ function startLiveMirror(): void {
   // features (teeth, tongue) can read the smoothed jawOpen coefficient.
   // Phase H4: when a Mii face is mounted, the keyframe mixer is the
   // BlendshapeSource (it implements the same contract by translating
-  // resolved track state into ARKit scalars). The puppet still feeds
-  // the mixer in K2; for K1 we just route through whichever is present.
+  // resolved track state into ARKit scalars).
+  // Phase H5: the mixer is now the procedural-face source; the puppet
+  // feeds the mixer through the live-puppet driver (attachFaceLivePuppet).
   const mixer = player?.getFaceMixer();
   player?.setFaceProceduralBlendshapeSource(mixer ?? puppet);
+  player?.attachFaceLivePuppet(puppet);
   liveMirrorOn = true;
   setStatus('Mirroring.');
   // Drive MediaPipe at the video-frame cadence. Reusing `requestVideoFrameCallback`
@@ -548,6 +550,9 @@ function stopLiveMirror(): void {
   // Phase E: detach the procedural face's blendshape source so teeth /
   // tongue hide on stop rather than freezing at the last-applied state.
   player.setFaceProceduralBlendshapeSource(null);
+  // Phase H5: detach the live-puppet driver so the mixer falls back to
+  // game-state / idle-blink drivers when the user stops mirroring.
+  player.attachFaceLivePuppet(null);
   // Clear the bar chart.
   renderBlendshapeBars(null);
 }
@@ -996,11 +1001,14 @@ async function playClip(name: string): Promise<void> {
   // Phase E: replay drives the procedural face's conditional features off
   // the same puppet's smoothed jawOpen.
   // Phase H4: prefer the keyframe mixer when a Mii face is mounted —
-  // it satisfies BlendshapeSource and (later phases) takes the puppet's
-  // output as a live driver.
+  // it satisfies BlendshapeSource.
+  // Phase H5: the puppet now feeds the mixer through attachFaceLivePuppet
+  // (the live-puppet driver translates the puppet's smoothed coefficients
+  // into mixer track claims each frame).
   {
     const mixer = player.getFaceMixer();
     player.setFaceProceduralBlendshapeSource(mixer ?? puppet);
+    player.attachFaceLivePuppet(puppet);
   }
   // Mark which row is playing.
   for (const row of animList.querySelectorAll<HTMLDivElement>('.anim-row')) {
@@ -1116,6 +1124,8 @@ function stopReplay(): void {
   if (puppet) puppet.reset();
   // Phase E: detach so teeth/tongue hide on replay-stop.
   player.setFaceProceduralBlendshapeSource(null);
+  // Phase H5: detach the live-puppet driver so mixer claims clear.
+  player.attachFaceLivePuppet(null);
   for (const row of animList.querySelectorAll<HTMLDivElement>('.anim-row')) {
     row.classList.remove('playing');
   }

@@ -389,6 +389,8 @@ function stopFaceAnimPlayback(): void {
   // Phase E: detach the procedural face's blendshape source so teeth /
   // tongue hide on stop rather than freezing at the last-applied state.
   player.setFaceProceduralBlendshapeSource(null);
+  // Phase H5: detach the live-puppet driver too.
+  player.attachFaceLivePuppet(null);
   // Phase 8.2a: tear down the source-video overlay + revoke its URL.
   const sourceVideoEl = document.getElementById('face-anim-source-video') as HTMLVideoElement | null;
   if (sourceVideoEl) {
@@ -429,9 +431,12 @@ async function applyFaceAnim(name: string): Promise<void> {
   // visibility (teeth, tongue) driven off smoothed jawOpen.
   // Phase H4: route through the keyframe mixer when a Mii face is mounted
   // (the mixer is also a BlendshapeSource via its track-state adapter).
+  // Phase H5: also wire the puppet into the live-puppet driver so mixer
+  // tracks see the smoothed coefficients each frame.
   {
     const mixer = player.getFaceMixer();
     player.setFaceProceduralBlendshapeSource(mixer ?? facePuppet);
+    player.attachFaceLivePuppet(facePuppet);
   }
 
   // Phase 8.2a: if the toggle is on AND the clip carries source video,
@@ -2047,9 +2052,12 @@ function f4EnsurePuppet(): FacePuppet | null {
   f4Puppet = createFacePuppet(builtFaceMeshCache, { smooth: false });
   // Phase H4: prefer the keyframe mixer when present — it satisfies
   // BlendshapeSource by translating track state into ARKit scalars.
+  // Phase H5: hook the puppet into the live-puppet driver too, so harness
+  // pokes at blendshape values flow through the mixer.
   {
     const mixer = player.getFaceMixer();
     player.setFaceProceduralBlendshapeSource(mixer ?? f4Puppet);
+    player.attachFaceLivePuppet(f4Puppet);
   }
   return f4Puppet;
 }
