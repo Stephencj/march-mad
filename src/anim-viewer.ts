@@ -26,7 +26,13 @@ import {
   type BodyColorSpec,
   type BodySectionSpec,
 } from './dev/body-sliders';
-import { AnimLoop } from './dev/anim-loop';
+import { AnimLoop, ANIM_IDS as SNAP_ANIM_IDS, type AnimId as SnapAnimId } from './dev/anim-loop';
+import { installSnapshotAPI } from './dev/snapshot/install';
+import type {
+  SnapshotAPI,
+  SnapshotCameraOpts,
+  SnapshotCameraTarget,
+} from './dev/snapshot/types';
 import { listClips, loadClip } from './dev/mocap/clip-store';
 import { retarget } from './dev/mocap/retarget';
 import { listFaces, loadFace } from './dev/face/store';
@@ -471,12 +477,27 @@ scene.add(ball.mesh);
 // --- Animation Loop ---
 let lastTime = performance.now();
 
+// Snapshot-driver hooks. When `__snapFrozen` is true, the loop runs at dt=0
+// (rig holds its pose). Each pending step consumes one rAF tick at dt=1/60
+// so the snapshot driver can advance N frames deterministically without
+// fighting wall-clock-derived rawDt. See window.__snapshot.stepFrames().
+let __snapFrozen = false;
+let __snapPendingSteps = 0;
+
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now();
   const rawDt = (now - lastTime) / 1000;
   lastTime = now;
-  const dt = rawDt * animSpeed;
+  let dt = rawDt * animSpeed;
+  if (__snapFrozen) {
+    if (__snapPendingSteps > 0) {
+      dt = 1 / 60;
+      __snapPendingSteps--;
+    } else {
+      dt = 0;
+    }
+  }
 
   // Mocap-playback shortcut. When active, bypass the per-anim switch +
   // ball/dunk/pass logic entirely and let AnimLoop drive the rig from the
@@ -2032,3 +2053,166 @@ function f4EnsurePuppet(): FacePuppet | null {
     await populateFacePick();
   },
 };
+
+// =============================================================================
+// Unified snapshot-API adapter (window.__snapshot).
+// Wraps the existing __animViewerDebug primitives so a single CLI driver
+// (scripts/snapshot.cjs) can drive every dev page through the same shape.
+// Additive — does NOT alter or remove __animViewerDebug; the F4 verification
+// harness keeps working unchanged.
+// (Imports for installSnapshotAPI / SnapshotAPI / ANIM_IDS are added at the
+//  top of the file alongside the other module imports.)
+// =============================================================================
+
+// Resolve a logical target ('head' / 'torso' / 'feet' / 'hand-left' / ...)
+// against the active rig. Falls back to a sensible head height when the
+// named bone isn't found (player not built yet, or aliases differ).
+function snapResolveTarget(t?: SnapshotCameraTarget): THREE.Vector3 {
+  if (t && typeof t === 'object') return new THREE.Vector3(t.x, t.y, t.z);
+  // Bone-name aliases per logical target. The rig uses kebab-case names
+  // (see GamePlayer.createMesh): 'head', 'torso', 'forearm-left/right',
+  // 'shoe-left/right'. Falls back to the first found.
+  const aliases: Record<string, string[]> = {
+    head: ['head'],
+    torso: ['torso', 'body-pivot'],
+    feet: ['shoe-left', 'shoe-right', 'ankle-left'],
+    'hand-left': ['forearm-left', 'elbow-left'],
+    'hand-right': ['forearm-right', 'elbow-right'],
+  };
+  const names = aliases[t ?? 'head'] ?? aliases.head;
+  const out = new THREE.Vector3();
+  if (player) {
+    player.group.updateWorldMatrix(true, true);
+    for (const n of names) {
+      const obj = player.group.getObjectByName(n);
+      if (obj) {
+        obj.getWorldPosition(out);
+        return out;
+      }
+    }
+  }
+  // Fallback approximations by anchor when rig isn't ready / bone missing.
+  switch (t) {
+    case 'feet': return new THREE.Vector3(0, 0.05, 0);
+    case 'torso': return new THREE.Vector3(0, 0.9, 0);
+    case 'hand-left': return new THREE.Vector3(-0.25, 1.0, 0.05);
+    case 'hand-right': return new THREE.Vector3(0.25, 1.0, 0.05);
+    case 'head': default: return new THREE.Vector3(0, 1.4, 0);
+  }
+}
+
+function snapApplyAnimState(state: string, opts?: { freeze?: boolean }): void {
+  if (!(SNAP_ANIM_IDS as readonly string[]).includes(state)) {
+    // eslint-disable-next-line no-console
+    console.warn(`[snapshot] unknown anim state "${state}"`);
+    return;
+  }
+  // Drive the same code path the anim-button click uses, minus the DOM
+  // active-class shuffle. Keeps shoot/dunk/pass timers + forced state
+  // semantics identical.
+  currentAnim = state as SnapAnimId;
+  const sl = document.getElementById('state-label');
+  if (sl) sl.textContent = currentAnim;
+  applyHoopVisibility();
+  (player as unknown as { stealTimer: number }).stealTimer = 0;
+  (player as unknown as { shootTimer: number }).shootTimer = 0;
+  (player as unknown as { fallTimer: number }).fallTimer = 0;
+  (player as unknown as { dunkTimer: number }).dunkTimer = 0;
+  (player as unknown as { passTimer: number }).passTimer = 0;
+  player.isJumping = false;
+  player.isSprinting = false;
+  shootReleased = false;
+  dunkReleased = false;
+  passReleased = false;
+  shootResetDelay = 0;
+  shootBallFalling = false;
+  shootInIdle = false;
+  shootIdleTimer = 0;
+  player.group.position.set(0, 0, 0);
+  if (currentAnim === 'guard') player.forceAnimState('guard');
+  else if (currentAnim === 'fall') player.forceAnimState('fall');
+  else if (currentAnim === 'dunk') player.forceAnimState('dunk');
+  else player.forceAnimState(null);
+  __snapFrozen = !!opts?.freeze;
+  __snapPendingSteps = 0;
+}
+
+const snapshotAPI: SnapshotAPI = {
+  scene: 'anim-viewer',
+  capabilities: { face: true, anim: true, beer: true, mocap: false, level: false },
+  async ready(): Promise<void> {
+    // The rig + canvas exist by the time this module finishes executing —
+    // ready() resolves immediately. Kept async so the contract matches
+    // pages where build is genuinely deferred.
+  },
+  async setCamera(opts: SnapshotCameraOpts): Promise<void> {
+    controls.enabled = false;
+    autoRotate = false;
+    const target = snapResolveTarget(opts.target);
+    const r = opts.dist;
+    const x = target.x + r * Math.cos(opts.pitch) * Math.sin(opts.yaw);
+    const y = target.y + r * Math.sin(opts.pitch);
+    const z = target.z + r * Math.cos(opts.pitch) * Math.cos(opts.yaw);
+    camera.position.set(x, y, z);
+    controls.target.copy(target);
+    camera.lookAt(target);
+    controls.update();
+    // One rAF settle so geometry + materials flush before capture.
+    await new Promise<void>((r2) => requestAnimationFrame(() => r2()));
+  },
+  async capture(): Promise<string | null> {
+    // The renderer is created without preserveDrawingBuffer, so toDataURL
+    // can return blank pixels when called outside the same frame as
+    // render. Force a synchronous render here, then attempt toDataURL —
+    // CLI uses page.screenshot as the source of truth, this return value
+    // is a best-effort fallback for in-browser callers.
+    try {
+      renderer.render(scene, camera);
+      return renderer.domElement.toDataURL('image/png');
+    } catch {
+      return null;
+    }
+  },
+  async setFace(name: string): Promise<void> {
+    if (f4Puppet) { f4Puppet.dispose(); f4Puppet = null; }
+    await applyFaceSelection(name);
+  },
+  setBlendshape(name: string, value: number): void {
+    const p = f4EnsurePuppet();
+    if (!p) return;
+    const frame: BlendshapeFrame = new Map([[name, value]]);
+    for (let i = 0; i < 6; i++) p.apply(frame);
+    player.updateFaceProcedural();
+  },
+  resetBlendshapes(): void {
+    if (f4Puppet) {
+      f4Puppet.reset();
+      player.updateFaceProcedural();
+    }
+  },
+  setAnimState(state: string, opts?: { freeze?: boolean }): void {
+    snapApplyAnimState(state, opts);
+  },
+  async stepFrames(n: number): Promise<void> {
+    if (!__snapFrozen) {
+      // eslint-disable-next-line no-console
+      console.warn('[snapshot] stepFrames called without freeze=true; ignoring');
+      return;
+    }
+    __snapPendingSteps += Math.max(0, Math.floor(n));
+    // Wait for the rAF loop to drain the queue.
+    await new Promise<void>((resolve) => {
+      const tick = (): void => {
+        if (__snapPendingSteps <= 0) resolve();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  },
+  setBeer(visible: boolean): void {
+    if (!player) return;
+    const beer = player.group.getObjectByName('beer');
+    if (beer) beer.visible = visible;
+  },
+};
+installSnapshotAPI(snapshotAPI);

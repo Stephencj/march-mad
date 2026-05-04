@@ -17,6 +17,12 @@ import { serializeLevel, applyLevelJSON, resetLevel } from './dev/level-config';
 import { serializeAnim, applyAnimJSON, resetAnim } from './dev/anim-config';
 import { persistDetails, detailsKey } from './dev/details-state';
 import { AnimLoop, ANIM_IDS, type AnimId } from './dev/anim-loop';
+import { installSnapshotAPI } from './dev/snapshot/install';
+import type {
+  SnapshotAPI,
+  SnapshotCameraOpts,
+  SnapshotCameraTarget,
+} from './dev/snapshot/types';
 import { buildBodySections } from './dev/body-sliders';
 import { listFaces, loadFace } from './dev/face/store';
 import {
@@ -420,7 +426,23 @@ function applyAnimPropsVisibility(): void {
 
 rebuildPlayer();
 
+// Hoisted state — these used to live alongside the functions that read/write
+// them (buildFaceSection, populateFaceSelect, populateFaceAnimSelect), but
+// buildPanel() runs synchronously below and writes `lastFaceAnimSelect`
+// inside buildFaceSection BEFORE the original `let` was reached, throwing a
+// TDZ ReferenceError that broke later module top-level (including the
+// __snapshot install). Hoisting keeps the same semantics without the trap.
+let lastFaceAnimSelect: HTMLSelectElement | null = null;
+let lastFaceSelect: HTMLSelectElement | null = null;
+let lastFaceStatusEl: HTMLDivElement | null = null;
+
 // --- Animate loop ---
+// Snapshot-driver hooks: when frozen, the loop runs at dt=0 (rig holds its
+// pose). Each pending step consumes one rAF tick at dt=1/60 so the snapshot
+// driver can advance N frames deterministically.
+let __snapFrozen = false;
+let __snapPendingSteps = 0;
+
 let lastTime = performance.now();
 function animate(): void {
   requestAnimationFrame(animate);
@@ -430,7 +452,16 @@ function animate(): void {
 
   controls.update();
   if (animLoop) {
-    animLoop.tick(rawDt * speedMultiplier);
+    let dt = rawDt * speedMultiplier;
+    if (__snapFrozen) {
+      if (__snapPendingSteps > 0) {
+        dt = 1 / 60;
+        __snapPendingSteps--;
+      } else {
+        dt = 0;
+      }
+    }
+    animLoop.tick(dt);
   }
   renderer.render(scene, camera);
 }
@@ -947,8 +978,6 @@ function buildFaceSection(): HTMLElement {
   return details;
 }
 
-let lastFaceAnimSelect: HTMLSelectElement | null = null;
-
 async function populateFaceAnimSelect(select: HTMLSelectElement): Promise<void> {
   let clips: Awaited<ReturnType<typeof listFaceAnims>> = [];
   try {
@@ -980,9 +1009,9 @@ async function populateFaceAnimSelect(select: HTMLSelectElement): Promise<void> 
 }
 
 // Refresh the face library on tab focus — the user may have just captured a
-// new face in /face-editor in another tab.
-let lastFaceSelect: HTMLSelectElement | null = null;
-let lastFaceStatusEl: HTMLDivElement | null = null;
+// new face in /face-editor in another tab. The two `let`s used to live
+// here, but were hoisted near the top of the module to avoid a TDZ trap
+// (see comment at the rebuildPlayer call).
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && lastFaceSelect) {
     void populateFaceSelect(lastFaceSelect, lastFaceStatusEl);
@@ -1373,3 +1402,164 @@ function exportGLB(): void {
     { binary: true },
   );
 }
+
+// =============================================================================
+// Unified snapshot-API adapter (window.__snapshot).
+// Mirrors the anim-viewer implementation so the CLI driver
+// (scripts/snapshot.cjs) can target either page through a single shape.
+// Additive — no UX impact when the page is opened in a normal browser tab.
+// =============================================================================
+
+function snapResolveTarget(t?: SnapshotCameraTarget): THREE.Vector3 {
+  if (t && typeof t === 'object') return new THREE.Vector3(t.x, t.y, t.z);
+  const aliases: Record<string, string[]> = {
+    head: ['head'],
+    torso: ['torso', 'body-pivot'],
+    feet: ['shoe-left', 'shoe-right', 'ankle-left'],
+    'hand-left': ['forearm-left', 'elbow-left'],
+    'hand-right': ['forearm-right', 'elbow-right'],
+  };
+  const names = aliases[t ?? 'head'] ?? aliases.head;
+  const out = new THREE.Vector3();
+  if (player) {
+    player.group.updateWorldMatrix(true, true);
+    for (const n of names) {
+      const obj = player.group.getObjectByName(n);
+      if (obj) {
+        obj.getWorldPosition(out);
+        return out;
+      }
+    }
+  }
+  switch (t) {
+    case 'feet': return new THREE.Vector3(0, 0.05, 0);
+    case 'torso': return new THREE.Vector3(0, 0.9, 0);
+    case 'hand-left': return new THREE.Vector3(-0.25, 1.0, 0.05);
+    case 'hand-right': return new THREE.Vector3(0.25, 1.0, 0.05);
+    case 'head': default: return new THREE.Vector3(0, 1.4, 0);
+  }
+}
+
+function snapApplyAnimState(state: string, opts?: { freeze?: boolean }): void {
+  if (!(ANIM_IDS as readonly string[]).includes(state)) {
+    console.warn(`[snapshot] unknown anim state "${state}"`);
+    return;
+  }
+  currentAnim = state as AnimId;
+  if (animLoop) animLoop.setAnim(currentAnim);
+  applyAnimPropsVisibility();
+  __snapFrozen = !!opts?.freeze;
+  __snapPendingSteps = 0;
+}
+
+const snapshotAPI: SnapshotAPI = {
+  scene: 'player-editor',
+  capabilities: { face: true, anim: true, beer: true, mocap: false, level: false },
+  async ready(): Promise<void> {
+    // Player rig is created synchronously via rebuildPlayer() before the
+    // module reaches this point, so ready() resolves immediately.
+  },
+  async setCamera(opts: SnapshotCameraOpts): Promise<void> {
+    // Disable OrbitControls so manual position survives the rAF loop.
+    controls.enabled = false;
+    const target = snapResolveTarget(opts.target);
+    const r = opts.dist;
+    const x = target.x + r * Math.cos(opts.pitch) * Math.sin(opts.yaw);
+    const y = target.y + r * Math.sin(opts.pitch);
+    const z = target.z + r * Math.cos(opts.pitch) * Math.cos(opts.yaw);
+    camera.position.set(x, y, z);
+    controls.target.copy(target);
+    camera.lookAt(target);
+    controls.update();
+    await new Promise<void>((r2) => requestAnimationFrame(() => r2()));
+  },
+  async capture(): Promise<string | null> {
+    try {
+      renderer.render(scene, camera);
+      return renderer.domElement.toDataURL('image/png');
+    } catch {
+      return null;
+    }
+  },
+  async setFace(name: string): Promise<void> {
+    // Drive the same code path as the dropdown: applyFaceSelection re-fetches
+    // by name from IDB, populates the in-page caches, and triggers
+    // applyCachedFaceToPlayer (setFaceMesh3D + setFaceProcedural). Concurrent
+    // populateFaceSelect restores can race against the explicit setFace
+    // (both call applyFaceSelection); the apply is idempotent, but we wait a
+    // microtask + rAF tick afterward so any in-flight restore lands BEFORE
+    // we resolve. Without the wait, the CLI's subsequent setCamera / capture
+    // can fire before the head-mesh is mounted, producing a default-faced PNG.
+    await applyFaceSelection(name);
+    // Yield once so any concurrent populateFaceSelect → applyFaceSelection
+    // path's IDB read settles before we declare ready.
+    await Promise.resolve();
+    // rAF settle: the renderer's next frame draws the freshly-mounted
+    // head-mesh-group + cranium + procedural face, so callers that screenshot
+    // immediately after setFace see the mounted face rather than the rig's
+    // default sphere head.
+    await new Promise<void>((r2) => requestAnimationFrame(() => r2()));
+  },
+  setAnimState(state: string, opts?: { freeze?: boolean }): void {
+    snapApplyAnimState(state, opts);
+  },
+  async stepFrames(n: number): Promise<void> {
+    if (!__snapFrozen) {
+      console.warn('[snapshot] stepFrames called without freeze=true; ignoring');
+      return;
+    }
+    __snapPendingSteps += Math.max(0, Math.floor(n));
+    await new Promise<void>((resolve) => {
+      const tick = (): void => {
+        if (__snapPendingSteps <= 0) resolve();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  },
+  setBeer(visible: boolean): void {
+    if (!player) return;
+    const beer = player.group.getObjectByName('beer');
+    if (beer) beer.visible = visible;
+  },
+};
+installSnapshotAPI(snapshotAPI);
+
+// Expose a minimal debug surface mirroring `__animViewerDebug`. The snapshot
+// CLI driver probes `hasMesh3D` on whichever debug object exists, so the
+// per-page settle wait works on player-editor without page-specific branches.
+// `inspectFaceRig` is for one-off diagnostics (cranium centerline tuning).
+(window as unknown as { __playerEditorDebug: unknown }).__playerEditorDebug = {
+  hasMesh3D(): boolean {
+    return builtFaceMeshCache !== null;
+  },
+  inspectFaceRig() {
+    if (!player) return { ok: false, msg: 'no player' };
+    player.group.updateWorldMatrix(true, true);
+    const slot = player.group.getObjectByName('face-mesh-3d');
+    const cranium = player.group.getObjectByName('head-cranium');
+    const headSphere = player.group.getObjectByName('head');
+    const headGroup = player.group.getObjectByName('head-mesh-group');
+    const eyeLeft = player.group.getObjectByName('eye-left');
+    const eyeRight = player.group.getObjectByName('eye-right');
+    const w = (o: THREE.Object3D | undefined): { x: number; y: number; z: number } | null => {
+      if (!o) return null;
+      const v = new THREE.Vector3();
+      o.getWorldPosition(v);
+      return { x: v.x, y: v.y, z: v.z };
+    };
+    return {
+      ok: true,
+      slotPos: slot ? { x: slot.position.x, y: slot.position.y, z: slot.position.z } : null,
+      slotWorldPos: w(slot),
+      craniumWorldPos: w(cranium),
+      craniumLocalPos: cranium ? { x: cranium.position.x, y: cranium.position.y, z: cranium.position.z } : null,
+      craniumScale: cranium ? { x: cranium.scale.x, y: cranium.scale.y, z: cranium.scale.z } : null,
+      headSphereWorldPos: w(headSphere),
+      headSphereVisible: headSphere?.visible,
+      headGroupChildren: headGroup ? headGroup.children.map((c: THREE.Object3D) => c.name) : null,
+      eyeLeftWorldPos: w(eyeLeft),
+      eyeRightWorldPos: w(eyeRight),
+    };
+  },
+};

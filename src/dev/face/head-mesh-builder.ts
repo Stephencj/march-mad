@@ -394,6 +394,7 @@ function buildCraniumEllipsoid(
   cheekHalfWidth: number,
   profileHeadDepth: number,
   material: THREE.Material,
+  irisMidpoint: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 },
 ): THREE.Mesh {
   const faceHeight = Math.abs(frontForeheadY - frontChinY);
   // Width: prefer the cheek-derived width, but clamp to a sane fraction
@@ -412,24 +413,49 @@ function buildCraniumEllipsoid(
   //   - bottom edge ≈ chin level (faceMidY - 0.7×faceHeight = chinY - 0.2×faceHeight)
   //   - top edge ≈ forehead + 0.5×faceHeight (the crown)
   const cy = faceMidY + faceHeight * 0.20;
-  // Z-center: behind the face plane. The front face mesh sits around
-  // z=0 (with the nose poking to ~+0.05). The eye structures (sclera,
-  // iris, pupil) are mounted as RIG-GROUP siblings of the face mesh,
-  // NOT as children, so they live at z≈0 in mesh-local coords too.
-  // We want the ellipsoid's FRONT pole to land 0.05 × faceHeight
-  // BEHIND the face plane (front-pole z ≈ -0.05 × faceHeight) so the
-  // textured face occludes the cranium's front, the eye structures
-  // (z≈+0.04 — see PER_EYE_DZ in player.ts eye placement) stay in
-  // front of the cranium, AND there's no z-fighting along the seam
-  // where the face's silhouette edge meets the cranium surface.
-  const cz = -(headDepth * 0.5) - faceHeight * 0.05;
+  // G4 — Z-center: position the cranium so its FRONT POLE sits at the
+  // face plane (z ≈ 0), with the front-most procedural features
+  // (eyelids forward-shifted by lidZOffset, nose tip at z ≈ +0.04..+0.05)
+  // sitting JUST IN FRONT of the cranium's front surface. The cranium
+  // therefore wraps the head silhouette correctly in 3/4 and profile
+  // views — its forward-facing surface coincides with the face plane,
+  // so face features and cranium project to the same screen position
+  // rather than the features floating off-center because the cranium
+  // mass was pushed too far back.
+  //
+  // The earlier formula (`cz = -headDepth/2 - faceHeight*0.05`) put the
+  // cranium's front pole at z ≈ -0.02m and its center at z ≈ -0.26m, so
+  // from 3/4 view the cranium silhouette projected several centimeters
+  // BEHIND where the face features actually live, producing the visible
+  // gap between cranium ellipsoid and face features.
+  //
+  // G5 — push the cranium FORWARD by the iris-midpoint Z so the front
+  // pole lines up with the iris plane (the same plane the slot uses to
+  // anchor face features into rig-world space). Without this shift, the
+  // cranium front pole is at mesh-local z=0 while the irises sit at
+  // mesh-local z ≈ +0.03..+0.04 — so from a profile view the eyes/lips/
+  // nose stick OUT of the cranium silhouette by ~3-4cm. Aligning the
+  // front pole with the iris z keeps features ON the cranium surface in
+  // both 3/4 and profile views, which is what the brief asks for.
+  //   cz + headDepth/2 = irisMidpoint.z   =>   cz = -headDepth/2 + irisMidpoint.z
+  const cz = -(headDepth * 0.5) + irisMidpoint.z;
 
+  // G5 — X-center: align the cranium's centerline with the iris-midpoint
+  // X so the slot's `-irisMidpoint.x` translation cancels out and the
+  // cranium silhouette sits over the eye-anchor world X (= 0). Without
+  // this, the cranium ends up offset by `-irisMidpoint.x` in world space
+  // (typically a few mm — within the brief's <1cm "leave it" threshold,
+  // but cheap to set right). Y is intentionally left at the cranium's
+  // mid-skull anchor (cy, well above iris) — matching iris-Y would put
+  // the cranium center at eye-level rather than mid-skull, making the
+  // skull silhouette sit too low.
+  const cx = irisMidpoint.x;
   // Use a SphereGeometry with sufficient segments to read as a smooth
   // cranium. 24 longitudinal × 16 latitudinal = 384 verts, ~720 tris —
   // light enough that mounting one per player isn't a draw-call concern.
   const sphere = new THREE.SphereGeometry(0.5, 24, 16);
   const mesh = new THREE.Mesh(sphere, material);
-  mesh.position.set(0, cy, cz);
+  mesh.position.set(cx, cy, cz);
   // Per-axis scale on the unit-radius sphere.
   mesh.scale.set(headWidth, headHeight, headDepth);
   mesh.name = 'head-cranium';
@@ -588,6 +614,12 @@ export function buildHeadMesh(
     cheekHalfWidth,
     profileHeadDepth,
     skinMat,
+    // G5 — pass the iris midpoint so the cranium's center X aligns with
+    // it AND its front pole sits at the iris z plane (rather than the
+    // mesh-local origin which is the bbox center, ~3-4cm BEHIND the
+    // irises). Cancels the residual feature-vs-cranium gap visible from
+    // 3/4 and profile views.
+    frontBuilt.irisMidpoint,
   );
   headGroup.add(cranium);
   extras.push(cranium);

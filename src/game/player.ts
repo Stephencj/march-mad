@@ -1962,10 +1962,27 @@ export class GamePlayer {
     const beer = new THREE.Group();
     beer.add(beerCanBody);
     beer.add(beerLabel);
-    // Sit the can just past the fist, popped out toward the viewer's side
-    // so it reads even from the front default camera angle.
-    beer.position.set(-0.06, -0.24, 0.08);
-    beer.rotation.z = 0.25; // slight wrist cock outward
+    // G4 — orient the can so its cylindrical axis is WORLD-VERTICAL when
+    // the player is in the locked beerHold pose. Without compensation
+    // the can's Y-axis (default cylinder axis) inherits the elbow's
+    // bent-forward rotation (elbow.x = -1.4 rad in beerHold) and the can
+    // ends up lying horizontally pointing forward — looks like the hand
+    // is gripping the top of an upended can. Rotating the beer group by
+    // +1.4 around X cancels the elbow's bend so the cylinder stays
+    // vertical and the hand wraps around the SIDE of the can. Slight Z
+    // rotation kept for a casual wrist-cock outward.
+    //
+    // Position: just past the fist along the forearm. With the elbow
+    // bent up (forearm pointing forward), -Y in elbow-local space is
+    // FORWARD in world; +Z in elbow-local is UP. We want the can to sit
+    // a bit forward of the elbow (past the hand) and slightly DOWN from
+    // the hand center so the hand wraps the upper side of the can. In
+    // elbow-local that's negative Y (forward) and a small Z offset for
+    // the can to rest on the side of the palm rather than poking
+    // through it.
+    beer.rotation.x = 1.4; // cancel elbow.x = -1.4 → cylinder vertical
+    beer.rotation.z = 0.15; // slight wrist cock outward
+    beer.position.set(-0.05, -0.24, -0.04);
     beer.name = 'beer';
     elbowLeft.add(beer);
 
