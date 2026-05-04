@@ -151,7 +151,52 @@ export interface FaceImage {
       type: 'cap-forward' | 'cap-backward' | 'beanie';
       color: number;
     };
+    /** Phase H1 — stylized per-feature crops baked from the front photo +
+     *  landmarks. Each crop is a small posterized PNG ready for the H2
+     *  Mii-style renderer to paste onto a textured plane. Optional because
+     *  old saves predate baking; reprocess will populate it. Per-feature
+     *  fields beard/mustache/hat are themselves optional inside the bundle
+     *  — the baker omits them when the photo region didn't yield enough
+     *  signal (e.g. clean-shaven user → no beard crop). */
+    featureImages?: FeatureImagesBundle;
   };
+}
+
+/**
+ * Phase H1 — a single baked feature crop. The dataUrl is a small PNG
+ * (RGBA) of the stylized photo region for one feature; srcBbox records the
+ * pixel rectangle on the source photo that fed the crop (handy for
+ * debugging or re-baking at higher fidelity later); center3D / size3D are
+ * the mesh-local rest position + rest size for this feature, computed from
+ * the landmark set used for the bbox. The H2 renderer mounts a PlaneGeometry
+ * at center3D sized to size3D and textures it with the dataUrl.
+ *
+ * 3D coords follow the existing buildFaceMesh convention:
+ *   x_three = x_mp - 0.5
+ *   y_three = -(y_mp - 0.5)
+ *   z_three = -z_mp
+ */
+export interface FaceFeatureCrop {
+  /** PNG data URL of the stylized crop (RGBA). */
+  dataUrl: string;
+  /** Pixel bbox on the source photo this crop was sampled from. */
+  srcBbox: { x: number; y: number; w: number; h: number };
+  /** Mesh-local 3D rest center derived from landmarks (Three.js coords). */
+  center3D: { x: number; y: number; z: number };
+  /** Mesh-local 3D rest size (width, height) derived from the bbox. */
+  size3D: { w: number; h: number };
+}
+
+export interface FeatureImagesBundle {
+  leftEye: FaceFeatureCrop;
+  rightEye: FaceFeatureCrop;
+  leftBrow: FaceFeatureCrop;
+  rightBrow: FaceFeatureCrop;
+  nose: FaceFeatureCrop;
+  mouth: FaceFeatureCrop;
+  beard?: FaceFeatureCrop;
+  mustache?: FaceFeatureCrop;
+  hat?: FaceFeatureCrop;
 }
 
 /** Beard / facial-hair region tags. Used as keys on `mesh3d.beard`. */

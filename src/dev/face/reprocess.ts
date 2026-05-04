@@ -41,6 +41,8 @@ import { sampleEyelashes } from './eyelash';
 import { sampleNose } from './nose-shape';
 import { detectHairAndHat } from './hair-hat';
 import { refineHeadShapeFromProfile } from './head-shape';
+import { bakeFeatureImages, type SampledColors } from './feature-baker';
+import type { FeatureImagesBundle } from './types';
 
 export interface ReprocessDiagnostics {
   skinTone: boolean;
@@ -54,6 +56,8 @@ export interface ReprocessDiagnostics {
   hair: boolean;
   hat: boolean;
   headShapeRefined: boolean;
+  /** Phase H1: feature-image baker populated `mesh3d.featureImages`. */
+  featureImages: boolean;
 }
 
 export interface ReprocessResult {
@@ -116,6 +120,7 @@ export async function reprocessFace(face: FaceImage): Promise<ReprocessResult> {
     hair: false,
     hat: false,
     headShapeRefined: false,
+    featureImages: false,
   };
   const warnings: string[] = [];
 
@@ -343,6 +348,43 @@ export async function reprocessFace(face: FaceImage): Promise<ReprocessResult> {
   }
 
   // eyeColors: pass through unchanged. The clone already has it.
+
+  // 7. Phase H1 — bake stylized per-feature crops. Runs AFTER samplers so
+  //    we can pass sampled colors (lipColor / browColor / iris / hatColor /
+  //    skinTone) into the baker for color enhancement. Failure here is
+  //    non-fatal — we still want the sampler-only result on disk.
+  let featureImagesOut: FeatureImagesBundle | undefined;
+  try {
+    const sampled: SampledColors = {
+      lipColor: m.lipColor
+        ? Math.round((m.lipColor.upper + m.lipColor.lower) / 2)
+        : undefined,
+      browColors: m.brows
+        ? { left: m.brows.left.color, right: m.brows.right.color }
+        : undefined,
+      eyeColors: m.eyeColors
+        ? { left: m.eyeColors.left, right: m.eyeColors.right }
+        : undefined,
+      skinTone: m.skinTone,
+      hatColor: m.hat?.color,
+    };
+    const bakeResult = await bakeFeatureImages(frontFlat.imageDataUrl, lm, sampled);
+    featureImagesOut = bakeResult.bundle;
+    if (bakeResult.warnings.length > 0) {
+      for (const w of bakeResult.warnings) {
+        console.warn('[feature-baker]', w);
+        warnings.push(`feature-baker: ${w}`);
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    warnings.push(`feature-baker threw: ${msg} — featureImages will be absent`);
+    console.warn('reprocess: feature-baker threw', err);
+  }
+
+  if (featureImagesOut) m.featureImages = featureImagesOut;
+  else delete m.featureImages;
+  diagnostics.featureImages = !!featureImagesOut;
 
   return { face: cloned, diagnostics, warnings };
 }
