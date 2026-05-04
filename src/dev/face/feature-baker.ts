@@ -80,7 +80,10 @@ interface FeatureSpec {
   padding: number;
   outW: number;
   outH: number;
-  /** Posterization "palette size" — used to derive levels-per-channel. */
+  /** Posterization "palette size" — used to derive levels-per-channel.
+   *  When `>= 32`, posterize is effectively a no-op for visible banding —
+   *  small features (eyes/brows) use this to skip the chroma-quantization
+   *  noise that destroys fine detail. */
   palette: number;
   /** Stencil the crop to the landmark polygon? */
   stencil: boolean;
@@ -90,6 +93,13 @@ interface FeatureSpec {
   satBoost: number;
   /** When defined, skip baking if dark-pixel % falls below this threshold. */
   requireDarkPct?: number;
+  /** Fit mode for source bbox into output canvas:
+   *   - 'contain': aspect-preserve, letterbox transparent margins (default
+   *     for big features that benefit from preserved aspect)
+   *   - 'cover': aspect-preserve, crop overflow (best for small features
+   *     where transparent margins waste pixels)
+   *   - 'stretch': fill output canvas regardless of aspect (legacy) */
+  fitMode?: 'contain' | 'cover' | 'stretch';
 }
 
 type FeatureName =
@@ -99,21 +109,39 @@ type FeatureName =
   | 'beard' | 'mustache' | 'hat';
 
 // Posterization tuning: `palette` here is interpreted by `posterize` as
-// the LEVELS-PER-CHANNEL count directly (not a derived value). 8 levels
-// per channel = 512 colors total — visible banding without "8-bit pixel
-// art" — which lands the look at the "magazine illustration" target.
-// satBoost is kept gentle (1.05–1.15) because over-saturation on skin
-// snaps mid-tones into magenta when combined with posterization.
+// the LEVELS-PER-CHANNEL count directly (not a derived value). For big
+// features (nose, mouth, beard, hat) 8–10 levels per channel produces
+// the magazine-illustration look. SMALL features (eyes, brows) bypass
+// posterization (`palette: 64`, effectively a no-op) — at <200×100
+// pixels, quantization on the user's purple-cast white-balance flips
+// mid-tones to magenta blotches and destroys iris/pupil detail.
+//
+// satBoost is GLOBAL on top of any target-color enhancement. We keep it
+// at 1.0 (no boost) because the per-feature lipColor / browColor blend
+// already does the meaningful color work; raising it amplifies chroma
+// noise on skin pixels around the feature.
+//
+// Eye/brow output resolutions are bumped vs. the original spec (eye
+// 192×144, brow 192×72) so the small source crops aren't stretched as
+// hard during the bake.
 const FEATURE_SPECS: Record<FeatureName, FeatureSpec> = {
-  leftEye:   { indices: LEFT_EYE_INDICES,   padding: 0.40, outW: 128, outH: 96,  palette: 10, stencil: false, edgeEnhance: true,  satBoost: 1.10 },
-  rightEye:  { indices: RIGHT_EYE_INDICES,  padding: 0.40, outW: 128, outH: 96,  palette: 10, stencil: false, edgeEnhance: true,  satBoost: 1.10 },
-  leftBrow:  { indices: LEFT_BROW_INDICES,  padding: 0.45, outW: 144, outH: 56,  palette: 8,  stencil: false, edgeEnhance: true,  satBoost: 1.15 },
-  rightBrow: { indices: RIGHT_BROW_INDICES, padding: 0.45, outW: 144, outH: 56,  palette: 8,  stencil: false, edgeEnhance: true,  satBoost: 1.15 },
-  nose:      { indices: NOSE_INDICES,       padding: 0.20, outW: 96,  outH: 144, palette: 10, stencil: false, edgeEnhance: true,  satBoost: 1.05 },
-  mouth:     { indices: MOUTH_INDICES,      padding: 0.25, outW: 160, outH: 96,  palette: 10, stencil: false, edgeEnhance: true,  satBoost: 1.15 },
-  beard:     { indices: BEARD_INDICES,      padding: 0.15, outW: 192, outH: 128, palette: 8,  stencil: false, edgeEnhance: false, satBoost: 1.10, requireDarkPct: 12 },
-  mustache:  { indices: MUSTACHE_INDICES,   padding: 0.15, outW: 144, outH: 64,  palette: 8,  stencil: false, edgeEnhance: false, satBoost: 1.05, requireDarkPct: 10 },
-  hat:       { indices: HAT_ANCHOR_INDICES, padding: 0.05, outW: 192, outH: 128, palette: 8,  stencil: false, edgeEnhance: true,  satBoost: 1.05 },
+  leftEye:   { indices: LEFT_EYE_INDICES,   padding: 0.40, outW: 192, outH: 144, palette: 64, stencil: false, edgeEnhance: true,  satBoost: 1.00, fitMode: 'cover' },
+  rightEye:  { indices: RIGHT_EYE_INDICES,  padding: 0.40, outW: 192, outH: 144, palette: 64, stencil: false, edgeEnhance: true,  satBoost: 1.00, fitMode: 'cover' },
+  leftBrow:  { indices: LEFT_BROW_INDICES,  padding: 0.45, outW: 192, outH: 72,  palette: 64, stencil: false, edgeEnhance: true,  satBoost: 1.00, fitMode: 'cover' },
+  rightBrow: { indices: RIGHT_BROW_INDICES, padding: 0.45, outW: 192, outH: 72,  palette: 64, stencil: false, edgeEnhance: true,  satBoost: 1.00, fitMode: 'cover' },
+  nose:      { indices: NOSE_INDICES,       padding: 0.20, outW: 96,  outH: 144, palette: 10, stencil: false, edgeEnhance: true,  satBoost: 1.00, fitMode: 'contain' },
+  mouth:     { indices: MOUTH_INDICES,      padding: 0.25, outW: 160, outH: 96,  palette: 10, stencil: false, edgeEnhance: true,  satBoost: 1.00, fitMode: 'contain' },
+  beard:     { indices: BEARD_INDICES,      padding: 0.15, outW: 192, outH: 128, palette: 8,  stencil: false, edgeEnhance: false, satBoost: 1.00, requireDarkPct: 12, fitMode: 'contain' },
+  mustache:  { indices: MUSTACHE_INDICES,   padding: 0.15, outW: 144, outH: 64,  palette: 8,  stencil: false, edgeEnhance: false, satBoost: 1.00, requireDarkPct: 10, fitMode: 'contain' },
+  // Hat output is WIDE-AND-SHORT (256×96, aspect ~2.7:1). Caps span
+  // wider than they are tall in front-pose photos, and the hat bbox
+  // (1.4 × faceWidth × ~1.0 × faceHeight clamped to image top) is
+  // typically wider than tall too — matching aspects keeps `cover` from
+  // chopping the cap into a vertical sliver. Palette is bumped to 16
+  // (vs 8) so the cap's neutral-gray pixels don't get crushed into a
+  // single dark band; the sampled hat color is often unreliable when
+  // the brim casts a shadow on its own bowl, so we don't tint toward it.
+  hat:       { indices: HAT_ANCHOR_INDICES, padding: 0.05, outW: 256, outH: 96,  palette: 16, stencil: false, edgeEnhance: false, satBoost: 1.00, fitMode: 'contain' },
 };
 
 // ---------------------------------------------------------------------------
@@ -213,22 +241,49 @@ export function bakeOneFeature(
   octx.imageSmoothingQuality = 'high';
   octx.clearRect(0, 0, spec.outW, spec.outH);
 
-  // Aspect-preserving "letterbox" fit: contain the source bbox inside the
-  // output canvas at native aspect, then center. This avoids the 4x
-  // vertical-stretch that wrecks tightly-cropped features (eyes, brows)
-  // when bbox aspect != output aspect. Background stays transparent so
-  // the renderer composites cleanly.
+  // Aspect-preserving fit. Three modes:
+  //   - 'contain': letterbox into output (preserves all source pixels,
+  //     pads transparent margins). Best for big features where margins
+  //     are ok.
+  //   - 'cover': crop to fill output (loses some source edges, fills
+  //     the canvas). Best for small features (eyes/brows) where
+  //     transparent margins would waste output pixels and the renderer
+  //     wants the feature to fill the texture.
+  //   - 'stretch': fill output regardless of aspect (legacy / debug).
+  const fit = spec.fitMode ?? 'contain';
   const srcAspect = bbox.w / bbox.h;
   const outAspect = spec.outW / spec.outH;
-  let dx = 0, dy = 0, dw = spec.outW, dh = spec.outH;
-  if (srcAspect > outAspect) {
-    dh = Math.round(spec.outW / srcAspect);
-    dy = Math.floor((spec.outH - dh) / 2);
+  if (fit === 'stretch') {
+    octx.drawImage(ctx.canvas, bbox.x, bbox.y, bbox.w, bbox.h, 0, 0, spec.outW, spec.outH);
+  } else if (fit === 'cover') {
+    // Crop the source bbox so its aspect matches the output. We shrink
+    // either width or height of the source rect (centered) to discard
+    // overflow.
+    let sx = bbox.x, sy = bbox.y, sw = bbox.w, sh = bbox.h;
+    if (srcAspect > outAspect) {
+      // Source too wide → trim sides
+      const newSw = bbox.h * outAspect;
+      sx = bbox.x + (bbox.w - newSw) / 2;
+      sw = newSw;
+    } else if (srcAspect < outAspect) {
+      // Source too tall → trim top/bottom
+      const newSh = bbox.w / outAspect;
+      sy = bbox.y + (bbox.h - newSh) / 2;
+      sh = newSh;
+    }
+    octx.drawImage(ctx.canvas, sx, sy, sw, sh, 0, 0, spec.outW, spec.outH);
   } else {
-    dw = Math.round(spec.outH * srcAspect);
-    dx = Math.floor((spec.outW - dw) / 2);
+    // 'contain' — letterbox.
+    let dx = 0, dy = 0, dw = spec.outW, dh = spec.outH;
+    if (srcAspect > outAspect) {
+      dh = Math.round(spec.outW / srcAspect);
+      dy = Math.floor((spec.outH - dh) / 2);
+    } else {
+      dw = Math.round(spec.outH * srcAspect);
+      dx = Math.floor((spec.outW - dw) / 2);
+    }
+    octx.drawImage(ctx.canvas, bbox.x, bbox.y, bbox.w, bbox.h, dx, dy, dw, dh);
   }
-  octx.drawImage(ctx.canvas, bbox.x, bbox.y, bbox.w, bbox.h, dx, dy, dw, dh);
 
   // Beard / mustache gates: skip baking if not enough non-skin pixels.
   if (spec.requireDarkPct !== undefined) {
@@ -242,7 +297,19 @@ export function bakeOneFeature(
   }
 
   const targetColor = pickEnhancementTarget(name, sampledColors);
-  posterize(octx, spec.outW, spec.outH, spec.palette, spec.satBoost, targetColor);
+  // Skip posterization when palette is high enough (>= 32 levels per
+  // channel = 32k+ colors) — the output is visually indistinguishable
+  // from "no posterize" but a target-color tint is still applied if
+  // requested. Small features (eyes, brows) use this path so fine iris
+  // / pupil detail survives. Big features keep low-palette posterize.
+  if (spec.palette < 32) {
+    posterize(octx, spec.outW, spec.outH, spec.palette, spec.satBoost, targetColor);
+  } else if (targetColor !== undefined && spec.satBoost !== 1.0) {
+    // Apply just the gentle color tint + sat boost without quantization.
+    posterize(octx, spec.outW, spec.outH, 256, spec.satBoost, targetColor);
+  } else if (targetColor !== undefined) {
+    posterize(octx, spec.outW, spec.outH, 256, 1.0, targetColor);
+  }
   if (spec.edgeEnhance) edgeEnhance(octx, spec.outW, spec.outH, 0.25);
   if (spec.stencil) {
     alphaMaskByContour(octx, spec.outW, spec.outH, landmarks, spec.indices, bbox, ctx.width, ctx.height);
@@ -257,9 +324,17 @@ export function bakeOneFeature(
 }
 
 /**
- * Hat is a special case — landmark anchors are the top forehead points,
- * but the hat sits ABOVE all landmarks. We expand the bbox upward by
- * 1.2× face height so the cap lands inside the crop.
+ * Hat is a special case — landmark anchors are forehead-top points, but
+ * the hat sits ABOVE all landmarks. We build the bbox with:
+ *
+ *   bottom = forehead landmark 10 (top of forehead in image space)
+ *   top    = bottom − 1.0 × faceHeight (clamped to y >= 0)
+ *   left   = faceCenter − 0.7 × faceWidth
+ *   right  = faceCenter + 0.7 × faceWidth (i.e. 1.4 × faceWidth total)
+ *
+ * Where faceHeight = (chin152 − forehead10).y in pixels and faceWidth =
+ * (rightTemple454 − leftTemple234).x. Caps usually extend a bit past
+ * the temples; 1.4× covers that.
  */
 function bakeHat(
   ctx: SampleContext,
@@ -268,29 +343,43 @@ function bakeHat(
   warnings: string[],
 ): FaceFeatureCrop | null {
   const spec = FEATURE_SPECS.hat;
-  if (sampledColors?.hatColor === undefined) {
+  // Warning fires only when we genuinely have no hat color to enhance
+  // toward. `?? undefined` collapses null AND undefined to the same
+  // case so a future `hatColor: null` doesn't bypass this check.
+  const hatColor = sampledColors?.hatColor ?? undefined;
+  if (hatColor === undefined) {
     warnings.push('hat: no hat color sampled — baking forehead-top region as-is (may show hair)');
   }
 
-  const top = landmarks[FACE_TOP_INDEX];
-  const bottom = landmarks[FACE_BOTTOM_INDEX];
-  const anchorBbox = landmarkBboxExpanded(
-    landmarks, spec.indices, ctx.width, ctx.height, spec.padding,
-  );
-  if (!top || !bottom || !anchorBbox) {
+  const top = landmarks[FACE_TOP_INDEX];      // forehead 10
+  const bottom = landmarks[FACE_BOTTOM_INDEX]; // chin 152
+  const leftTemple = landmarks[234];
+  const rightTemple = landmarks[454];
+  if (!top || !bottom || !leftTemple || !rightTemple) {
     warnings.push('hat: anchor landmarks missing');
     return null;
   }
   const faceHeightPx = (bottom.y - top.y) * ctx.height;
-  const upExpand = Math.max(0, faceHeightPx * 1.2);
-  let x = anchorBbox.x;
-  let w = anchorBbox.w;
-  // Widen horizontally — caps tend to extend past face width.
-  const widen = w * 0.25;
-  x = Math.max(0, x - widen);
-  w = Math.min(ctx.width - x, w + widen * 2);
-  const y = Math.max(0, anchorBbox.y - upExpand);
-  const h = anchorBbox.y + anchorBbox.h - y;
+  const faceWidthPx = (rightTemple.x - leftTemple.x) * ctx.width;
+  if (faceHeightPx <= 0 || faceWidthPx <= 0) {
+    warnings.push('hat: degenerate face dimensions');
+    return null;
+  }
+
+  // Bottom of hat bbox is the forehead-top landmark itself (slight
+  // overlap with hair/brow line is fine — gives the renderer a stable
+  // mounting edge). Top extends up by 1.0× faceHeight, clamped to y=0
+  // so we never include negative-y blank pixels.
+  const yBottom = top.y * ctx.height;
+  const yTop = Math.max(0, yBottom - faceHeightPx * 1.0);
+  // Horizontal centerline is the forehead landmark's x; total width is
+  // 1.4× faceWidth.
+  const cx = top.x * ctx.width;
+  const halfW = faceWidthPx * 0.7;
+  let x = Math.max(0, cx - halfW);
+  let w = Math.min(ctx.width - x, halfW * 2);
+  const y = yTop;
+  const h = yBottom - yTop;
   if (h <= 0 || w <= 0) {
     warnings.push('hat: degenerate bbox after upward expand');
     return null;
@@ -306,15 +395,38 @@ function bakeHat(
   }
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = 'high';
-  octx.drawImage(ctx.canvas, x, y, w, h, 0, 0, spec.outW, spec.outH);
 
-  posterize(octx, spec.outW, spec.outH, spec.palette, spec.satBoost, sampledColors?.hatColor);
+  // Use the same fit-mode plumbing as bakeOneFeature so the cap fills
+  // the canvas instead of getting stretched/letterboxed weirdly.
+  const fit = spec.fitMode ?? 'cover';
+  const srcAspect = w / h;
+  const outAspect = spec.outW / spec.outH;
+  if (fit === 'cover') {
+    let sx = x, sy = y, sw = w, sh = h;
+    if (srcAspect > outAspect) {
+      const newSw = h * outAspect;
+      sx = x + (w - newSw) / 2;
+      sw = newSw;
+    } else if (srcAspect < outAspect) {
+      const newSh = w / outAspect;
+      sy = y + (h - newSh) / 2;
+      sh = newSh;
+    }
+    octx.drawImage(ctx.canvas, sx, sy, sw, sh, 0, 0, spec.outW, spec.outH);
+  } else {
+    octx.drawImage(ctx.canvas, x, y, w, h, 0, 0, spec.outW, spec.outH);
+  }
+
+  // Skip target-color blend on hat — sampled hatColor often picks up
+  // brim-shadow and pulls the cap toward black. Let the photo's own
+  // pixels speak.
+  posterize(octx, spec.outW, spec.outH, spec.palette, spec.satBoost, undefined);
   if (spec.edgeEnhance) edgeEnhance(octx, spec.outW, spec.outH, 0.4);
 
   // 3D placement: centroid of anchor landmarks shifted upward in mesh-Y
   // by ~half the upExpand we applied in pixel-space.
   const anchorCenter = landmarkCentroid3D(landmarks, spec.indices);
-  const upMesh = (faceHeightPx / ctx.height) * 0.6;
+  const upMesh = (faceHeightPx / ctx.height) * 0.5;
   const center3D = {
     x: anchorCenter.x,
     y: anchorCenter.y + upMesh,

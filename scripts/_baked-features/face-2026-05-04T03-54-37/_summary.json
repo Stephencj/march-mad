@@ -1,6 +1,6 @@
 {
   "leftEye": {
-    "pngBytes": 6317,
+    "pngBytes": 46593,
     "srcBbox": {
       "x": 104,
       "y": 189,
@@ -18,7 +18,7 @@
     }
   },
   "rightEye": {
-    "pngBytes": 7738,
+    "pngBytes": 49793,
     "srcBbox": {
       "x": 271,
       "y": 177,
@@ -36,7 +36,7 @@
     }
   },
   "leftBrow": {
-    "pngBytes": 5098,
+    "pngBytes": 27046,
     "srcBbox": {
       "x": 45,
       "y": 116,
@@ -54,7 +54,7 @@
     }
   },
   "rightBrow": {
-    "pngBytes": 6064,
+    "pngBytes": 28134,
     "srcBbox": {
       "x": 251,
       "y": 128,
@@ -72,7 +72,7 @@
     }
   },
   "nose": {
-    "pngBytes": 18403,
+    "pngBytes": 18365,
     "srcBbox": {
       "x": 193,
       "y": 163,
@@ -90,7 +90,7 @@
     }
   },
   "mouth": {
-    "pngBytes": 14247,
+    "pngBytes": 14076,
     "srcBbox": {
       "x": 161,
       "y": 336,
@@ -108,7 +108,7 @@
     }
   },
   "beard": {
-    "pngBytes": 15752,
+    "pngBytes": 15831,
     "srcBbox": {
       "x": 10,
       "y": 207,
@@ -126,16 +126,16 @@
     }
   },
   "hat": {
-    "pngBytes": 15796,
+    "pngBytes": 16561,
     "srcBbox": {
-      "x": 172,
+      "x": 0,
       "y": 0,
-      "w": 180,
-      "h": 77
+      "w": 512,
+      "h": 73.14285714285714
     },
     "center3D": {
       "x": 0.012149393298609146,
-      "y": 0.8316267398078327,
+      "y": 0.7522616604427534,
       "z": 0.022344863924097583
     },
     "size3D": {
