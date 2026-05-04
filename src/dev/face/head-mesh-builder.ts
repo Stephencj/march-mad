@@ -102,6 +102,13 @@ export interface BuiltHeadMesh extends BuiltFaceMesh {
    *  (`window.__faceMode === 'mesh'` hides them) and disposal can find
    *  them without traversing the group. */
   headExtras: THREE.Mesh[];
+  /** H9 — small 3D nose bump mounted on the front of the cranium. Visible
+   *  primarily from profile / 3-quarter views (the front face plate
+   *  occludes it from a head-on view). Null when `headMeshSuccess` is
+   *  false or when the front-mesh's nose-tip landmark was degenerate. The
+   *  mesh is also added to `headExtras` so the visibility-toggle path
+   *  picks it up without a separate handler. */
+  noseBump: THREE.Mesh | null;
 }
 
 export interface BuildHeadMeshOptions extends BuildFaceMeshOptions {
@@ -509,6 +516,41 @@ function buildEar(
   return mesh;
 }
 
+/** H9 — small 3D nose bump on the front of the cranium. Gives the head
+ *  silhouette a recognizable nose protrusion in profile and 3/4 views.
+ *  From the front the bump is mostly hidden behind the textured face
+ *  plate; from profile it pokes out ~1cm on the silhouette so the head
+ *  no longer reads as a featureless egg.
+ *
+ *  Sized as a unit sphere scaled to {0.022, 0.040, 0.025} (m): wide-narrow
+ *  vertical, depth ~2.5cm. Skin-tone material (shared with the cranium)
+ *  so it blends rather than reading as a separate appliqué.
+ *
+ *  Position:
+ *    x = irisMidpoint.x  (centerline of the head)
+ *    y = irisMidpoint.y - 0.015  (slightly below eye level — bridge to tip span)
+ *    z = craniumFrontZ + 0.010   (sticks 1cm in FRONT of the cranium front pole) */
+function buildNoseBump(
+  irisMidpoint: { x: number; y: number; z: number },
+  craniumFrontZ: number,
+  material: THREE.Material,
+): THREE.Mesh {
+  const geo = new THREE.SphereGeometry(1.0, 12, 8);
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.scale.set(0.022, 0.040, 0.025);
+  mesh.position.set(
+    irisMidpoint.x,
+    irisMidpoint.y - 0.015,
+    craniumFrontZ + 0.010,
+  );
+  mesh.name = 'head-nose-bump';
+  // Render BEFORE features so the silhouette is captured but the textured
+  // face plate (which renders later at higher renderOrder) wins on
+  // overlapping pixels in front view.
+  mesh.renderOrder = 0;
+  return mesh;
+}
+
 /**
  * Build the complete head mesh from front + profile landmarks.
  *
@@ -557,6 +599,7 @@ export function buildHeadMesh(
     headMesh: headGroup,
     headMeshSuccess: false,
     headExtras: [],
+    noseBump: null,
   };
 
   if (!profileLeftLandmarks && !profileRightLandmarks) {
@@ -631,6 +674,17 @@ export function buildHeadMesh(
   // mesh needed — the cranium sits behind it by construction.
   const faceHeight = Math.abs(foreheadY - chinY);
 
+  // H9 — small 3D nose bump on the cranium front. Mounted at the
+  // iris-midpoint X/Z plane (the cranium's front pole sits at
+  // irisMidpoint.z by construction in buildCraniumEllipsoid), shifted
+  // slightly below eye level. The bump is mostly hidden behind the
+  // textured face plate when viewed from the front, but in profile it
+  // gives the head silhouette an actual nose rather than reading as a
+  // featureless egg.
+  const noseBump = buildNoseBump(frontBuilt.irisMidpoint, frontBuilt.irisMidpoint.z, skinMat);
+  headGroup.add(noseBump);
+  extras.push(noseBump);
+
   // Build geometric ears positioned at temple level on the SIDE of the
   // cranium (G1.v2 — not poking out of the cheek/face plane as in v1).
   if (wantEars) {
@@ -673,6 +727,7 @@ export function buildHeadMesh(
     headMesh: headGroup,
     headMeshSuccess: true,
     headExtras: extras,
+    noseBump,
   };
 }
 
