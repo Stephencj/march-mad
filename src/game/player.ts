@@ -192,6 +192,12 @@ function applyFaceMode(player: GamePlayer): void {
   // (cranium silhouette is visible behind the features).
   for (const extra of player.getHeadMeshExtras()) {
     extra.visible = mode !== 'mesh';
+    // H9 nose bump pokes through the face plate in 'mii' mode (the plate
+    // has the photographic nose; the 3D bump only adds profile-silhouette
+    // value, but ends up rendering as a grey blob through the plate).
+    if (extra.name === 'head-nose-bump' && mode === 'mii') {
+      extra.visible = false;
+    }
   }
 }
 

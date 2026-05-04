@@ -48,10 +48,16 @@ export interface MiiFaceMountOpts {
    *  is preserved (in case future features need a flat-hat fallback) but
    *  callers must opt-in explicitly. */
   showHat?: boolean;
-  /** Whether to include the beard plane. Default true if beard present in bundle. */
+  /** Whether to include the beard plane. Default false — the whole-face
+   *  plate now bakes the beard photographically. Opt-in for keyframe-anim
+   *  usage where per-feature variant swaps need a separate plane. */
   showBeard?: boolean;
-  /** Whether to include the mustache plane. Default true if mustache present in bundle. */
+  /** Whether to include the mustache plane. Default false. */
   showMustache?: boolean;
+  /** Whether to include the per-feature eye/brow/nose/mouth overlay planes.
+   *  Default false — the whole-face plate carries these photographically.
+   *  Opt-in for keyframe-anim per-feature variant swaps. */
+  showFeatureOverlays?: boolean;
   /** Mesh-local scale to apply to baker's center3D / size3D. Defaults to 1
    *  (raw landmark units). Real callers pass the per-face scale derived
    *  from the canonical mesh's iris-distance so the planes line up with
@@ -236,6 +242,15 @@ type FeatureName =
   | 'beard' | 'mustache' | 'hat'
   | 'facePlate';
 
+// Phase H2c-perfect: with the whole-face plate baking the user's actual
+// eyes/brows/nose/mouth/mustache/beard photographically, the per-feature
+// overlay planes (leftEye, rightEye, leftBrow, rightBrow, nose, mouth,
+// beard, mustache) became visually redundant — they painted dark photo-
+// rectangle artifacts on top of the already-correct plate. Default-mount
+// only the facePlate + hat. Per-feature planes are gated behind
+// `opts.showFeatureOverlays` (or per-feature flags) for future keyframe-
+// anim use, where swapping expression variants per feature requires
+// independent plane control.
 const ORDERED_FEATURES: FeatureName[] = [
   'facePlate',
   'hat', 'beard', 'mustache',
@@ -322,8 +337,9 @@ export async function buildMiiFace(
   // `player.setFaceHat`) supersedes the flat photo-cropped Mii hat plane.
   // Callers can still opt back in by passing `showHat: true`.
   const showHat = opts.showHat ?? false;
-  const showBeard = opts.showBeard ?? true;
-  const showMustache = opts.showMustache ?? true;
+  const showBeard = opts.showBeard ?? false;
+  const showMustache = opts.showMustache ?? false;
+  const showFeatureOverlays = opts.showFeatureOverlays ?? false;
 
   const group = new THREE.Group();
   group.name = 'face-flat-group';
@@ -351,6 +367,14 @@ export async function buildMiiFace(
     if (name === 'hat' && !showHat) continue;
     if (name === 'beard' && !showBeard) continue;
     if (name === 'mustache' && !showMustache) continue;
+    // Per-feature overlay planes (leftEye/rightEye/leftBrow/rightBrow/
+    // nose/mouth) gated behind showFeatureOverlays. When facePlate is
+    // present, the whole-face photo bake covers these features already;
+    // mounting overlay planes layers redundant photo crops on top.
+    const isOverlay = name === 'leftEye' || name === 'rightEye' ||
+                      name === 'leftBrow' || name === 'rightBrow' ||
+                      name === 'nose' || name === 'mouth';
+    if (isOverlay && !showFeatureOverlays) continue;
     // When facePlate is present, drop the individual nose/beard/mustache
     // planes — they're already in the plate.
     if (hasFacePlate && (name === 'nose' || name === 'beard' || name === 'mustache')) continue;

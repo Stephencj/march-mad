@@ -82,11 +82,15 @@ function makeMinBundle(): FeatureImagesBundle {
 // ---------- Tests ----------------------------------------------------------
 
 describe('buildMiiFace', () => {
-  it('produces a Group with one plane per required feature', async () => {
-    const built = await buildMiiFace(makeMinBundle());
+  it('produces a Group with one plane per required feature when overlays opted in', async () => {
+    // H2c-perfect: per-feature overlays gated behind showFeatureOverlays.
+    // Default is plate-only (no per-feature planes). Tests that need
+    // access to individual eye/brow/nose/mouth planes opt in here.
+    const built = await buildMiiFace(makeMinBundle(), { showFeatureOverlays: true });
     expect(built.group).toBeInstanceOf(THREE.Group);
     expect(built.group.name).toBe('face-flat-group');
-    // 6 required features + 3 decal slots (forehead/cheekL/cheekR; H3).
+    // 6 feature overlays + 3 decal slots (forehead/cheekL/cheekR; H3).
+    // No facePlate in makeMinBundle, no hat (default off).
     expect(built.group.children.length).toBe(6 + 3);
     expect(built.planes.size).toBe(6);
     for (const name of ['leftEye', 'rightEye', 'leftBrow', 'rightBrow', 'nose', 'mouth'] as const) {
@@ -97,6 +101,22 @@ describe('buildMiiFace', () => {
     built.dispose();
   });
 
+  it('default-mounts plate-only when bundle has facePlate (no per-feature overlays)', async () => {
+    // The whole-face plate carries eyes/brows/nose/mouth/beard/mustache
+    // photographically. Per-feature planes default OFF to avoid layering
+    // photo-rectangle artifacts on top of the plate.
+    const bundle: FeatureImagesBundle = {
+      ...makeMinBundle(),
+      facePlate: makeCrop(0.0, 0.0, 0.020, 0.20, 0.27),
+    };
+    const built = await buildMiiFace(bundle);
+    // facePlate + 3 decal slots (no overlays default-mounted).
+    expect(built.group.children.length).toBe(1 + 3);
+    expect(built.planes.has('facePlate')).toBe(true);
+    expect(built.planes.has('leftEye')).toBe(false);
+    built.dispose();
+  });
+
   it('includes optional beard / mustache / hat planes when explicitly requested', async () => {
     const bundle: FeatureImagesBundle = {
       ...makeMinBundle(),
@@ -104,11 +124,12 @@ describe('buildMiiFace', () => {
       mustache: makeCrop(0.0, -0.18, 0.04, 0.30, 0.05),
       hat: makeCrop(0.01, 0.75, 0.02, 0.32, 0.02),
     };
-    // Hat plane is gated OFF by default (production callers mount a
-    // procedural 3D hat group instead). Pass `showHat: true` to opt
-    // back into the flat-photo plane for this test.
-    const built = await buildMiiFace(bundle, { showHat: true });
-    // 9 features + 3 decal slots.
+    // Hat / beard / mustache / per-feature overlays all gated OFF by
+    // default. Opt all in to verify the full path still works.
+    const built = await buildMiiFace(bundle, {
+      showHat: true, showBeard: true, showMustache: true, showFeatureOverlays: true,
+    });
+    // 6 overlays + beard + mustache + hat + 3 decal slots.
     expect(built.group.children.length).toBe(9 + 3);
     expect(built.planes.has('beard')).toBe(true);
     expect(built.planes.has('mustache')).toBe(true);
@@ -122,8 +143,10 @@ describe('buildMiiFace', () => {
       beard: makeCrop(0, -0.27, -0.19, 0.96, 0.60),
       hat: makeCrop(0.01, 0.75, 0.02, 0.32, 0.02),
     };
-    const built = await buildMiiFace(bundle, { showBeard: false, showHat: false });
-    // 6 features (beard + hat suppressed) + 3 decal slots.
+    const built = await buildMiiFace(bundle, {
+      showBeard: false, showHat: false, showFeatureOverlays: true,
+    });
+    // 6 overlays (beard + hat suppressed) + 3 decal slots.
     expect(built.group.children.length).toBe(6 + 3);
     expect(built.planes.has('beard')).toBe(false);
     expect(built.planes.has('hat')).toBe(false);
@@ -163,7 +186,7 @@ describe('buildMiiFace', () => {
     // plane lands at the table anchor regardless of the bundle's
     // center3D, and ignores meshScale entirely.
     const bundle = makeMinBundle();
-    const built = await buildMiiFace(bundle, { meshScale: 0.5 });
+    const built = await buildMiiFace(bundle, { meshScale: 0.5, showFeatureOverlays: true });
     const nose = built.planes.get('nose')!;
     const params = (nose.geometry as THREE.PlaneGeometry).parameters;
     // Physical size (METERS) — independent of meshScale.
@@ -178,7 +201,7 @@ describe('buildMiiFace', () => {
   });
 
   it('places eyes symmetrically at the iris-anchor Y', async () => {
-    const built = await buildMiiFace(makeMinBundle());
+    const built = await buildMiiFace(makeMinBundle(), { showFeatureOverlays: true });
     const lEye = built.planes.get('leftEye')!;
     const rEye = built.planes.get('rightEye')!;
     // Phase H2c-fix — eye anchor sits +5mm above the iris midpoint so
@@ -198,7 +221,7 @@ describe('buildMiiFace', () => {
       ...makeMinBundle(),
       beard: makeCrop(0, -0.27, -0.19, 0.96, 0.60),
     };
-    const built = await buildMiiFace(bundle);
+    const built = await buildMiiFace(bundle, { showBeard: true, showFeatureOverlays: true });
     expect(built.planes.get('beard')!.renderOrder).toBeLessThan(
       built.planes.get('leftEye')!.renderOrder,
     );
@@ -209,7 +232,7 @@ describe('buildMiiFace', () => {
   });
 
   it('dispose() empties the group and frees materials', async () => {
-    const built = await buildMiiFace(makeMinBundle());
+    const built = await buildMiiFace(makeMinBundle(), { showFeatureOverlays: true });
     const matRef = (built.planes.get('nose')!.material) as THREE.MeshBasicMaterial;
     expect(built.group.children.length).toBeGreaterThan(0);
     built.dispose();

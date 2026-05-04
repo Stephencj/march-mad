@@ -49,65 +49,76 @@ export function buildHat(type: HatType, color: number): THREE.Group {
     case 'cap-forward':
     case 'cap-backward': {
       // ---- Crown ----
-      // Tapered cylinder: wider at the bottom (rim) than the top (button).
-      // Height ~0.18m so the crown sits visibly over the head; bottom radius
-      // matches the head silhouette, top radius is 75% of bottom for a
-      // baseball-cap taper.
-      const crownHeight = 0.18;
-      const crownGeo = new THREE.CylinderGeometry(
-        headRadius * 0.75, // top radius
-        headRadius,        // bottom radius (= head)
-        crownHeight,
-        16,                // radial segments
-        1,                 // height segments
-        false,             // openEnded — keep top closed
+      // Hemisphere hugging the top half of the head (not a tall cylinder
+      // hovering above). This matches a real baseball cap: low-profile dome
+      // that sits ON the head from the top of the forehead up to the crown.
+      // Slightly larger than the head sphere (1.04×) so it reads as a knit
+      // layer over the skin, with no z-fighting at grazing angles.
+      // thetaLength=PI*0.35 → bottom rim sits at y = cos(63°) × 1.04r ≈
+      // +0.47r above head center, which is the forehead/brow line. The
+      // face area below this line stays exposed.
+      const crownThetaLength = Math.PI * 0.35;
+      const crownRadius = headRadius * 1.04;
+      const crownGeo = new THREE.SphereGeometry(
+        crownRadius,
+        24,                // widthSegments
+        12,                // heightSegments
+        0,                 // phiStart
+        Math.PI * 2,       // phiLength (full ring)
+        0,                 // thetaStart (top pole)
+        crownThetaLength,
       );
       const crown = new THREE.Mesh(crownGeo, mat);
       crown.name = 'cap-crown';
-      // Center the crown's mid-height at headTopY + crownHeight/2 so the
-      // bottom rim sits at headTopY (just above the eye/forehead line).
-      crown.position.set(0, headTopY + crownHeight * 0.4, 0);
+      crown.position.set(0, cfg.positionY, 0);
       group.add(crown);
+      // Rim Y in world space — where the dome ends and the visor mounts.
+      const rimY = cfg.positionY + crownRadius * Math.cos(crownThetaLength);
 
-      // ---- Brim ----
-      // A flat half-disc shape using a RingGeometry restricted to the front
-      // semicircle. Approximates a baseball-cap bill: head-radius × 1.6
-      // outer radius, head-radius × 0.95 inner radius (just outside the
-      // crown's bottom rim so it looks attached). thetaLength = PI gives
-      // 180° (a half-disc); thetaStart positions it forward or backward.
-      const brimInner = headRadius * 0.95;
-      const brimOuter = headRadius * 1.6;
+      // ---- Visor (bill) ----
+      // Small forward-projecting tab. A baseball-cap visor only spans
+      // ~110° of arc on the front of the head (about ear-to-ear at the
+      // forehead, NOT 180° around). Outer radius 1.35× head, inner radius
+      // 1.04× head (just outside the crown). thetaLength = 110° gives a
+      // narrow forward bill, not a wide-brim hat.
       const isForward = type === 'cap-forward';
-      // RingGeometry's theta is measured CCW from the +X axis. We want the
-      // brim's flat edge to sit on the X axis (so it spans left↔right along
-      // the wearer's forehead/back-of-head line), with the curve poking
-      // forward (+Z) for cap-forward, backward (-Z) for cap-backward.
-      // thetaStart = 0 + thetaLength = PI gives the +Y half (poking up in
-      // the geometry's local space); we'll rotate the mesh to flatten it.
-      const brimGeo = new THREE.RingGeometry(
-        brimInner,
-        brimOuter,
-        16,                          // theta segments
-        1,                           // phi segments
-        isForward ? 0 : Math.PI,     // thetaStart
-        Math.PI,                     // thetaLength (180°)
+      // Visor lateral half-width at the dome's rim. The dome's rim sits at
+      // a sphere-cross-section radius of `crownRadius * sin(crownThetaLength)`,
+      // so the inner radius of the visor matches that to attach cleanly.
+      const visorInner = crownRadius * Math.sin(crownThetaLength);
+      const visorOuter = visorInner + headRadius * 0.55; // ~5.5cm bill
+      const visorArc = Math.PI * (95 / 180); // 95° — narrower than full half
+      // RingGeometry's theta is measured CCW from +X (geometry's local).
+      // After we rotate the mesh -PI/2 around X, geometry's +Y → world +Z
+      // (forward), and geometry's +X → world +X (right). So we want the
+      // visor's arc centered on +Y (forward) for cap-forward, or centered
+      // on -Y (backward) for cap-backward.
+      // Center on +Y (geometry-local) → thetaStart = PI/2 - visorArc/2.
+      // Center on -Y → thetaStart = -PI/2 - visorArc/2 = 3*PI/2 - visorArc/2.
+      const visorThetaStart = isForward
+        ? Math.PI / 2 - visorArc / 2
+        : -Math.PI / 2 - visorArc / 2;
+      const visorGeo = new THREE.RingGeometry(
+        visorInner,
+        visorOuter,
+        20,                // theta segments
+        1,                 // phi segments
+        visorThetaStart,
+        visorArc,
       );
-      const brim = new THREE.Mesh(brimGeo, mat);
-      brim.name = 'cap-brim';
-      // Lay the half-disc flat in the XZ plane (RingGeometry is in XY by
-      // default). rotate -PI/2 around X so +Y becomes +Z (forward).
-      brim.rotation.x = -Math.PI / 2;
-      // Slight downward tilt for both variants (per brief: identical for v1;
-      // future tuning can flip backward bills upward).
-      brim.rotation.x += -0.15;
-      // Sit the brim at the crown's bottom rim height. (After rotation the
-      // mesh's local origin remains at the geometry's center, which lands
-      // at the brim height.)
-      brim.position.set(0, headTopY, 0);
-      // DoubleSide: bills are very thin and we don't want the under-side
-      // to disappear when the player tilts their head.
+      const visor = new THREE.Mesh(visorGeo, mat);
+      visor.name = 'cap-brim';
+      // Lay flat in the XZ plane. -PI/2 around X maps geometry +Y to world +Z.
+      visor.rotation.x = -Math.PI / 2;
+      // Slight downward tilt — real cap visors angle ~10° down from horizontal.
+      visor.rotation.x += -0.18;
+      // Position at brow height: the bottom of the crown hemisphere meets
+      // the head at Y = cfg.positionY (head center). The visor mounts there
+      // on the front of the head, at the brow line.
+      visor.position.set(0, rimY, 0);
+      // DoubleSide so the underside of the bill stays visible from below.
       mat.side = THREE.DoubleSide;
-      group.add(brim);
+      group.add(visor);
       break;
     }
     case 'beanie': {

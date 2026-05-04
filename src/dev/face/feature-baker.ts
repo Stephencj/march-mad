@@ -1008,11 +1008,20 @@ export function bakeFacePlate(
   octx.imageSmoothingEnabled = true;
   octx.imageSmoothingQuality = 'high';
 
-  // 1. Skin-tone base fill.
+  // 1. Paint the WHOLE photographic face region (forehead → chin → cheeks)
+  // onto the plate canvas. This carries the user's entire face — eyes,
+  // brows, nose, mouth, skin tone, lighting — through to the rendered head.
+  // The elliptical vignette in step 5 softens the rectangular edges so
+  // the photo blends into the cranium silhouette without a hard ring.
+  // Photo skin tone is real (not a flat fill), so it doesn't double-up
+  // with the cranium's flat fill — the edge-feather creates a smooth
+  // transition between real-skin (center) and cranium-skin (rim).
   const skin = sampledColors?.skinTone ?? FACE_PLATE_SKIN_FALLBACK;
-  const sc = unpackColor(skin);
-  octx.fillStyle = `rgb(${sc.r}, ${sc.g}, ${sc.b})`;
-  octx.fillRect(0, 0, FACE_PLATE_W, FACE_PLATE_H);
+  octx.drawImage(
+    ctx.canvas,
+    bbox.x, bbox.y, bbox.w, bbox.h,
+    0, 0, FACE_PLATE_W, FACE_PLATE_H,
+  );
 
   // Mark the bbox-relative transform: a source pixel at (px, py) maps to
   // canvas coord ((px - bbox.x) / bbox.w * outW, ...). Useful for both
@@ -1022,16 +1031,15 @@ export function bakeFacePlate(
     y: ((py - bbox.y) / bbox.h) * FACE_PLATE_H,
   });
 
-  // 2. Nose region — paint with soft radial alpha falloff. Crop the nose
-  //    bbox out of the source photo onto a temp canvas, apply a radial
-  //    gradient as alpha, then drawImage onto the plate.
-  paintNoseOntoPlate(octx, ctx, landmarks, bbox, srcToCanvas, warnings);
-
-  // 3. Beard region — luma-mask dark pixels onto the plate at chin/jaw.
-  paintBeardOntoPlate(octx, ctx, landmarks, BEARD_INDICES, bbox, skin, warnings);
-
-  // 4. Mustache region — same as beard but at the mustache landmark set.
-  paintBeardOntoPlate(octx, ctx, landmarks, MUSTACHE_INDICES, bbox, skin, warnings);
+  // 2-4. Nose / beard / mustache extra paint passes are no-ops now that
+  //      step 1 already drew the entire face region. They were vestigial
+  //      from the pre-whole-face architecture where the plate fill was a
+  //      flat skin tone and individual features had to be painted on top.
+  //      With whole-face draw + alpha vignette, the user's actual eyes,
+  //      brows, nose, mouth, mustache, and beard all come through in one
+  //      pass with photographic fidelity.
+  void srcToCanvas; // referenced below kept for clarity / future passes
+  void skin;        // skin reference no longer needed without luma masks
 
   // 5. Soft elliptical vignette on the plate's alpha so the rectangular
   //    boundary fades into the cranium skin tone behind it. Without this
