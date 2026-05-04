@@ -179,8 +179,11 @@
 
       <h3>Record</h3>
       <input id="anim-name" type="text" placeholder="e.g. eyebrow-flash" />
-      <div class="btn disabled" id="btn-record">Record</div>
-      <label style="font-size:11px;color:#888;">Saves a sequence of blendshape frames you can replay later.</label>
+      <div class="btn-row">
+        <div class="btn disabled" id="btn-record">Record</div>
+        <div class="btn disabled" id="btn-record-kf" title="Record compact keyframe-clip (v2) — captures only mixer track transitions, ~1.7KB for 60s">Record Keyframe Clip</div>
+      </div>
+      <label style="font-size:11px;color:#888;">Record saves dense blendshape frames; Keyframe Clip saves a compact transition stream.</label>
 
       <h3>Saved face anims</h3>
       <div id="anim-list"></div>
@@ -188,6 +191,9 @@
         <div class="btn" id="btn-import">Import JSON</div>
       </div>
       <input id="import-file" type="file" accept="application/json" style="display:none" />
+
+      <h3>Saved keyframe clips</h3>
+      <div id="kf-list"></div>
 
       <h3>Blendshape activity</h3>
       <label style="font-size:11px;color:#888;">Top 10 active shapes (debug).</label>

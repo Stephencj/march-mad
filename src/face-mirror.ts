@@ -40,8 +40,25 @@ import {
   deleteFaceAnim,
   exportFaceAnimJSON,
   importFaceAnimJSON,
+  saveKeyframeClip,
+  loadKeyframeClip,
+  listKeyframeClips,
+  deleteKeyframeClip,
 } from './dev/face/face-anim-store';
 import type { FaceAnimClip, FaceAnimMeta } from './dev/face/face-anim-clip';
+import {
+  convertV1ToV2,
+  createV2ClipReplay,
+  type FaceKeyframeClip,
+  type FaceKeyframeMeta,
+  type FaceKeyframeReplay,
+} from './dev/face/face-keyframe-clip';
+import {
+  createKeyframeRecorder,
+  type FaceKeyframeRecorder,
+} from './dev/face/face-keyframe-recorder';
+import { createFaceLiveDriver } from './dev/face/face-live-driver';
+import { createFaceKeyframeMixer } from './dev/face/face-keyframe-anim';
 import {
   buildFaceModeSection,
   readFaceModeFromStorage,
@@ -68,6 +85,8 @@ const canvas = document.getElementById('three-canvas') as HTMLCanvasElement;
 const cameraBtn = document.getElementById('btn-camera') as HTMLDivElement;
 const mirrorBtn = document.getElementById('btn-mirror') as HTMLDivElement;
 const recordBtn = document.getElementById('btn-record') as HTMLDivElement;
+const recordKfBtn = document.getElementById('btn-record-kf') as HTMLDivElement | null;
+const kfListEl = document.getElementById('kf-list') as HTMLDivElement | null;
 const facePick = document.getElementById('face-pick') as HTMLSelectElement;
 const facePickStatus = document.getElementById('face-pick-status') as HTMLLabelElement;
 
@@ -199,6 +218,35 @@ let recording: RecordingState | null = null;
 /** Phase 8.2a: one-shot toast for "MediaRecorder unsupported" so we don't
  *  spam the user every time they hit Record on an old browser. */
 let mediaRecorderUnsupportedToastShown = false;
+
+/** Phase H7 — keyframe-recording state. The mixer-side recorder observes
+ *  per-track transitions while the user performs (live mirror feeds the
+ *  mixer through `attachFaceLivePuppet`). The kfTickRaf field is the rAF
+ *  handle for the recorder's per-frame `tick(dtMs)` driver — separate
+ *  from the v1 path so the two don't entangle. */
+interface KeyframeRecordingState {
+  recorder: FaceKeyframeRecorder;
+  startMs: number;
+  lastTickMs: number;
+  raf: number;
+  /** Optional name override the user supplied via the textbox. */
+  nameAtStart: string;
+}
+let kfRecording: KeyframeRecordingState | null = null;
+
+/** Phase H7 — v2 (keyframe) clip replay state. Mirrors the v1 ReplayState
+ *  shape but drives a `FaceKeyframeReplay` runner each frame instead of
+ *  feeding raw blendshape coefficients into the puppet. The mixer is the
+ *  source of truth — game-state and idle-blink drivers naturally mix
+ *  underneath the 'scripted' priority the runner claims. */
+interface V2ReplayState {
+  clipName: string;
+  runner: FaceKeyframeReplay;
+  startMs: number;
+  lastTickMs: number;
+  raf: number;
+}
+let v2Replay: V2ReplayState | null = null;
 
 interface ReplayState {
   clip: FaceAnimClip;
@@ -488,12 +536,21 @@ function updateMirrorBtnState(): void {
   mirrorBtn.textContent = liveMirrorOn ? 'Live mirror: ON' : 'Live mirror: OFF';
   mirrorBtn.classList.toggle('active', liveMirrorOn);
   // Recording requires live mirror.
-  if (liveMirrorOn) recordBtn.classList.remove('disabled');
-  else {
+  if (liveMirrorOn) {
+    recordBtn.classList.remove('disabled');
+    // Phase H7 — keyframe recording also requires the mixer (Mii face mode)
+    // alongside live mirror. Disable when a non-Mii face is mounted.
+    if (recordKfBtn) {
+      const mixerReady = player?.getFaceMixer() != null;
+      recordKfBtn.classList.toggle('disabled', !mixerReady);
+    }
+  } else {
     recordBtn.classList.add('disabled');
+    if (recordKfBtn) recordKfBtn.classList.add('disabled');
     // Fire-and-forget: stopRecording is async (awaits MediaRecorder.onstop)
     // but the toggle-state path doesn't need to block on the flush.
     if (recording) void stopRecording(true /* silent — toggle just turned off */);
+    if (kfRecording) finishKeyframeRecording(true /* silent */);
   }
 }
 
@@ -913,6 +970,274 @@ async function stopRecording(silent: boolean): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Phase H7 — Keyframe-clip recording + replay (v2 compact format)
+// ---------------------------------------------------------------------------
+recordKfBtn?.addEventListener('click', () => {
+  if (recordKfBtn.classList.contains('disabled')) return;
+  if (kfRecording) finishKeyframeRecording(false);
+  else startKeyframeRecording();
+});
+
+function startKeyframeRecording(): void {
+  if (!liveMirrorOn) return;
+  const mixer = player?.getFaceMixer();
+  if (!mixer) {
+    showToast('Keyframe recording requires a Mii face (mixer not available).');
+    return;
+  }
+  // Pause idle-blink so the captured stream reflects only the user's
+  // performance — fresh mixer state can otherwise leak random blinks
+  // into the v2 event stream over a 3-6s window.
+  mixer.pauseIdleBlink();
+  const recorder = createKeyframeRecorder(mixer);
+  recorder.start();
+  const startMs = performance.now();
+  kfRecording = {
+    recorder,
+    startMs,
+    lastTickMs: startMs,
+    raf: 0,
+    nameAtStart: animNameInput.value.trim(),
+  };
+  if (recordKfBtn) {
+    recordKfBtn.classList.add('active');
+    recordKfBtn.textContent = 'Stop Keyframe Clip';
+  }
+  setStatus('Recording keyframe clip 0.0s');
+  const tick = () => {
+    if (!kfRecording) return;
+    const now = performance.now();
+    const dt = now - kfRecording.lastTickMs;
+    kfRecording.lastTickMs = now;
+    kfRecording.recorder.tick(dt);
+    setStatus(`Recording keyframe clip ${kfRecording.recorder.elapsedSec.toFixed(1)}s`);
+    kfRecording.raf = requestAnimationFrame(tick);
+  };
+  kfRecording.raf = requestAnimationFrame(tick);
+}
+
+function finishKeyframeRecording(silent: boolean): void {
+  if (!kfRecording) return;
+  const r = kfRecording;
+  kfRecording = null;
+  cancelAnimationFrame(r.raf);
+  // Resume idle-blink — we paused it on start.
+  player?.getFaceMixer()?.resumeIdleBlink();
+  if (recordKfBtn) {
+    recordKfBtn.classList.remove('active');
+    recordKfBtn.textContent = 'Record Keyframe Clip';
+  }
+  if (silent) {
+    return;
+  }
+  if (r.recorder.elapsedSec < MIN_CLIP_DURATION_SEC) {
+    showToast(`Keyframe clip too short — needs at least ${MIN_CLIP_DURATION_SEC}s.`);
+    setStatus('Keyframe recording discarded.');
+    return;
+  }
+  let name = r.nameAtStart || animNameInput.value.trim();
+  if (!name) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    name = `face-kf-${stamp}`;
+  }
+  const clip = r.recorder.stop({ name });
+  void saveKeyframeClip(clip)
+    .then(() => {
+      let totalEvents = 0;
+      for (const t of Object.keys(clip.tracks)) {
+        const list = clip.tracks[t as keyof typeof clip.tracks];
+        if (list) totalEvents += list.length;
+      }
+      setStatus(
+        `Saved keyframe clip ${name}: ${totalEvents} events ` +
+          `(${clip.totalDurationSec.toFixed(1)}s)`,
+      );
+      animNameInput.value = '';
+      void populateKfList();
+    })
+    .catch((err) => {
+      showToast(`Save keyframe clip failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+}
+
+async function populateKfList(): Promise<void> {
+  if (!kfListEl) return;
+  let clips: FaceKeyframeMeta[] = [];
+  try {
+    clips = await listKeyframeClips();
+  } catch (err) {
+    kfListEl.innerHTML = `<div style="color:#ff7a7a;font-size:11px;">IDB error: ${err instanceof Error ? err.message : String(err)}</div>`;
+    return;
+  }
+  kfListEl.innerHTML = '';
+  if (clips.length === 0) {
+    kfListEl.innerHTML = '<div style="color:#888;font-size:11px;">No keyframe clips yet.</div>';
+    return;
+  }
+  for (const c of clips) {
+    const row = document.createElement('div');
+    row.className = 'anim-row';
+    row.dataset.name = c.name;
+
+    const name = document.createElement('div');
+    name.className = 'anim-name';
+    name.textContent = c.name;
+    const badge = document.createElement('span');
+    badge.className = 'anim-badge';
+    badge.textContent = 'V2';
+    badge.title = 'Compact v2 keyframe-clip — replays through the mixer at "scripted" priority.';
+    name.appendChild(badge);
+    row.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'anim-meta';
+    meta.textContent = `${c.eventCount} events · ${c.durationSec.toFixed(1)}s`;
+    row.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'anim-actions';
+    const playBtn = document.createElement('div');
+    playBtn.className = 'btn';
+    playBtn.textContent = 'Play';
+    playBtn.addEventListener('click', () => void playKfClip(c.name));
+    actions.appendChild(playBtn);
+    const deleteBtn = document.createElement('div');
+    deleteBtn.className = 'btn danger';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', async () => {
+      if (!confirm(`Delete "${c.name}"?`)) return;
+      await deleteKeyframeClip(c.name);
+      void populateKfList();
+    });
+    actions.appendChild(deleteBtn);
+    row.appendChild(actions);
+    kfListEl.appendChild(row);
+  }
+}
+
+async function playKfClip(name: string): Promise<void> {
+  if (!mountedFace) {
+    showToast('Pick a 3D-scanned face first.');
+    return;
+  }
+  const mixer = player?.getFaceMixer();
+  if (!mixer) {
+    showToast('Keyframe replay requires a Mii face (mixer not available).');
+    return;
+  }
+  const clip = await loadKeyframeClip(name);
+  if (!clip) {
+    showToast(`Keyframe clip "${name}" not found.`);
+    return;
+  }
+  // Pause live + v1 replay while v2 replays (the 'scripted' priority
+  // sits below 'live-puppet' so a live mirror would steal claims back
+  // every frame). Also stop any previous v2 replay so its 'scripted'
+  // claim doesn't fight ours.
+  stopLiveMirror();
+  stopReplay();
+  stopKfReplay();
+  // The mixer is already wired as the procedural-face source whenever a
+  // Mii face is mounted (set inside player.setFaceMesh3D). We just
+  // need a runner that feeds events at 'scripted' priority.
+  const runner = createV2ClipReplay(mixer, clip);
+  const startMs = performance.now();
+  v2Replay = {
+    clipName: name,
+    runner,
+    startMs,
+    lastTickMs: startMs,
+    raf: 0,
+  };
+  for (const row of kfListEl?.querySelectorAll<HTMLDivElement>('.anim-row') ?? []) {
+    row.classList.toggle('playing', row.dataset.name === name);
+  }
+  setStatus(`Playing keyframe clip ${name}…`);
+  const tick = () => {
+    if (!v2Replay) return;
+    const now = performance.now();
+    const dt = now - v2Replay.lastTickMs;
+    v2Replay.lastTickMs = now;
+    const stillRunning = v2Replay.runner.tick(dt);
+    if (!stillRunning) {
+      stopKfReplay();
+      return;
+    }
+    v2Replay.raf = requestAnimationFrame(tick);
+  };
+  v2Replay.raf = requestAnimationFrame(tick);
+}
+
+function stopKfReplay(): void {
+  if (!v2Replay) return;
+  cancelAnimationFrame(v2Replay.raf);
+  v2Replay.runner.stop();
+  v2Replay = null;
+  for (const row of kfListEl?.querySelectorAll<HTMLDivElement>('.anim-row') ?? []) {
+    row.classList.remove('playing');
+  }
+}
+
+/** Convert a v1 clip to a v2 keyframe clip in-place: replay the v1
+ *  frames through a fresh mixer + live driver to capture the resulting
+ *  track transitions, save the v2 clip to IDB. Used by the "Convert"
+ *  button on each v1 clip row. */
+async function convertV1ClipToV2(v1Name: string): Promise<void> {
+  const v1 = await loadFaceAnim(v1Name);
+  if (!v1) {
+    showToast(`Clip "${v1Name}" not found.`);
+    return;
+  }
+  if (!mountedFace) {
+    showToast('Pick a 3D face first — the converter replays through a puppet bound to the mesh.');
+    return;
+  }
+  // Build a throwaway mixer + live driver pair for the conversion.
+  // Using a fresh mixer (instead of the player's live one) keeps the
+  // conversion isolated — we don't want the user's currently-mounted
+  // mixer's idle-blink scheduler or game-state driver to leak into
+  // the captured event stream.
+  const tempMixer = createFaceKeyframeMixer();
+  // Spin up a one-shot puppet bound to the mounted mesh. The puppet's
+  // EMA is what the live driver reads via getSmoothedValue, so it
+  // mirrors the live-mirror conversion path exactly.
+  const tempPuppet = createFacePuppet(mountedFace.mesh, { smooth: false });
+  const liveDriver = createFaceLiveDriver(tempMixer, tempPuppet);
+  try {
+    const v2 = convertV1ToV2(
+      v1,
+      tempMixer,
+      (sparse) => {
+        const frame: BlendshapeFrame = new Map();
+        for (const k of Object.keys(sparse)) frame.set(k, sparse[k]);
+        tempPuppet.apply(frame);
+      },
+      () => liveDriver.tick(),
+      { name: `${v1.name}-v2` },
+    );
+    await saveKeyframeClip(v2);
+    let totalEvents = 0;
+    for (const t of Object.keys(v2.tracks)) {
+      const list = v2.tracks[t as keyof typeof v2.tracks];
+      if (list) totalEvents += list.length;
+    }
+    setStatus(`Converted "${v1Name}" → keyframe clip "${v2.name}" (${totalEvents} events).`);
+    void populateKfList();
+  } catch (err) {
+    showToast(`Convert failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    // Reset the mesh BEFORE disposing the temp puppet — once disposed
+    // its internal rest-position copy is gone, so reset() throws.
+    tempPuppet.reset();
+    liveDriver.detach();
+    tempPuppet.dispose();
+    tempMixer.dispose();
+    // If the user has a live-mirror puppet open, it'll re-apply on the
+    // next tick. Nothing else to do.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Saved-clips list + replay
 // ---------------------------------------------------------------------------
 async function populateAnimList(): Promise<void> {
@@ -966,6 +1291,15 @@ async function populateAnimList(): Promise<void> {
       if (clip) exportFaceAnimJSON(clip);
     });
     actions.appendChild(exportBtn);
+    // Phase H7 — convert v1 → v2 keyframe clip. Replays through a fresh
+    // mixer to capture the resulting transition stream and saves to the
+    // sibling keyframe-clip IDB store.
+    const convertBtn = document.createElement('div');
+    convertBtn.className = 'btn';
+    convertBtn.textContent = 'To v2';
+    convertBtn.title = 'Convert to compact keyframe clip (~1.7KB vs ~270KB)';
+    convertBtn.addEventListener('click', () => void convertV1ClipToV2(c.name));
+    actions.appendChild(convertBtn);
     const deleteBtn = document.createElement('div');
     deleteBtn.className = 'btn danger';
     deleteBtn.textContent = 'Delete';
@@ -1133,6 +1467,7 @@ function stopReplay(): void {
 }
 
 void populateAnimList();
+void populateKfList();
 
 // ---------------------------------------------------------------------------
 // Import JSON
@@ -1159,6 +1494,8 @@ importFile.addEventListener('change', async () => {
 window.addEventListener('beforeunload', () => {
   stopLiveMirror();
   stopReplay();
+  stopKfReplay();
+  if (kfRecording) finishKeyframeRecording(true /* silent */);
   if (puppet) {
     puppet.dispose();
     puppet = null;

@@ -235,3 +235,117 @@ export async function importFaceAnimJSON(file: File): Promise<FaceAnimClip> {
 }
 
 export { isFaceAnimClip };
+
+// ===========================================================================
+// Phase H7 — Compact v2 keyframe-clip store.
+//
+// Lives in a SEPARATE IDB database so the v1 store ('march-mad-face-anims')
+// stays untouched. Mirrors the same minimal CRUD surface as the v1 store.
+//
+// Keeping the two stores fully isolated means:
+//   - existing v1 clips never need migration (they keep working unchanged).
+//   - a v2 schema bump down the road only touches the v2 DB version.
+//   - listFaceAnims() / listKeyframeClips() can be called independently
+//     without one's DB-open promise gating the other.
+// ===========================================================================
+
+import {
+  isFaceKeyframeClip,
+  type FaceKeyframeClip,
+  type FaceKeyframeMeta,
+} from './face-keyframe-clip';
+
+const KF_DB_NAME = 'march-mad-face-keyframe-clips';
+const KF_DB_VERSION = 1;
+const KF_STORE = 'clips';
+
+let kfDbPromise: Promise<IDBDatabase> | null = null;
+
+function openKfDB(): Promise<IDBDatabase> {
+  if (kfDbPromise) return kfDbPromise;
+  kfDbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+    const req = indexedDB.open(KF_DB_NAME, KF_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(KF_STORE)) {
+        db.createObjectStore(KF_STORE, { keyPath: 'name' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error('Failed to open keyframe-clip IDB'));
+  });
+  return kfDbPromise;
+}
+
+function kfTx(db: IDBDatabase, mode: IDBTransactionMode): IDBObjectStore {
+  return db.transaction(KF_STORE, mode).objectStore(KF_STORE);
+}
+
+/** Save (or overwrite) a v2 keyframe clip by name. */
+export async function saveKeyframeClip(clip: FaceKeyframeClip): Promise<void> {
+  const db = await openKfDB();
+  return new Promise<void>((resolve, reject) => {
+    const store = kfTx(db, 'readwrite');
+    const req = store.put(clip);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error ?? new Error('saveKeyframeClip failed'));
+  });
+}
+
+/** Load a v2 clip by name, or null if not found. */
+export async function loadKeyframeClip(name: string): Promise<FaceKeyframeClip | null> {
+  const db = await openKfDB();
+  return new Promise<FaceKeyframeClip | null>((resolve, reject) => {
+    const store = kfTx(db, 'readonly');
+    const req = store.get(name);
+    req.onsuccess = () => resolve((req.result as FaceKeyframeClip | undefined) ?? null);
+    req.onerror = () => reject(req.error ?? new Error('loadKeyframeClip failed'));
+  });
+}
+
+/** List v2 clip metadata for the dropdown UI. Sorted by capturedAt desc.
+ *
+ *  Returns just the names plus light metadata so consumers can render the
+ *  clip list without round-tripping the full event arrays through main
+ *  thread JSON. (Even at 1.7 KB per clip the metadata-only path is the
+ *  cleaner contract.) */
+export async function listKeyframeClips(): Promise<FaceKeyframeMeta[]> {
+  const db = await openKfDB();
+  return new Promise<FaceKeyframeMeta[]>((resolve, reject) => {
+    const store = kfTx(db, 'readonly');
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const clips = (req.result as FaceKeyframeClip[]) ?? [];
+      const meta: FaceKeyframeMeta[] = clips.map((c) => {
+        let eventCount = 0;
+        for (const trackName of Object.keys(c.tracks)) {
+          const list = c.tracks[trackName as keyof typeof c.tracks];
+          if (list) eventCount += list.length;
+        }
+        return {
+          name: c.name,
+          capturedAt: c.capturedAt,
+          eventCount,
+          durationSec: c.totalDurationSec,
+        };
+      });
+      meta.sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+      resolve(meta);
+    };
+    req.onerror = () => reject(req.error ?? new Error('listKeyframeClips failed'));
+  });
+}
+
+/** Remove a v2 clip by name. */
+export async function deleteKeyframeClip(name: string): Promise<void> {
+  const db = await openKfDB();
+  return new Promise<void>((resolve, reject) => {
+    const store = kfTx(db, 'readwrite');
+    const req = store.delete(name);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error ?? new Error('deleteKeyframeClip failed'));
+  });
+}
+
+export { isFaceKeyframeClip };
+

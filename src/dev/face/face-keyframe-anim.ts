@@ -190,12 +190,12 @@ const DRIVER_LEVEL: Record<DriverPriority, number> = {
   'live-puppet': 3,
 };
 
-const ALL_TRACKS: FeatureTrack[] = [
+export const ALL_TRACKS: readonly FeatureTrack[] = [
   'eye-L', 'eye-R',
   'brow-L', 'brow-R',
   'mouth', 'cheek',
   'decal-overlay',
-];
+] as const;
 
 const PRIORITIES_LOW_TO_HIGH: DriverPriority[] = [
   'idle-blink',
