@@ -23,6 +23,8 @@ import {
   packColor,
   isSkinHSV,
   imageMeanLuma,
+  computeImageWhiteBalance,
+  applyWhiteBalanceToPixels,
 } from './sample-utils';
 
 const HALF_EXTENT = 7; // 7px half-extent → 15×15 patch
@@ -92,6 +94,19 @@ export function sampleSkinTone(
   const imgMean = imageMeanLuma(ctx);
   const lumaThreshold = 0.4 * imgMean;
 
+  // Phase H0+ — Compute the SCENE-wide white-balance correction once.
+  // Many webcams in dim or color-cast lighting produce a strong blue/
+  // purple tint that hue-shifts skin pixels out of `isSkinHSV`'s warm
+  // range, killing every patch. We sample a strided grid over the whole
+  // image to derive gray-world scales (R/B → green's mean) and apply
+  // them to each patch's pixels before HSV gating. Critical: scales come
+  // from the WHOLE IMAGE, not the patch — applying gray-world to a single
+  // uniform patch just converts it to neutral gray, defeating the purpose.
+  // When the image's channel-mean ratio is below WB_CAST_THRESHOLD the
+  // helper returns `apply: false` and the patch pixels pass through
+  // unchanged (no-op for normal-balanced webcams).
+  const wb = computeImageWhiteBalance(ctx);
+
   const patches: SkinPatches = {
     forehead: null,
     cheekL: null,
@@ -121,7 +136,15 @@ export function sampleSkinTone(
     const filtered = pixels.filter((p) => p.a >= 200);
     if (filtered.length < 9) continue;
 
-    const med = medianRGB(filtered);
+    // Apply the SCENE-wide WB correction (computed once above) to each
+    // patch. When `wb.apply` is false, this is a reference pass-through —
+    // no allocation, no per-pixel math. When the cast was severe (the
+    // user's purple-cast webcam), the corrected pixels have R/B rebalanced
+    // toward G's mean, pulling skin pixels back into `isSkinHSV`'s warm
+    // hue range so the patch survives the gate.
+    const wbFiltered = applyWhiteBalanceToPixels(wb, filtered);
+
+    const med = medianRGB(wbFiltered);
     const { r, g, b } = unpackColor(med);
     const medLuma = 0.299 * r + 0.587 * g + 0.114 * b;
 

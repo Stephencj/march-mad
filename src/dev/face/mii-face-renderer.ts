@@ -115,12 +115,14 @@ const Z_BIAS: Record<FeatureName, number> = {
  *  ~0.42m tall × ~0.36m wide; these targets fit accordingly. */
 const TARGET_SIZE_M: Record<FeatureName, { w: number; h: number }> = {
   // Phase H2c-fix — eye/brow overlays sit inside the face plate around
-  // the iris midpoint (±~0.030m X). Tight almond eye + thin brow strip
-  // so the overlays read as eye/brow without ballooning across the plate.
-  leftEye:   { w: 0.040, h: 0.020 },
-  rightEye:  { w: 0.040, h: 0.020 },
-  leftBrow:  { w: 0.045, h: 0.012 },
-  rightBrow: { w: 0.045, h: 0.012 },
+  // the iris midpoint (±~0.030m X). Sized to be visible at proper
+  // anatomical proportion against the plate (which spans ~0.20m wide,
+  // ~0.27m tall) so the overlays read as eye/brow without floating in
+  // mostly-empty plate-skin.
+  leftEye:   { w: 0.055, h: 0.030 },
+  rightEye:  { w: 0.055, h: 0.030 },
+  leftBrow:  { w: 0.060, h: 0.018 },
+  rightBrow: { w: 0.060, h: 0.018 },
   // Nose: narrow, vertical. Bridge to nostril span ~0.075m, width ~0.045m.
   // (Skipped at render time when facePlate is present.)
   nose:      { w: 0.045, h: 0.075 },
@@ -132,10 +134,11 @@ const TARGET_SIZE_M: Record<FeatureName, { w: number; h: number }> = {
   // Mustache: thin band above upper lip, slightly wider than mouth.
   // (Skipped when facePlate is present.)
   mustache:  { w: 0.070, h: 0.016 },
-  // Phase H2c-fix — hat sized as a cap brim wider than the face plate
-  // but narrower than the cranium (cranium ~0.36m wide). Height matches
-  // a typical visor depth so the H1 hat crop reads as a recognizable cap.
-  hat:       { w: 0.320, h: 0.180 },
+  // Phase H2c-fix — hat sized to read as a real cap on the head rather
+  // than dominating the cranium. The forward-cap (visor) crop reads as
+  // a recognizable cap at this physical size; previously 0.32×0.18 was
+  // visibly oversized vs the cranium silhouette.
+  hat:       { w: 0.200, h: 0.100 },
   // Phase H2c-fix — facePlate sized to fit INSIDE the cranium silhouette.
   // Cranium front cap is ~0.36m wide × ~0.59m tall; face area chin-to-
   // forehead is ~0.42m. A 0.20×0.27m plate sits well inside the cranium
@@ -183,15 +186,12 @@ const ANCHOR_OFFSET_M: Record<FeatureName, { x: number; y: number }> = {
   beard:     { x:  0.000, y: -0.115 },
   // Mustache just above mouth. Skipped when facePlate is present.
   mustache:  { x:  0.000, y: -0.060 },
-  // Phase H2c-fix — hat centered ~+0.18m above iris. Plane spans
-  // [+0.09, +0.27] — bottom edge at upper-forehead, top edge well
-  // inside the cranium crown (cranium top sits at ~+0.38). The cap
-  // brim pixels (LOWER ~30% of the H1 crop) land at the hairline;
-  // the dark cap top fills the upper cranium, partially hiding the
-  // skin-toned dome behind. Background pixels in the H1 crop (sky/
-  // wall) get overlaid on the cranium ellipsoid rather than floating
-  // above the head silhouette.
-  hat:       { x:  0.000, y:  0.180 },
+  // Phase H2c-fix — hat lowered to sit ON the head rather than ABOVE.
+  // At y=+0.16 the smaller (0.20×0.10) hat plane spans [+0.11, +0.21]
+  // — bottom edge at upper-forehead/hairline, top edge well below the
+  // cranium crown (~+0.38). The cap (now forward-facing/visor) reads
+  // as a cap perched on the head rather than a halo floating above.
+  hat:       { x:  0.000, y:  0.160 },
   // Phase H2c-fix — facePlate centered just slightly below iris-Y so
   // the chin (-0.135 + plate-center-y) and forehead (+0.135 + center-y)
   // both fit inside the cranium silhouette. With center y = -0.020 the

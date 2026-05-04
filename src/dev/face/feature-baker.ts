@@ -1089,19 +1089,27 @@ function paintNoseOntoPlate(
     0, 0, tmp.width, tmp.height,
   );
 
-  // Step 2: apply a radial-gradient alpha mask via destination-in. The
-  // gradient is intentionally TIGHT — only the center ~25% is fully
-  // visible, fading rapidly to transparent. This keeps the nose
-  // recognizable (nostrils + bridge) without leaking eye-region or
-  // upper-lip pixels into the plate.
+  // Step 2: apply a radial-gradient alpha mask via destination-in so
+  // the painted nose region blends smoothly into the skin-tone
+  // background fill (no visible rectangular edge).
+  //
+  // We use the diagonal (Math.hypot) as the gradient radius so EVERY
+  // corner of the rectangle hits the alpha=0 stop. With min(cxc,cyc)
+  // the long sides of a non-square nose bbox would clip hard at the
+  // ellipse boundary; with max(cxc,cyc) two opposite sides clip hard.
+  // The diagonal lets alpha decay smoothly across the entire rect.
+  //
+  // Stops follow the spec: inner ~60% solid (covers nostrils + bridge),
+  // outer ~40% smooth feather to transparent.
   const cxc = tmp.width / 2;
   const cyc = tmp.height / 2;
-  const radius = Math.max(cxc, cyc);
+  const radius = Math.hypot(cxc, cyc);
   const grad = tctx.createRadialGradient(cxc, cyc, 0, cxc, cyc, radius);
-  grad.addColorStop(0.0, 'rgba(0,0,0,0.85)');
-  grad.addColorStop(0.35, 'rgba(0,0,0,0.55)');
-  grad.addColorStop(0.65, 'rgba(0,0,0,0.15)');
-  grad.addColorStop(1.0, 'rgba(0,0,0,0.00)');
+  grad.addColorStop(0.00, 'rgba(0,0,0,1.00)');
+  grad.addColorStop(0.30, 'rgba(0,0,0,1.00)');
+  grad.addColorStop(0.55, 'rgba(0,0,0,0.45)');
+  grad.addColorStop(0.80, 'rgba(0,0,0,0.10)');
+  grad.addColorStop(1.00, 'rgba(0,0,0,0.00)');
   tctx.globalCompositeOperation = 'destination-in';
   tctx.fillStyle = grad;
   tctx.fillRect(0, 0, tmp.width, tmp.height);

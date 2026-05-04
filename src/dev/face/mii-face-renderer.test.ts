@@ -186,7 +186,7 @@ describe('buildMiiFace', () => {
     expect(lEye.position.x).toBeCloseTo(-rEye.position.x, 5);
     // Eye plane width matches the physical-meter target.
     const params = (lEye.geometry as THREE.PlaneGeometry).parameters;
-    expect(params.width).toBeCloseTo(0.040, 4);
+    expect(params.width).toBeCloseTo(0.055, 4);
     built.dispose();
   });
 

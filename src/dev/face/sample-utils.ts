@@ -300,14 +300,152 @@ export function rgbToHsv(r: number, g: number, b: number): { h: number; s: numbe
 /**
  * Test whether an RGB color falls in a plausible human-skin HSV range.
  * Hue 0–50° (yellow-orange-red) OR 320–360° (warm reds, includes some
- * olive/brown tones), saturation 10–60%, value 25–95%. Tuned against the
+ * olive/brown tones), saturation 5–60%, value 25–95%. Tuned against the
  * captured-data bug where dark-purple background pixels (h~270°, s~7%,
  * v~17%) were leaking into the skin-tone average.
+ *
+ * Phase H0+: saturation floor lowered from 10% → 5%. Webcams in dim
+ * indoor lighting often render skin at s≈0.07–0.12 (genuine skin pixels
+ * — the user's failing scan had forehead s=0.09, cheekL s=0.07). The
+ * non-skin shadow case the gate was tuned against (rgb(41,38,44),
+ * h~270°, s~7%, v~17%) is still rejected by hue (out of warm window)
+ * AND value (below 0.25 floor), so the saturation relaxation doesn't
+ * regress that. 5% retains a meaningful chroma signal; below that we
+ * really are looking at near-gray pixels which are more likely a hat
+ * brim / neutral cloth than skin.
  */
 export function isSkinHSV(r: number, g: number, b: number): boolean {
   const { h, s, v } = rgbToHsv(r, g, b);
   if (v < 0.25 || v > 0.95) return false;
-  if (s < 0.1 || s > 0.6) return false;
+  if (s < 0.05 || s > 0.6) return false;
   const hueOk = (h >= 0 && h <= 50) || (h >= 320 && h < 360);
   return hueOk;
+}
+
+/** Threshold (channel-mean ratio max/min) above which we treat the pixel
+ *  set as having a meaningful color cast and apply the gray-world WB
+ *  correction. Below this, the cast is mild enough that correcting could
+ *  wash out genuine skin chroma; we leave the pixels alone. 1.3 was
+ *  chosen so a healthy-skin patch (typical ratio ~1.15–1.25 due to
+ *  natural red bias) is left alone, while a webcam with a blue/purple
+ *  cast (rMean/bMean inverted, ratio often ≥1.4) gets corrected. */
+const WB_CAST_THRESHOLD = 1.3;
+
+/**
+ * Per-channel scale factors for a gray-world white-balance correction.
+ * `apply` is true when the input set's max/min channel-mean ratio
+ * exceeded WB_CAST_THRESHOLD; false means the cast is mild and callers
+ * should pass pixels through unchanged. Anchored on green (rScale=1
+ * when no correction).
+ */
+export interface WhiteBalance {
+  apply: boolean;
+  rScale: number;
+  bScale: number;
+}
+
+/**
+ * Compute gray-world white-balance scale factors from a pixel set.
+ *
+ * Rationale: many webcams (especially in dim or color-cast lighting)
+ * produce a strong blue/purple cast that hue-shifts genuine skin pixels
+ * out of the warm range expected by `isSkinHSV` (0-50° or 320-360°). A
+ * gray-world assumption — that the average of a SCENE-wide pixel set
+ * should be neutral — pulls the channel means together so a downstream
+ * skin patch retains its chroma post-correction. (Applying the WB to a
+ * single uniform patch instead would just neutralize the patch to gray;
+ * skin chroma is recovered ONLY when the scales come from a wider scene
+ * sample.)
+ *
+ * The anchor channel is GREEN: skin is dominantly red→green→blue, but
+ * green sits in the middle of the channel-mean ordering for both
+ * normal-skin and color-cast cases, so anchoring on green minimizes the
+ * luma shift the correction introduces. R and B are scaled toward G.
+ */
+export function computeWhiteBalance(pixels: Pixel[]): WhiteBalance {
+  if (pixels.length === 0) return { apply: false, rScale: 1, bScale: 1 };
+  let rSum = 0;
+  let gSum = 0;
+  let bSum = 0;
+  let n = 0;
+  for (const p of pixels) {
+    if (p.a < 200) continue;
+    rSum += p.r;
+    gSum += p.g;
+    bSum += p.b;
+    n++;
+  }
+  if (n === 0) return { apply: false, rScale: 1, bScale: 1 };
+  const rMean = rSum / n;
+  const gMean = gSum / n;
+  const bMean = bSum / n;
+  const maxMean = Math.max(rMean, gMean, bMean);
+  const minMean = Math.min(rMean, gMean, bMean);
+  // Avoid divide-by-zero on degenerate (all-black) pixel sets.
+  if (minMean <= 0) return { apply: false, rScale: 1, bScale: 1 };
+  const ratio = maxMean / minMean;
+  if (ratio < WB_CAST_THRESHOLD) return { apply: false, rScale: 1, bScale: 1 };
+  return {
+    apply: true,
+    rScale: gMean / Math.max(rMean, 1e-6),
+    bScale: gMean / Math.max(bMean, 1e-6),
+  };
+}
+
+/**
+ * Apply gray-world white-balance to a pixel set. Each channel is normalized
+ * toward the channel mean of the pixel set, rebalancing color casts.
+ * Only modifies pixels if the cast is severe (max channel mean / min
+ * channel mean > WB_CAST_THRESHOLD); otherwise returns the input array
+ * unchanged.
+ *
+ * NOTE for callers: applying this to a single uniform patch typically
+ * makes the patch gray (since the patch's own mean IS the patch); to
+ * retain skin chroma, derive scales from a SCENE-wide pixel set
+ * (`computeWhiteBalance(imageGridSamples)`) and apply via
+ * `applyWhiteBalanceToPixels(scales, patchPixels)` instead.
+ *
+ * Returns a NEW array of pixels when correction is applied; returns the
+ * input reference unchanged when the cast is mild (no allocation).
+ */
+export function whiteBalancePixels(pixels: Pixel[]): Pixel[] {
+  const wb = computeWhiteBalance(pixels);
+  if (!wb.apply) return pixels;
+  return applyWhiteBalanceToPixels(wb, pixels);
+}
+
+/**
+ * Apply pre-computed white-balance scales to a pixel set. Each pixel's
+ * R and B channels are scaled toward green and clamped to [0,255]; G and
+ * alpha are passed through. When `wb.apply` is false, returns the input
+ * reference unchanged (no allocation).
+ */
+export function applyWhiteBalanceToPixels(wb: WhiteBalance, pixels: Pixel[]): Pixel[] {
+  if (!wb.apply) return pixels;
+  const out: Pixel[] = new Array(pixels.length);
+  for (let i = 0; i < pixels.length; i++) {
+    const p = pixels[i];
+    const nr = Math.max(0, Math.min(255, Math.round(p.r * wb.rScale)));
+    const nb = Math.max(0, Math.min(255, Math.round(p.b * wb.bScale)));
+    out[i] = { r: nr, g: p.g, b: nb, a: p.a };
+  }
+  return out;
+}
+
+/**
+ * Sample a strided grid of pixels from the full image and compute the
+ * scene-wide gray-world white-balance scales. Used by the skin-tone
+ * sampler so per-patch corrections preserve skin chroma. Stride 16 ≈
+ * 1024 samples on a 512×512 image — enough for a stable channel mean
+ * without scanning every pixel.
+ */
+export function computeImageWhiteBalance(ctx: SampleContext, step = 16): WhiteBalance {
+  const samples: Pixel[] = [];
+  for (let y = 0; y < ctx.height; y += step) {
+    for (let x = 0; x < ctx.width; x += step) {
+      const px = sampleRect(ctx, x, y, 0);
+      if (px.length > 0 && px[0].a >= 200) samples.push(px[0]);
+    }
+  }
+  return computeWhiteBalance(samples);
 }
