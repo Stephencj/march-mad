@@ -472,6 +472,13 @@ function bakeHat(
   posterize(octx, spec.outW, spec.outH, spec.palette, spec.satBoost, undefined);
   if (spec.edgeEnhance) edgeEnhance(octx, spec.outW, spec.outH, 0.4);
 
+  // Phase H2c — alpha vignette so the rectangular hat crop fades into
+  // transparency at its corners (sky/wall pixels behind the cap) and
+  // along its bottom (forehead/hair feathering into the face plate
+  // mounted just below). The cap occupies the upper-center of the bbox;
+  // we want top center opaque, top corners transparent, bottom soft.
+  applyHatVignette(octx, spec.outW, spec.outH);
+
   // 3D placement: centroid of anchor landmarks shifted upward in mesh-Y
   // by ~half the upExpand we applied in pixel-space.
   const anchorCenter = landmarkCentroid3D(landmarks, spec.indices);
@@ -1138,6 +1145,66 @@ function applyEllipticalVignette(
   mctx.save();
   mctx.translate(cx, cy);
   mctx.scale(w / Math.min(w, h), h / Math.min(w, h));
+  mctx.translate(-cx, -cy);
+  mctx.fillStyle = grad;
+  mctx.fillRect(0, 0, w, h);
+  mctx.restore();
+
+  octx.save();
+  octx.globalCompositeOperation = 'destination-in';
+  octx.drawImage(mask, 0, 0);
+  octx.restore();
+}
+
+/**
+ * Phase H2c — hat-specific elliptical alpha vignette. The cap in a
+ * front-pose photo sits as a centered grey dome with sky/wall pixels in
+ * the top corners and the user's forehead/hair below. We want:
+ *   - Top center (cap apex)        → fully opaque
+ *   - Top corners (sky/wall)       → fully transparent
+ *   - Sides (cap edges)            → soft falloff
+ *   - Bottom (forehead/hair)       → soft alpha so the hat plane feathers
+ *     into the face plate mounted underneath
+ *
+ * Implementation: build an ellipse mask centered at the canvas's
+ * horizontal center but offset upward (top-bias) so the visible region
+ * tracks the cap. Outer ~25% feathers to transparent.
+ */
+function applyHatVignette(
+  octx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+): void {
+  const mask = document.createElement('canvas');
+  mask.width = w;
+  mask.height = h;
+  const mctx = mask.getContext('2d');
+  if (!mctx) return;
+  mctx.clearRect(0, 0, w, h);
+
+  // Center horizontally, top-bias: cap apex sits ~40% from top of bbox.
+  // We want a wide-but-short visible ellipse: cap aspect in the bbox is
+  // roughly 2:1 (wide). Build a radial gradient in unit-circle space,
+  // then non-uniformly scale via setTransform so the visible region
+  // stretches horizontally to match cap width.
+  const cx = w / 2;
+  const cy = h * 0.40;
+  // Base radius in unit-square space (use HALF the smaller dim so the
+  // ellipse fits without overshoot; we'll then stretch via transform).
+  const baseR = Math.min(w, h) / 2;
+  const grad = mctx.createRadialGradient(cx, cy, 0, cx, cy, baseR);
+  // Solid out to ~60% then aggressive feather to transparent. Tighter
+  // than facePlate (85%) because the hat bbox has more empty corner
+  // space (sky/wall pixels above the cap).
+  grad.addColorStop(0.0, 'rgba(0,0,0,1.0)');
+  grad.addColorStop(0.55, 'rgba(0,0,0,1.0)');
+  grad.addColorStop(1.0, 'rgba(0,0,0,0.0)');
+  // Stretch horizontally so the unit circle becomes a wide ellipse
+  // that hugs the cap (which spans almost the full bbox width but only
+  // ~70% of the bbox height).
+  mctx.save();
+  mctx.translate(cx, cy);
+  mctx.scale(w / Math.min(w, h), 1.4 * h / Math.min(w, h));
   mctx.translate(-cx, -cy);
   mctx.fillStyle = grad;
   mctx.fillRect(0, 0, w, h);
