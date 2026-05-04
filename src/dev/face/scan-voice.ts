@@ -58,9 +58,39 @@ export function speakNow(text: string): void {
   window.speechSynthesis.speak(u);
 }
 
+/** Module-level dedupe for the lighting warning. Without this, holding a
+ *  dim scene for multiple seconds would re-queue the same TTS utterance
+ *  every frame the warning is active. Reset by `resetSpokenState()`. */
+let lightingWarningSpoken = false;
+
+/**
+ * Speak the low-light advisory ("I'm having trouble seeing your face. Try
+ * moving toward more light."). Deduped — only the first call per scan
+ * actually speaks; subsequent calls are no-ops until `resetSpokenState()`
+ * is called at the start of the next scan.
+ *
+ * Kept separate from `speakNow` so callers can fire it freely from a
+ * per-frame UX update without flooding the synth queue.
+ */
+export function speakLightingWarning(): void {
+  if (!voiceEnabled) return;
+  if (!('speechSynthesis' in window)) return;
+  if (lightingWarningSpoken) return;
+  lightingWarningSpoken = true;
+  // Don't cancel pending speech — we don't want to interrupt the current
+  // pose instruction mid-sentence. The synth will queue this up and play
+  // it after whatever is currently speaking (or immediately if idle).
+  const u = new SpeechSynthesisUtterance(
+    "I'm having trouble seeing your face. Try moving toward more light.",
+  );
+  u.rate = 1.0;
+  window.speechSynthesis.speak(u);
+}
+
 /** Reset the per-pose dedupe + cancel any in-flight speech. */
 export function resetSpokenState(): void {
   lastSpokenPose = null;
+  lightingWarningSpoken = false;
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 }
 

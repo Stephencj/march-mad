@@ -90,6 +90,12 @@ export interface ScanProgressDetail {
   toleranceRad: number;
   /** 0..1 fraction of the hold window completed. */
   holdProgress: number;
+  /** Current image-mean luma of the live preview frame (0..255). Null
+   *  before the first sample lands or when sampling fails. Sampled every
+   *  ~1s (LIGHTING_CHECK_INTERVAL_MS), reused on intermediate frames so
+   *  the cost is bounded. UX shows a warning when this stays low for
+   *  multiple seconds — see face-editor.ts. */
+  imgMean: number | null;
 }
 
 export type ScanProgressCallback = (
@@ -99,6 +105,14 @@ export type ScanProgressCallback = (
   detail?: ScanProgressDetail,
 ) => void;
 
+/** Live-preview lighting-check throttle: how often (ms) to resample the
+ *  image-mean luma during a scan. ~1Hz is enough to drive a 2-second
+ *  consecutive-low-light warning without pegging the CPU on a hot loop. */
+const LIGHTING_CHECK_INTERVAL_MS = 1000;
+/** Stride (pixels) for the strided-grid luma sample on the live video. The
+ *  raw video can be 1280×720; stride 32 gives 40×22 = ~880 samples per
+ *  check, plenty for a stable mean. */
+const LIGHTING_SAMPLE_STRIDE = 32;
 /** ±tolerance per axis to consider "within target pose", in radians. */
 const POSE_TOLERANCE_RAD = 0.10; // ~5.7°
 /** Phase 7.8: relax tolerance for the profile poses (±60° yaw). At extreme
@@ -372,6 +386,13 @@ export class FaceScanner {
   private rejectScan: ((err: Error) => void) | null = null;
   private progressCb: ScanProgressCallback | null = null;
   private cancelled = false;
+  // Lighting-check (Task 3): we resample the live preview's mean luma at
+  // ~1Hz and surface the value through ScanProgressDetail. The UX uses it
+  // to warn the user about poor-light scans BEFORE they record 7 angles.
+  private lastLightingCheckMs = -Infinity;
+  private lastImgMean: number | null = null;
+  private lightingCanvas: HTMLCanvasElement | null = null;
+  private lightingCtx: CanvasRenderingContext2D | null = null;
 
   constructor(capture: FaceCapture) {
     this.capture = capture;
@@ -452,13 +473,80 @@ export class FaceScanner {
       this.loop.cancel();
       this.loop = null;
     }
+    this.lightingCanvas = null;
+    this.lightingCtx = null;
+    this.lastImgMean = null;
+    this.lastLightingCheckMs = -Infinity;
     this.capture.resumePreviewLoop();
+  }
+
+  /**
+   * Throttled live-preview lighting check. Samples a strided grid of
+   * pixels from the current video frame and returns the mean luma.
+   * Returns the cached value when the last sample is fresher than
+   * LIGHTING_CHECK_INTERVAL_MS — keeps the per-frame cost negligible.
+   *
+   * Returns null on the very first frames (before getImageData has
+   * succeeded once) and on transient failures (zero-sized video).
+   */
+  private maybeSampleLighting(videoEl: HTMLVideoElement, nowMs: number): number | null {
+    if (nowMs - this.lastLightingCheckMs < LIGHTING_CHECK_INTERVAL_MS) {
+      return this.lastImgMean;
+    }
+    const w = videoEl.videoWidth;
+    const h = videoEl.videoHeight;
+    if (w <= 0 || h <= 0) return this.lastImgMean;
+    // Lazy-create the offscreen canvas. We draw the WHOLE video at native
+    // size — strided sampling keeps the work bounded regardless.
+    if (!this.lightingCanvas) {
+      this.lightingCanvas = document.createElement('canvas');
+    }
+    if (this.lightingCanvas.width !== w || this.lightingCanvas.height !== h) {
+      this.lightingCanvas.width = w;
+      this.lightingCanvas.height = h;
+      this.lightingCtx = null; // re-acquire after resize
+    }
+    if (!this.lightingCtx) {
+      this.lightingCtx = this.lightingCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    if (!this.lightingCtx) return this.lastImgMean;
+    try {
+      this.lightingCtx.drawImage(videoEl, 0, 0, w, h);
+      const data = this.lightingCtx.getImageData(0, 0, w, h).data;
+      let sum = 0;
+      let n = 0;
+      const stride = LIGHTING_SAMPLE_STRIDE;
+      for (let y = 0; y < h; y += stride) {
+        for (let x = 0; x < w; x += stride) {
+          const i = (y * w + x) * 4;
+          // ITU-R BT.601 luma weights — same convention as
+          // sample-utils.ts/pixelLuma so live + post-capture comparisons
+          // line up. Skip alpha-zero (shouldn't happen on a live video,
+          // but cheap insurance).
+          if (data[i + 3] < 200) continue;
+          sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          n++;
+        }
+      }
+      this.lastImgMean = n > 0 ? sum / n : null;
+      this.lastLightingCheckMs = nowMs;
+      return this.lastImgMean;
+    } catch {
+      // getImageData can throw on tainted streams; swallow and reuse the
+      // last known value (or null). Non-fatal — lighting feedback is UX-
+      // only, never blocks the scan.
+      return this.lastImgMean;
+    }
   }
 
   /** Per-frame handler — runs detect, decides whether to advance. */
   private onFrame(landmarker: FaceLandmarker, videoEl: HTMLVideoElement): void {
     if (videoEl.readyState < 2) return;
     if (this.targetIndex >= SCAN_TARGETS.length) return;
+
+    // Throttled lighting sample — runs ~1Hz, returns cached value otherwise.
+    // Stored on `this.lastImgMean` and emitted via emitProgress below.
+    this.maybeSampleLighting(videoEl, performance.now());
 
     const ts = this.capture.bumpDetectTimestamp();
     let result: FaceLandmarkerResult;
@@ -642,6 +730,7 @@ export class FaceScanner {
         faceVisible,
         toleranceRad,
         holdProgress,
+        imgMean: this.lastImgMean,
       },
     );
   }

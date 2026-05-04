@@ -220,6 +220,15 @@ export async function reprocessFace(face: FaceImage): Promise<ReprocessResult> {
           'heavy makeup, or face partly occluded). Downstream samplers that depend on skin ' +
           'tone (lip, brow prominence, beard, eyelashes, hair/hat) will be skipped.',
       );
+    } else if (skinResult?.samplerLowLightWarning) {
+      // Single-survivor low-light path: tone is plausible but came from
+      // ONE patch (the others got HSV-rejected, typically due to a webcam
+      // white-balance cast). Surface it so the caller can flag the result
+      // for review without blocking the cascade.
+      warnings.push(
+        'skin-tone sampled from a single surviving patch (low-light / off-white-balance scan). ' +
+          'Result is plausible but biased toward one cheek; consider rescanning in better light.',
+      );
     }
     const skinToneVal = skinTone ?? null;
 

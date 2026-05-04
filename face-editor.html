@@ -166,6 +166,20 @@
       font-weight: bold; margin-bottom: 10px;
     }
     #scan-no-face[hidden] { display: none; }
+    /* Phase H0+ — lighting-quality advisory. Two severities:
+        .warn  → visibly dark scene, fires after ~2s of imgMean<60.
+        .hint  → workable but suboptimal, fires when imgMean ∈ [60,90].
+       Both render as a single line of text + icon under the no-face row.
+       Never blocks capture — purely advisory. */
+    #scan-lighting {
+      font-family: monospace; font-size: 12px;
+      margin-bottom: 8px; min-height: 16px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    #scan-lighting[data-level="ok"]   { display: none; }
+    #scan-lighting[data-level="hint"] { color: #ffd700; }
+    #scan-lighting[data-level="warn"] { color: #e94560; font-weight: bold; }
+    #scan-lighting .icon { font-size: 14px; }
     /* Mesh preview shown after a successful scan, before Accept/Redo. */
     #mesh-preview-container {
       position: absolute; inset: 0; display: none;
@@ -244,6 +258,10 @@
             </div>
             <!-- "Face not detected" indicator (hidden until detect fails). -->
             <div id="scan-no-face" hidden>Face not detected &mdash; re-center yourself</div>
+            <!-- Phase H0+ — live lighting-quality advisory. Driven by the
+                 scan progress callback's imgMean field. Shown only when
+                 lighting is below ideal; hidden via [data-level=ok]. -->
+            <div id="scan-lighting" data-level="ok"></div>
             <div id="scan-status">&nbsp;</div>
             <div id="scan-progress-bar"><div id="scan-progress-fill"></div></div>
             <!-- Voice toggle — checked by default; binds to setVoiceEnabled. -->

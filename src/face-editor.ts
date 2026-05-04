@@ -40,6 +40,7 @@ import {
   setVoiceEnabled,
   speakNow,
   speakPoseInstruction,
+  speakLightingWarning,
   resetSpokenState,
   beep,
 } from './dev/face/scan-voice';
@@ -73,6 +74,7 @@ const scanPoseFeedbackEl = document.getElementById('scan-pose-feedback') as HTML
 const scanArrowEl = document.getElementById('scan-arrow') as HTMLSpanElement;
 const scanDeltaEl = document.getElementById('scan-delta') as HTMLSpanElement;
 const scanNoFaceEl = document.getElementById('scan-no-face') as HTMLDivElement;
+const scanLightingEl = document.getElementById('scan-lighting') as HTMLDivElement;
 const scanVoiceToggleEl = document.getElementById('scan-voice-toggle') as HTMLInputElement;
 const meshPreviewContainer = document.getElementById('mesh-preview-container') as HTMLDivElement;
 const meshPreviewHost = document.getElementById('mesh-preview-canvas-host') as HTMLDivElement;
@@ -264,11 +266,74 @@ function showMeshPreview(show: boolean): void {
 let prevScanStep = -1;
 let prevHoldProgress = 0;
 let prevPose: string | null = null;
+/** Lighting-warning state. We track the wall-clock time we *first* saw
+ *  imgMean drop below LIGHTING_DARK_THRESHOLD; a warning fires only after
+ *  it stays below for LIGHTING_DARK_HOLD_MS. The "soft hint" band fires
+ *  immediately (no hold) — it's just a tone, not an interruption. */
+let lightingDarkSinceMs: number | null = null;
+let lightingWarnShown = false;
+const LIGHTING_DARK_THRESHOLD = 60;
+const LIGHTING_OK_THRESHOLD = 90;
+const LIGHTING_DARK_HOLD_MS = 2000;
 
 function resetScanUiState(): void {
   prevScanStep = -1;
   prevHoldProgress = 0;
   prevPose = null;
+  lightingDarkSinceMs = null;
+  lightingWarnShown = false;
+  // Reset the overlay to its idle state.
+  scanLightingEl.setAttribute('data-level', 'ok');
+  scanLightingEl.textContent = '';
+}
+
+/**
+ * Update the live lighting advisory based on the latest imgMean. Three
+ * bands:
+ *   imgMean < 60      → "warn": dark; show after LIGHTING_DARK_HOLD_MS of
+ *                       sustained darkness; speak the voice prompt once.
+ *   60 ≤ imgMean < 90 → "hint": workable but suboptimal; show immediately,
+ *                       no voice (would get annoying mid-pose).
+ *   imgMean ≥ 90      → "ok":   clear the advisory and reset the dark-hold
+ *                       timer.
+ *   imgMean === null  → leave whatever was previously shown (no signal).
+ */
+function updateLightingAdvisory(imgMean: number | null, nowMs: number): void {
+  if (imgMean === null) return;
+  if (imgMean >= LIGHTING_OK_THRESHOLD) {
+    lightingDarkSinceMs = null;
+    lightingWarnShown = false;
+    scanLightingEl.setAttribute('data-level', 'ok');
+    scanLightingEl.textContent = '';
+    return;
+  }
+  if (imgMean >= LIGHTING_DARK_THRESHOLD) {
+    // Soft hint band — show immediately, no voice prompt.
+    lightingDarkSinceMs = null;
+    lightingWarnShown = false;
+    scanLightingEl.setAttribute('data-level', 'hint');
+    scanLightingEl.innerHTML =
+      '<span class="icon">&#9888;</span>Lighting could be brighter for best results';
+    return;
+  }
+  // Dark band — start the hold timer if not already armed.
+  if (lightingDarkSinceMs === null) {
+    lightingDarkSinceMs = nowMs;
+  }
+  if (nowMs - lightingDarkSinceMs >= LIGHTING_DARK_HOLD_MS) {
+    if (!lightingWarnShown) {
+      lightingWarnShown = true;
+      // Speak once per scan; the helper is internally deduped too.
+      speakLightingWarning();
+    }
+    scanLightingEl.setAttribute('data-level', 'warn');
+    scanLightingEl.innerHTML =
+      '<span class="icon">&#9888;</span>Lighting too dark &mdash; consider moving to better light';
+  }
+  // (else: still inside the hold window — keep whatever was previously
+  // shown. If we were on "hint" before dropping into the dark band the
+  // user keeps seeing the hint, which is fine — they get an upgrade to
+  // "warn" only after sustained darkness.)
 }
 
 const RAD_TO_DEG = 180 / Math.PI;
@@ -312,6 +377,11 @@ function updateScanUI(
     beep(660, 80, 0.08); // softer "halfway there" cue
   }
   prevHoldProgress = holdProgress;
+
+  // -- Live lighting-quality advisory. Cheap (just a numeric comparison
+  //    + DOM attribute swap when state changes); the actual luma sample
+  //    is throttled to ~1Hz inside FaceScanner. --
+  updateLightingAdvisory(detail?.imgMean ?? null, performance.now());
 
   // -- Live pose-delta arrow + degrees. --
   if (!detail || detail.faceVisible === false || detail.yaw === null || detail.pitch === null) {

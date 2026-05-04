@@ -16,15 +16,13 @@
 import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 import {
   type SampleContext,
-  type Pixel,
   sampleRect,
   medianRGB,
-  pixelLuma,
-  meanLuma,
   landmarkCentroid,
   unpackColor,
   packColor,
   isSkinHSV,
+  imageMeanLuma,
 } from './sample-utils';
 
 const HALF_EXTENT = 7; // 7px half-extent → 15×15 patch
@@ -53,32 +51,42 @@ const PATCHES: PatchSpec[] = [
   { key: 'chin', indices: [152, 176, 148], yOffset: 0.02 },
 ];
 
-/** Compute a coarse image-mean luma by sampling a strided grid of pixels.
- *  Used as the reference for patch rejection — a patch median darker than
- *  40% of the image mean is treated as a non-skin region. */
-function imageMeanLuma(ctx: SampleContext): number {
-  const STEP = 16;
-  const samples: Pixel[] = [];
-  for (let y = 0; y < ctx.height; y += STEP) {
-    for (let x = 0; x < ctx.width; x += STEP) {
-      const px = sampleRect(ctx, x, y, 0);
-      if (px.length > 0) samples.push(px[0]);
-    }
-  }
-  return meanLuma(samples);
-}
-
 /** Absolute lower-bound on patch luma. Skin under any reasonable lighting
- *  is brighter than ~50/255. Combined with the image-mean relative
- *  threshold, this catches the case where a dark-room background pulls the
- *  image mean down so far that even nearly-black pixels would survive
- *  the relative test. */
-const ABSOLUTE_LUMA_FLOOR = 50;
+ *  is brighter than ~40/255 — even darkly-lit skin (deep shadow on a fair
+ *  face, well-lit dark skin) sits above this. Combined with the image-mean
+ *  relative threshold, this catches the case where a dark-room background
+ *  pulls the image mean down so far that even nearly-black pixels would
+ *  survive the relative test. Lowered from 50 → 40 (Task 2): genuine
+ *  dimly-lit skin can sit at 45–50 luma; rejecting it costs us the only
+ *  data we have for the user's tone. 40 is still well above genuinely-
+ *  black non-skin (chair fabric, room shadow). */
+const ABSOLUTE_LUMA_FLOOR = 40;
+
+/** Below this image-mean luma we treat the scan as low-light AND/OR
+ *  off-white-balance and accept a single HSV-passing patch rather than
+ *  returning null. Rationale: clean indoor lighting yields imgMean ≥ 100,
+ *  often 130+; dim or color-cast scans drop into 50–95 and frequently
+ *  produce only ONE HSV-pass patch (the others get rejected for hue rotated
+ *  toward blue/purple by the white-balance error). Better to render with
+ *  the one good cheek's tone than fall back to default mid-tan. */
+const LOW_LIGHT_IMG_MEAN_THRESHOLD = 100;
+
+/** Result of skin-tone sampling. */
+export interface SkinToneResult {
+  tone: number;
+  patches: SkinPatches;
+  /** True when the result came from the low-light fallback path (only one
+   *  patch survived HSV+luma gates and imgMean was below
+   *  LOW_LIGHT_IMG_MEAN_THRESHOLD). Downstream UI / reprocess can flag the
+   *  result for review — the tone is plausible but came from a single
+   *  cheek and may be biased by local shadowing. */
+  samplerLowLightWarning: boolean;
+}
 
 export function sampleSkinTone(
   ctx: SampleContext,
   landmarks: ReadonlyArray<NormalizedLandmark>,
-): { tone: number; patches: SkinPatches } | null {
+): SkinToneResult | null {
   if (!landmarks || landmarks.length < 478) return null;
 
   const imgMean = imageMeanLuma(ctx);
@@ -133,10 +141,18 @@ export function sampleSkinTone(
     survivorB.push(b);
   }
 
-  // Require ≥2 surviving patches. With only one survivor we can't
-  // distinguish a true skin patch from a single false-positive that slipped
-  // through HSV+luma gates. Caller falls back to a sensible default.
-  if (survivorR.length < 2) return null;
+  // Require ≥1 surviving patch. With only one survivor we still accept
+  // the result IF the image is low-light or has an off-white-balance cast
+  // (imgMean < LOW_LIGHT_IMG_MEAN_THRESHOLD) — see Task 2 rationale on the
+  // constant. Under those conditions, several patches typically get HSV-
+  // rejected for false hue rotation (purple cast → h~270°), and rejecting
+  // the whole scan because only one survived costs us all skin-tone data
+  // for the rig. The remaining checks (HSV gate already passed, absolute
+  // luma floor already passed, brightest-luma threshold below) are still
+  // applied — we're loosening the survivor count, not the per-patch gates.
+  if (survivorR.length === 0) return null;
+  const isLowLight = imgMean < LOW_LIGHT_IMG_MEAN_THRESHOLD;
+  if (survivorR.length < 2 && !isLowLight) return null;
 
   // Pick the BRIGHTEST surviving patch (not median). Rationale: even after
   // HSV/luma gates pass a patch, it can still be partially shadowed (chin
@@ -156,13 +172,18 @@ export function sampleSkinTone(
       bestI = i;
     }
   }
-  // High-quality threshold: when the BRIGHTEST surviving patch is still
-  // shadowed (luma < 110), all sampled patches are unreliable. Fall back to
-  // null so the rig uses its hash-derived default skin (which is a pleasant
-  // mid-tan) instead of producing a darker-than-real result. This commonly
-  // happens with hat-brim shadowing the forehead AND beard pixels near the
-  // cheeks — no clean skin patch available. Real-light skin is ≥ 130 luma.
-  if (bestLuma < 110) return null;
+  // Brightest-patch luma threshold: when the BRIGHTEST surviving patch is
+  // still shadowed below this floor, the data is too unreliable to trust.
+  // Lowered from 110 → 90 (Task 2): luma 90 still rejects clearly-shadowed
+  // pixels (cheek under a beard, forehead under a hat brim, etc.) but
+  // accepts dimly-lit clean skin. Real well-lit skin sits at 130+ luma;
+  // 90–110 is the band where dim indoor lighting clips an otherwise-fine
+  // sample. Better to render with a slightly-dim tone than fall back to
+  // the default mid-tan, which often looks worse on darker complexions.
+  if (bestLuma < 90) return null;
   const tone = packColor(survivorR[bestI], survivorG[bestI], survivorB[bestI]);
-  return { tone, patches };
+  // Flag the result when we came through the single-survivor path so
+  // callers can surface a "review the scan" hint to the user.
+  const samplerLowLightWarning = survivorR.length < 2;
+  return { tone, patches, samplerLowLightWarning };
 }

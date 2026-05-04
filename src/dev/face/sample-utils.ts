@@ -204,6 +204,33 @@ export function meanLuma(pixels: Pixel[], alphaMin = 200): number {
 }
 
 /**
+ * Compute a coarse image-mean luma by sampling a strided grid of pixels.
+ *
+ * Used in two places:
+ *  - skin-tone.ts: as the relative-luma reference for patch rejection (a
+ *    patch median darker than 40% of the image mean is treated as a
+ *    non-skin region).
+ *  - scan.ts: for live-preview lighting feedback during the scan UX.
+ *    A scan whose imgMean stays below ~60 for several seconds will
+ *    produce unreliable feature samples; warn the user before they
+ *    record all 7 angles.
+ *
+ * Default stride 16 keeps the cost low (~32×32 = 1024 samples on a
+ * 512×512 image), which is fine to call once per second from the scan
+ * preview loop without affecting framerate.
+ */
+export function imageMeanLuma(ctx: SampleContext, step = 16): number {
+  const samples: Pixel[] = [];
+  for (let y = 0; y < ctx.height; y += step) {
+    for (let x = 0; x < ctx.width; x += step) {
+      const px = sampleRect(ctx, x, y, 0);
+      if (px.length > 0) samples.push(px[0]);
+    }
+  }
+  return meanLuma(samples);
+}
+
+/**
  * Centroid of an arbitrary set of normalized landmarks. Returns null if
  * any landmark is missing or non-finite.
  */
