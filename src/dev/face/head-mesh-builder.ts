@@ -551,6 +551,36 @@ function buildNoseBump(
   return mesh;
 }
 
+/** Phase H10-perfect — 3D beard fringe wrapping the lower jaw. Gives the
+ *  cranium silhouette visible facial-hair mass from profile and 3/4
+ *  angles where the textured face plate is edge-on. From the front it
+ *  sits below/behind the plate's photographic beard, so it doesn't
+ *  double-paint. Material is its own (darker than skin-tone) so callers
+ *  can tint it with `mesh3d.beard.regions[*].hairColor` post-build. */
+function buildBeardFringe(
+  irisMidpoint: { x: number; y: number; z: number },
+  craniumFrontZ: number,
+  beardColor: number,
+): THREE.Mesh {
+  const geo = new THREE.SphereGeometry(1.0, 16, 12);
+  const mat = new THREE.MeshBasicMaterial({ color: beardColor });
+  mat.name = 'head-beard-fringe-mat';
+  const mesh = new THREE.Mesh(geo, mat);
+  // Wider than tall, deeper-than-tall — wraps around the front-bottom of
+  // the cranium covering the chin/jaw region.
+  mesh.scale.set(0.090, 0.045, 0.060);
+  // Position: ~12cm below iris midpoint (chin level), at the cranium's
+  // front pole z so it spans front + sides of the chin.
+  mesh.position.set(
+    irisMidpoint.x,
+    irisMidpoint.y - 0.120,
+    craniumFrontZ - 0.005,
+  );
+  mesh.name = 'head-beard-fringe';
+  mesh.renderOrder = 1; // ahead of cranium (0), behind face plate (10)
+  return mesh;
+}
+
 /**
  * Build the complete head mesh from front + profile landmarks.
  *
