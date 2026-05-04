@@ -42,7 +42,11 @@ export interface MiiFaceMountOpts {
   /** Skin tone for cranium tinting (passed through to head mesh, not used
    *  here directly). */
   skinTone?: number;
-  /** Whether to include the hat plane. Default true if hat present in bundle. */
+  /** Whether to include the hat plane. DEFAULT FALSE — the Mii flat hat
+   *  plane was a v1 stopgap; production callers mount a procedural 3D hat
+   *  group via `player.setFaceHat` instead. The bake + plane code path
+   *  is preserved (in case future features need a flat-hat fallback) but
+   *  callers must opt-in explicitly. */
   showHat?: boolean;
   /** Whether to include the beard plane. Default true if beard present in bundle. */
   showBeard?: boolean;
@@ -314,7 +318,10 @@ export async function buildMiiFace(
   opts: MiiFaceMountOpts = {},
 ): Promise<BuiltMiiFace> {
   const meshScale = opts.meshScale ?? 1;
-  const showHat = opts.showHat ?? true;
+  // showHat defaults to FALSE — the procedural 3D hat (mounted via
+  // `player.setFaceHat`) supersedes the flat photo-cropped Mii hat plane.
+  // Callers can still opt back in by passing `showHat: true`.
+  const showHat = opts.showHat ?? false;
   const showBeard = opts.showBeard ?? true;
   const showMustache = opts.showMustache ?? true;
 

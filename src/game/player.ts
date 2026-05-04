@@ -35,6 +35,7 @@ import {
   type FaceGameStateDriver,
 } from '@/dev/face/face-game-state-driver';
 import type { FeatureImagesBundle } from '@/dev/face/types';
+import { sampleDominantColorFromDataUrl } from '@/dev/face/feature-baker';
 
 /**
  * Hair style types for Bobblehead Ballers.
@@ -164,34 +165,26 @@ function applyFaceMode(player: GamePlayer): void {
       // typically come with a re-apply.
     }
   }
-  // Phase H2 — also hide the procedural hat (beanie/cap dome) and hair
-  // sub-mesh in 'mii' mode. The Mii bundle's `hat` plane replaces them;
-  // leaving the procedural geometry in place would render a dark dome
-  // covering the upper head and obscure the Mii planes. The procedural
-  // pieces stay MOUNTED (so a mode-switch back restores them) — only
-  // their visible flag flips.
+  // Phase H2 — hide the hair sub-mesh in 'mii' mode so the Mii face plate
+  // edge doesn't overlap with hair render. The procedural 3D HAT geometry
+  // (built in `hat-geometry.ts` and mounted via `setFaceHat`) STAYS
+  // VISIBLE in every mode — including 'mii' — because the pre-built 3D
+  // cap geometry colored from the sampled hatColor reads dramatically
+  // better than the flat photo-cropped hat plane the Mii renderer used to
+  // mount. The Mii hat plane is now gated off (see `setFaceMii` →
+  // `buildMiiFace` with `showHat: false`); the 3D hat fills its role.
   const neckGroup = player.group.getObjectByName('neck-group') as
     | THREE.Group
     | undefined;
   if (neckGroup) {
-    for (const childName of ['hair', 'beanie-dome', 'cap-forward', 'cap-backward']) {
-      const child = neckGroup.getObjectByName(childName) as THREE.Object3D | undefined;
-      if (child) child.visible = mode !== 'mii';
-    }
-    // Also walk neckGroup children for any HAT group container that
-    // isn't named above (the rig's setFaceHat path mounts the geometry
-    // as a top-level group named after the hat type — match by ancestor
-    // name so children aren't missed).
-    for (const child of neckGroup.children) {
-      if (
-        child.name === 'hair' ||
-        child.name.startsWith('cap-') ||
-        child.name === 'beanie' ||
-        child.name === 'beanie-dome'
-      ) {
-        child.visible = mode !== 'mii';
-      }
-    }
+    const hair = neckGroup.getObjectByName('hair') as THREE.Object3D | undefined;
+    if (hair) hair.visible = mode !== 'mii';
+    // Procedural 3D hat (group named 'hat' from `setFaceHat` →
+    // `buildHat`): always visible when mounted. No mode-toggle here.
+    // The previous all-children walk that hid 'cap-*' / 'beanie*' in
+    // 'mii' mode was specifically what made the user see a flat photo
+    // hat instead of the 3D cap; dropping it lets the procedural hat
+    // win in every mode.
   }
   // G1 — in 'mesh' mode, hide the head-mesh-group's back/sides/ears so
   // the canonical front face renders alone (matching legacy mesh-only
@@ -1905,6 +1898,26 @@ export class GamePlayer {
     const built = await buildMiiFace(bundle, { meshScale, irisMidpoint });
     this.faceMiiBuilt = built;
     slot.add(built.group);
+
+    // Fallback path: when `mesh3d.hat` was missing (so `setFaceMesh3D`
+    // didn't mount a procedural 3D hat) BUT the bake produced a
+    // `featureImages.hat` crop (the photo did contain a hat region the
+    // baker latched onto), sample the dominant color from the crop and
+    // mount a default cap-forward 3D hat. Beats showing nothing — the
+    // hat sampler in `hair-hat.ts` is conservative and misses caps the
+    // user is clearly wearing. The user explicitly wants the procedural
+    // 3D geometry over the flat plane in every case.
+    if (!this.faceHat && bundle.hat) {
+      const dominantColor = await sampleDominantColorFromDataUrl(bundle.hat.dataUrl);
+      // Defensive: skip the mount if sampling failed (jsdom test env, or
+      // a malformed dataUrl) — leaving no hat is fine, the user's head
+      // just renders bald-on-the-Mii-plate as it would have without this
+      // path. Also re-check `!this.faceHat` because async nature of the
+      // setFaceMii path means setFaceMesh3D could have raced in a hat.
+      if (dominantColor !== null && !this.faceHat) {
+        this.setFaceHat({ type: 'cap-forward', color: dominantColor });
+      }
+    }
     // Phase H4 — spin up the keyframe mixer alongside the Mii face. The
     // mixer is what drives idle blinks (and, in later phases, game-state
     // expression sequences + live-puppet-driven keyframes). Lazily

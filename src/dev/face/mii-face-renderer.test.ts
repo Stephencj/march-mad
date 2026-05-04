@@ -97,14 +97,17 @@ describe('buildMiiFace', () => {
     built.dispose();
   });
 
-  it('includes optional beard / mustache / hat planes when present', async () => {
+  it('includes optional beard / mustache / hat planes when explicitly requested', async () => {
     const bundle: FeatureImagesBundle = {
       ...makeMinBundle(),
       beard: makeCrop(-0.03, -0.27, -0.19, 0.96, 0.60),
       mustache: makeCrop(0.0, -0.18, 0.04, 0.30, 0.05),
       hat: makeCrop(0.01, 0.75, 0.02, 0.32, 0.02),
     };
-    const built = await buildMiiFace(bundle);
+    // Hat plane is gated OFF by default (production callers mount a
+    // procedural 3D hat group instead). Pass `showHat: true` to opt
+    // back into the flat-photo plane for this test.
+    const built = await buildMiiFace(bundle, { showHat: true });
     // 9 features + 3 decal slots.
     expect(built.group.children.length).toBe(9 + 3);
     expect(built.planes.has('beard')).toBe(true);

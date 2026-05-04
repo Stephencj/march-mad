@@ -1288,3 +1288,81 @@ function paintBeardOntoPlate(
   // packColor reference kept so the import doesn't go stale across iterations.
   void packColor;
 }
+
+/**
+ * Sample the dominant RGB of a baked feature crop's data URL, used as a
+ * fallback for the procedural 3D hat color when the front-pose hat
+ * sampler (`hair-hat.ts`) didn't classify a hat (so `mesh3d.hat` is
+ * undefined) but the bake produced a `featureImages.hat` crop anyway.
+ *
+ * Strategy: collect opaque pixels (alpha ≥ 128), discard the darkest 25%
+ * by luma (the brim/shadow band typically reads as near-black from the
+ * cap underside), and return the mean RGB of the surviving brighter
+ * 75%. A naive mean drags the result toward black because the brim
+ * shadow occupies a substantial portion of the crop and reads as
+ * 0–30 luma — even a small contribution overwhelms the cap-body color.
+ * Discarding the bottom quartile keeps the visible cap pixels dominant.
+ *
+ * Returns `null` on:
+ *   - DOM unavailable (vitest jsdom)
+ *   - decode failure (malformed dataUrl)
+ *   - no opaque pixels found (all-transparent crop)
+ *
+ * NOT a re-classification of hat type; callers pair this with a default
+ * type (typically `'cap-forward'`) when `mesh3d.hat` is missing. */
+export async function sampleDominantColorFromDataUrl(
+  dataUrl: string,
+): Promise<number | null> {
+  if (typeof Image === 'undefined' || typeof document === 'undefined') {
+    return null;
+  }
+  return new Promise<number | null>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = img.naturalWidth || img.width;
+        cv.height = img.naturalHeight || img.height;
+        const ictx = cv.getContext('2d', { willReadFrequently: true });
+        if (!ictx) {
+          resolve(null);
+          return;
+        }
+        ictx.drawImage(img, 0, 0);
+        const { data } = ictx.getImageData(0, 0, cv.width, cv.height);
+        // Collect opaque pixels with their luma. Stride by 1 (every
+        // pixel) — 24k pixels for a 256×96 hat crop is cheap.
+        const pixels: { r: number; g: number; b: number; luma: number }[] = [];
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] < 128) continue;
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          // Rec.601 luma — same weighting `pixelLuma` uses elsewhere.
+          const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+          pixels.push({ r, g, b, luma });
+        }
+        if (pixels.length === 0) {
+          resolve(null);
+          return;
+        }
+        // Discard the darkest 25% (brim shadow). For very small crops
+        // (<8 surviving pixels) skip the trim — the data is too sparse
+        // for percentile-based filtering to be meaningful.
+        if (pixels.length >= 8) {
+          pixels.sort((a, b) => a.luma - b.luma);
+          const start = Math.floor(pixels.length * 0.25);
+          pixels.splice(0, start);
+        }
+        let r = 0, g = 0, b = 0;
+        for (const p of pixels) { r += p.r; g += p.g; b += p.b; }
+        const n = pixels.length;
+        resolve(packColor(Math.round(r / n), Math.round(g / n), Math.round(b / n)));
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
