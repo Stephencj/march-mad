@@ -82,6 +82,18 @@ function applyFaceMode(player: GamePlayer): void {
     else if (mode === 'both') built.visible = true;
     else built.visible = false; // 'procedural'
   }
+  // Phase H2c-fix — the dark `face-mouth-interior` plane is mounted as a
+  // SIBLING of the canonical face mesh (not under it), so toggling the
+  // canonical mesh's `visible` doesn't hide it. In 'mii' mode that dark
+  // rectangle reads as a black rectangle behind the chin (it sits at
+  // mouth-Y, mesh-local). Hide it explicitly when Mii planes own the
+  // visual face. Other modes restore visibility — the mouth-interior is
+  // what the canonical mesh's open-mouth hole shows behind, so it has
+  // to come back when the canonical mesh is visible.
+  const mouthInteriorMesh = player.getFaceMouthInterior();
+  if (mouthInteriorMesh) {
+    mouthInteriorMesh.visible = mode !== 'mii';
+  }
   if (player.faceProcedural) {
     if (mode === 'mii') player.faceProcedural.setVisible(false);
     else player.faceProcedural.setVisible(mode !== 'mesh');
@@ -1518,6 +1530,16 @@ export class GamePlayer {
    *  Returns an empty array when no head mesh is mounted. */
   getHeadMeshExtras(): ReadonlyArray<THREE.Mesh> {
     return this.faceHeadMeshExtras;
+  }
+
+  /** Phase H2c-fix — expose the dark mouth-interior plane so the
+   *  visibility-toggle path (`window.__faceMode`) can hide it in 'mii'
+   *  mode. The mouth-interior is mounted as a sibling of the canonical
+   *  face mesh; toggling the canonical mesh's `visible` doesn't reach
+   *  it, so we hide it here separately. Returns null when no face is
+   *  mounted (older saves, or after disposal). */
+  getFaceMouthInterior(): THREE.Mesh | null {
+    return this.faceMouthInterior;
   }
 
   /**

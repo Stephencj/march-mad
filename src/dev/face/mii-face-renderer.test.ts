@@ -152,12 +152,15 @@ describe('buildMiiFace', () => {
     const built = await buildMiiFace(makeMinBundle());
     const lEye = built.planes.get('leftEye')!;
     const rEye = built.planes.get('rightEye')!;
-    expect(lEye.position.y).toBeCloseTo(0, 5);
-    expect(rEye.position.y).toBeCloseTo(0, 5);
+    // Phase H2c-fix — eye anchor sits +5mm above the iris midpoint so
+    // the eye plane covers the lid region rather than straddling the
+    // iris. Both eyes share the same Y; the shift is symmetric.
+    expect(lEye.position.y).toBeCloseTo(0.005, 5);
+    expect(rEye.position.y).toBeCloseTo(0.005, 5);
     expect(lEye.position.x).toBeCloseTo(-rEye.position.x, 5);
     // Eye plane width matches the physical-meter target.
     const params = (lEye.geometry as THREE.PlaneGeometry).parameters;
-    expect(params.width).toBeCloseTo(0.080, 4);
+    expect(params.width).toBeCloseTo(0.040, 4);
     built.dispose();
   });
 

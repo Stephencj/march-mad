@@ -83,7 +83,7 @@ export interface MiiFaceMountOpts {
  *  Phase H2c — facePlate sits behind every overlay plane (lowest Z),
  *  acting as the "skin canvas" the eyes/brows/mouth float in front of. */
 const Z_BIAS: Record<FeatureName, number> = {
-  hat:       0.035,
+  hat:       0.020,
   facePlate: 0.005,
   beard:     0.030,
   nose:      0.020,
@@ -113,43 +113,35 @@ const Z_BIAS: Record<FeatureName, number> = {
  *  physical-sized planes here. The canonical-mesh-scaled face is
  *  ~0.42m tall × ~0.36m wide; these targets fit accordingly. */
 const TARGET_SIZE_M: Record<FeatureName, { w: number; h: number }> = {
-  // Eyes — width ~50% of IPD (which is ~0.18m on the rig) gives a Mii-
-  // friendly eye that's clearly READ as an eye but doesn't crowd into
-  // the nose/temple. Aspect from the H1 crop (192×144 = 4:3) gives
-  // h = 0.06m.
-  leftEye:   { w: 0.080, h: 0.060 },
-  rightEye:  { w: 0.080, h: 0.060 },
-  // Brows: thin horizontal arches. About match the eye width × thin band.
-  leftBrow:  { w: 0.080, h: 0.018 },
-  rightBrow: { w: 0.080, h: 0.018 },
+  // Phase H2c-fix — eye/brow overlays sit inside the face plate around
+  // the iris midpoint (±~0.030m X). Tight almond eye + thin brow strip
+  // so the overlays read as eye/brow without ballooning across the plate.
+  leftEye:   { w: 0.040, h: 0.020 },
+  rightEye:  { w: 0.040, h: 0.020 },
+  leftBrow:  { w: 0.045, h: 0.012 },
+  rightBrow: { w: 0.045, h: 0.012 },
   // Nose: narrow, vertical. Bridge to nostril span ~0.075m, width ~0.045m.
+  // (Skipped at render time when facePlate is present.)
   nose:      { w: 0.045, h: 0.075 },
-  // Mouth: wide, short. Smile-line span ~0.085m, lip thickness ~0.030m.
-  mouth:     { w: 0.085, h: 0.030 },
+  // Phase H2c-fix — mouth tightened to fit inside the plate.
+  mouth:     { w: 0.060, h: 0.025 },
   // Beard: lower-jaw cap, wider than mouth. Width ~face-width × 0.50;
-  // sits chin-and-jowls. The H1 beard crop contains the entire jaw
-  // silhouette (full lower-face span), so a 0.16m plane shows the chin
-  // region while keeping the beard hair as the visual focus.
+  // sits chin-and-jowls. (Skipped when facePlate is present.)
   beard:     { w: 0.160, h: 0.110 },
   // Mustache: thin band above upper lip, slightly wider than mouth.
+  // (Skipped when facePlate is present.)
   mustache:  { w: 0.070, h: 0.016 },
-  // Hat: cap-brim band ABOVE the brow line. The cranium is ~0.41m wide
-  // so a 0.22m hat reads as a normal cap brim spanning forehead to
-  // temple. Height bumped to 0.14m so the H1 hat crop's actual cap
-  // pixels (which only fill the LOWER ~30% of the source bbox; the
-  // top 70% is sky/blank pixels above the cap) get enough plane area
-  // to read as a recognizable cap rather than getting compressed into
-  // an unreadable strip.
-  hat:       { w: 0.220, h: 0.140 },
-  // Phase H2c — facePlate. Spans from chin to forehead in canonical
-  // mesh-local space. The cranium silhouette is ~0.36m wide × ~0.42m
-  // tall; the plate fills most of that. The plate carries beard +
-  // mustache + nose pixels, so its size needs to cover where the eyes
-  // (±0.090m) and brows (±0.090m) sit — i.e. at least 0.20m wide so
-  // the eye anchors fall comfortably inside the plate's faded edge.
-  // 0.26m × 0.34m gives generous margin around all anchors with the
-  // elliptical vignette at 0.85 solid radius.
-  facePlate: { w: 0.260, h: 0.340 },
+  // Phase H2c-fix — hat sized as a cap brim wider than the face plate
+  // but narrower than the cranium (cranium ~0.36m wide). Height matches
+  // a typical visor depth so the H1 hat crop reads as a recognizable cap.
+  hat:       { w: 0.320, h: 0.180 },
+  // Phase H2c-fix — facePlate sized to fit INSIDE the cranium silhouette.
+  // Cranium front cap is ~0.36m wide × ~0.59m tall; face area chin-to-
+  // forehead is ~0.42m. A 0.20×0.27m plate sits well inside the cranium
+  // silhouette, with the elliptical vignette feathering into the cranium
+  // skin tone seamlessly. The eye anchors at ±0.030m X fall well inside
+  // the plate's solid (0.85 radius) region.
+  facePlate: { w: 0.200, h: 0.270 },
 };
 
 /** Per-feature ANCHOR position in METERS of mesh-local-scaled coords,
@@ -164,37 +156,47 @@ const TARGET_SIZE_M: Record<FeatureName, { w: number; h: number }> = {
  *  X convention: +X is the subject's left. Eye/brow pairs are at ±X.
  *  Z is filled in by `craniumFrontZ` + `Z_BIAS[name]`. */
 const ANCHOR_OFFSET_M: Record<FeatureName, { x: number; y: number }> = {
-  // Eyes ON the iris midpoint Y, ±half-IPD X. The rig's eye-left /
-  // eye-right spheres sit at ±0.090 in slot-local X (with the slot at
-  // x = -irisMid.x), so we pin to ±0.090 too. The slot's `+iris.x`
-  // offset added at mount-time cancels out: anchor.x + iris.x lands at
-  // the rig anchor world X.
-  leftEye:   { x: -0.090, y: 0 },
-  rightEye:  { x:  0.090, y: 0 },
-  // Brows ~30mm above the eyes, same X as the eyes.
-  leftBrow:  { x: -0.090, y:  0.030 },
-  rightBrow: { x:  0.090, y:  0.030 },
+  // Phase H2c-fix — eyes pinned to the user's actual eye region on the
+  // baked plate (~±0.030m from iris midpoint). The rig's eye-left/right
+  // anchor spheres are at ±0.090m, but those are anatomical anchors for
+  // the procedural eye structure — the Mii overlays sit on the FLAT
+  // baked plate where the user's eye pixels actually live, not the rig's
+  // procedural eye-anchor points. Shift slightly above the iris midpoint
+  // (+0.005m Y) so the overlay covers the lid+lash region rather than
+  // straddling the iris.
+  leftEye:   { x: -0.030, y:  0.005 },
+  rightEye:  { x:  0.030, y:  0.005 },
+  // Brows ~25mm above the eyes, same X as the eyes.
+  leftBrow:  { x: -0.030, y:  0.030 },
+  rightBrow: { x:  0.030, y:  0.030 },
   // Nose centered, descending below the iris midpoint by ~30mm to its
   // CENTER (so the bridge starts at ~iris and the tip ends ~65mm below).
+  // Skipped at render time when facePlate is present.
   nose:      { x:  0.000, y: -0.030 },
-  // Mouth ~70mm below iris.
-  mouth:     { x:  0.000, y: -0.075 },
-  // Beard chin-region: ~115mm below iris, centered. Sits at the chin's
-  // visual center.
+  // Phase H2c-fix — mouth ~40mm below iris (was 75mm). The plate is
+  // smaller (0.27m tall, half-height 0.135m), and the mouth photo on
+  // the plate sits at roughly that offset from the iris midpoint.
+  mouth:     { x:  0.000, y: -0.040 },
+  // Beard chin-region: ~115mm below iris, centered. Skipped when
+  // facePlate is present.
   beard:     { x:  0.000, y: -0.115 },
-  // Mustache just above mouth.
+  // Mustache just above mouth. Skipped when facePlate is present.
   mustache:  { x:  0.000, y: -0.060 },
-  // Hat above the forehead, ~150mm above iris. Forehead-top is ~80mm
-  // above iris, cap brim sits ~50mm above that — and the H1 hat crop
-  // contains sky/scalp pixels above the brim (the bbox extends 1.0×
-  // faceHeight upward from forehead-top), so push the plane center
-  // higher so the visible cap pixels (in the LOWER ~30% of the crop)
-  // land at the actual brim line.
-  hat:       { x:  0.000, y:  0.150 },
-  // Phase H2c — facePlate centered horizontally and just below iris-Y
-  // so the chin region sits at -0.10 and the forehead at +0.10 (plate
-  // half-height = 0.125m, so plate center -0.025 → range [-0.150, +0.100]).
-  facePlate: { x:  0.000, y: -0.025 },
+  // Phase H2c-fix — hat centered ~+0.18m above iris. Plane spans
+  // [+0.09, +0.27] — bottom edge at upper-forehead, top edge well
+  // inside the cranium crown (cranium top sits at ~+0.38). The cap
+  // brim pixels (LOWER ~30% of the H1 crop) land at the hairline;
+  // the dark cap top fills the upper cranium, partially hiding the
+  // skin-toned dome behind. Background pixels in the H1 crop (sky/
+  // wall) get overlaid on the cranium ellipsoid rather than floating
+  // above the head silhouette.
+  hat:       { x:  0.000, y:  0.180 },
+  // Phase H2c-fix — facePlate centered just slightly below iris-Y so
+  // the chin (-0.135 + plate-center-y) and forehead (+0.135 + center-y)
+  // both fit inside the cranium silhouette. With center y = -0.020 the
+  // plate spans Y ∈ [-0.155, +0.115], well inside the cranium's chin-
+  // to-crown range ([-0.21, +0.38]).
+  facePlate: { x:  0.000, y: -0.020 },
 };
 
 /** Per-feature renderOrder. Group is at 10; higher = drawn later =
