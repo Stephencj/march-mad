@@ -979,12 +979,15 @@ export function bakeFacePlate(
     warnings.push('facePlate: degenerate face dimensions');
     return null;
   }
-  const padTop = faceHeightPx * 0.05;
-  const padBottom = faceHeightPx * 0.10;
-  // Phase H2c iter-2: tighter horizontal padding so the plate doesn't
-  // capture ear / hair pixels at the temples — those leak into the
-  // beard luma-mask (dark!) and survive the vignette feather.
-  const padX = faceWidthPx * 0.02;
+  // Generous bbox padding so the photo includes the surrounding head
+  // context (sides, below-chin, just above forehead). When this gets
+  // stretched to fill the cranium-sized plate, the user's actual head
+  // fills the cranium silhouette — not a tiny inset on a big bald head.
+  // Top padding capped so the cap brim isn't included (the rig has a
+  // separate 3D hat geometry; a baked-in hat photo would double-render).
+  const padTop = faceHeightPx * 0.06;
+  const padBottom = faceHeightPx * 0.18;
+  const padX = faceWidthPx * 0.18;
   const yTop = Math.max(0, forehead.y * ctx.height - padTop);
   const yBottom = Math.min(ctx.height, chin.y * ctx.height + padBottom);
   const xLeft = Math.max(0, leftTemple.x * ctx.width - padX);

@@ -155,7 +155,12 @@ const TARGET_SIZE_M: Record<FeatureName, { w: number; h: number }> = {
   // silhouette, with the elliptical vignette feathering into the cranium
   // skin tone seamlessly. The eye anchors at ±0.030m X fall well inside
   // the plate's solid (0.85 radius) region.
-  facePlate: { w: 0.200, h: 0.270 },
+  // The face plate spans the FULL cranium silhouette (chin to crown,
+  // ear to ear) so the photographic face IS the head — not a small
+  // inset on a big bald cranium. Cranium is ~0.21m wide × ~0.59m tall;
+  // plate matches width and covers the chin-to-forehead vertical range
+  // (the cap covers above the brow, so plate stops at ~forehead level).
+  facePlate: { w: 0.220, h: 0.420 },
 };
 
 /** Per-feature ANCHOR position in METERS of mesh-local-scaled coords,
@@ -202,11 +207,12 @@ const ANCHOR_OFFSET_M: Record<FeatureName, { x: number; y: number }> = {
   // cranium crown (~+0.38). The cap (now forward-facing/visor) reads
   // as a cap perched on the head rather than a halo floating above.
   hat:       { x:  0.000, y:  0.160 },
-  // Phase H2c-fix — facePlate centered just slightly below iris-Y so
-  // the chin (-0.135 + plate-center-y) and forehead (+0.135 + center-y)
-  // both fit inside the cranium silhouette. With center y = -0.020 the
-  // plate spans Y ∈ [-0.155, +0.115], well inside the cranium's chin-
-  // to-crown range ([-0.21, +0.38]).
+  // Plate spans the FULL cranium silhouette. With h=0.42m and center
+  // y=-0.020 the plate covers Y ∈ [-0.230, +0.190]. The cranium's chin
+  // sits at ~-0.21 and the brow line at ~+0.18 — the plate's chin-end
+  // falls just below the cranium chin (vignette feathers it out) and
+  // the top end reaches the forehead/brow region just below where the
+  // hat brim sits. Photographic face IS the head, not an inset.
   facePlate: { x:  0.000, y: -0.020 },
 };
 
@@ -424,7 +430,11 @@ export async function buildMiiFace(
       // cranium body). Curvature radius R chosen to roughly match the
       // cranium's front-pole curvature: at 0.20m wide the rim recedes
       // about 1.5cm, which approximates the head's rounding.
-      const CURVE_R = 0.22;
+      // Curvature radius matches the cranium's effective curvature so the
+      // photographic face wraps around the head shape. Larger plates need
+      // larger R or the corners bend too steeply and pull the photo
+      // pixels back behind the head silhouette.
+      const CURVE_R = 0.26;
       const pos = plane.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
