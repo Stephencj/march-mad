@@ -53,6 +53,10 @@ import {
 import { listFaceAnims, loadFaceAnim } from './dev/face/face-anim-store';
 import { createFacePuppet, type FacePuppet, type BlendshapeFrame } from './dev/face/blendshape-puppet';
 import type { FaceAnimClip } from './dev/face/face-anim-clip';
+import {
+  buildFaceModeSection,
+  readFaceModeFromStorage,
+} from './dev/face-mode-toggle';
 
 const DEVPANEL_PREFIX = 'devpanel:anim-viewer';
 const FACE_LS_KEY = 'devpanel:anim-viewer:face';
@@ -321,9 +325,13 @@ function applyCachedFaceToPlayer(): void {
       // baked feature bundle. Default __faceMode = 'mii' when present so
       // the planes win over the procedural overlay; A/B can flip via
       // window.__faceMode = 'procedural' / 'mesh' / 'both' in DevTools.
+      // Phase H10: honor the dev-overlay's localStorage override
+      // (`devpanel:face-mode`) so a dev who flipped to 'procedural' or
+      // 'photo' last session keeps that selection on reload.
       if (selectedFaceMesh3D.featureImages) {
         if (typeof window !== 'undefined' && window.__faceMode === undefined) {
-          window.__faceMode = 'mii';
+          const stored = readFaceModeFromStorage();
+          window.__faceMode = stored ?? 'mii';
         }
         void player.setFaceMii(selectedFaceMesh3D.featureImages);
       } else {
@@ -1195,6 +1203,17 @@ colorInput.addEventListener('input', () => {
 // applies its image as a texture on the head's face-plane (and hides
 // the eye-spheres); selecting "(none)" restores default eyes.
 const facePick = document.getElementById('face-pick') as HTMLSelectElement;
+
+// Phase H10 — Face Mode dev toggle (Mii / Procedural / Photo). Inject
+// directly under the static <h3>Face</h3> block. The accessor reads the
+// module-level `player` ref so re-builds (which dispose+recreate the
+// GamePlayer) still re-route through the toggle.
+{
+  const faceModeNode = buildFaceModeSection(() => player ?? null);
+  // The picker's parent is #panel; place the toggle right after the
+  // face-pick element so it sits in the visual "Face" area.
+  facePick.parentElement?.insertBefore(faceModeNode, facePick.nextSibling);
+}
 
 async function populateFacePick(): Promise<void> {
   let faces: Awaited<ReturnType<typeof listFaces>> = [];

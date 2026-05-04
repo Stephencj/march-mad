@@ -42,6 +42,10 @@ import {
   importFaceAnimJSON,
 } from './dev/face/face-anim-store';
 import type { FaceAnimClip, FaceAnimMeta } from './dev/face/face-anim-clip';
+import {
+  buildFaceModeSection,
+  readFaceModeFromStorage,
+} from './dev/face-mode-toggle';
 
 const FACE_LS_KEY = 'devpanel:face-mirror:face';
 
@@ -66,6 +70,18 @@ const mirrorBtn = document.getElementById('btn-mirror') as HTMLDivElement;
 const recordBtn = document.getElementById('btn-record') as HTMLDivElement;
 const facePick = document.getElementById('face-pick') as HTMLSelectElement;
 const facePickStatus = document.getElementById('face-pick-status') as HTMLLabelElement;
+
+// Phase H10 — Face Mode dev toggle inserted right after the face-pick
+// status line so it sits in the same visual block. The accessor returns
+// the always-mounted `player` ref (face-mirror builds the rig once and
+// re-mounts faces inside it), so re-applying always reaches the live rig.
+{
+  const faceModeNode = buildFaceModeSection(() => player);
+  facePickStatus.parentElement?.insertBefore(
+    faceModeNode,
+    facePickStatus.nextSibling,
+  );
+}
 const animNameInput = document.getElementById('anim-name') as HTMLInputElement;
 const animList = document.getElementById('anim-list') as HTMLDivElement;
 const importBtn = document.getElementById('btn-import') as HTMLDivElement;
@@ -386,9 +402,12 @@ async function applyFaceSelection(name: string): Promise<void> {
   player.setFaceProcedural(built);
   // Phase H2: mount the Mii flat-image renderer when the saved scan has a
   // baked feature bundle. Default __faceMode = 'mii' when present.
+  // Phase H10: honor the dev-overlay's localStorage override
+  // (`devpanel:face-mode`) — falls back to 'mii' when unset.
   if (face.mesh3d.featureImages) {
     if (typeof window !== 'undefined' && window.__faceMode === undefined) {
-      window.__faceMode = 'mii';
+      const stored = readFaceModeFromStorage();
+      window.__faceMode = stored ?? 'mii';
     }
     void player.setFaceMii(face.mesh3d.featureImages);
   } else {

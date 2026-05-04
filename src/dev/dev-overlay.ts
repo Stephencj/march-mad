@@ -28,6 +28,8 @@ import {
 } from './anim-config';
 import { pickSliderRange, type RangeTier } from './shared-ranges';
 import { persistDetails, detailsKey } from './details-state';
+import { buildFaceModeSection } from './face-mode-toggle';
+import type { GamePlayer } from '../game/player';
 
 const DEVUI_PREFIX = 'devui';
 
@@ -67,9 +69,15 @@ export class DevOverlay {
   private bindings: Array<{ input: HTMLInputElement; numeric: HTMLInputElement; spec: SliderSpec }> = [];
   /** Map color picker DOM input → spec (integer ↔ hex string). */
   private colorBindings: Array<{ picker: HTMLInputElement; spec: ColorSpec }> = [];
+  /** Phase H10 — accessor for the active player (game session's local).
+   *  When null, the Face Mode toggle still flips localStorage + the
+   *  global `__faceMode`, but skips the `applyFaceMode()` re-route — the
+   *  next face mount will pick up the new mode. */
+  private getPlayer: () => GamePlayer | null;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, getPlayer?: () => GamePlayer | null) {
     this.container = container;
+    this.getPlayer = getPlayer ?? (() => null);
   }
 
   toggle(): void {
@@ -135,6 +143,12 @@ export class DevOverlay {
     });
 
     panel.appendChild(this.buildHeader());
+    // Phase H10 — Face Mode toggle (Mii / Procedural / Photo). Mounted
+    // near the top so devs can flip modes and watch the same player
+    // re-render without scrolling. The accessor is captured at panel-
+    // build time so the closure always sees the latest GamePlayer
+    // instance (game-session.ts swaps players across matches).
+    panel.appendChild(buildFaceModeSection(this.getPlayer));
     for (const section of this.buildSections()) {
       panel.appendChild(this.buildSection(section));
     }

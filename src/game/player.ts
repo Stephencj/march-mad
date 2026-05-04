@@ -58,8 +58,13 @@ declare global {
      *  bundle of `mesh3d.featureImages` is present on the active face,
      *  the player mounts `face-flat-group` (textured planes) and hides
      *  the procedural overlay + canonical mesh features. Other modes
-     *  preserve their pre-H2 behavior. */
-    __faceMode?: 'mesh' | 'procedural' | 'both' | 'mii';
+     *  preserve their pre-H2 behavior.
+     *  Phase H10: 'photo' is exposed as a sibling mode for the dev-
+     *  overlay's three-way toggle (Mii / Procedural / Photo). The
+     *  visibility math currently treats it the same as 'mesh' (canonical
+     *  flat plane shows, procedural + Mii planes hide), which is what
+     *  AI face uploads with no 3D scan already mount. */
+    __faceMode?: 'mesh' | 'procedural' | 'both' | 'mii' | 'photo';
     /** G3: DevTools toggle for the beer-hand left-arm lock. Mirrors
      *  `animConfig.poses.beerHold.enabled`. Set in DevTools to flip the
      *  lock off without rebuilding. */
@@ -84,11 +89,32 @@ function applyFaceMode(player: GamePlayer): void {
   // In 'mii' mode the canonical mesh + procedural sit OUT — features
   // are flat planes. In 'mesh' mode the canonical wins. In 'both'
   // they all show (debug A/B). 'procedural' default hides the mesh.
+  // Phase H10: 'photo' is treated as a sibling of 'mesh' — the canonical
+  // mesh stays out (so the legacy `face-plane` photo overlay can show
+  // alone via the toggle below).
   if (built) {
     if (mode === 'mii') built.visible = false;
     else if (mode === 'mesh') built.visible = true;
     else if (mode === 'both') built.visible = true;
-    else built.visible = false; // 'procedural'
+    else built.visible = false; // 'procedural' / 'photo'
+  }
+  // Phase H10 — 'photo' mode shows the legacy flat face-plane (set via
+  // setFaceImage). When in any other mode, the plane's own setFaceImage
+  // path owns visibility — we only toggle here when the user explicitly
+  // picks 'photo' so re-routing into 'mii'/'procedural' doesn't fight
+  // the photo plane's own state machine. This means a 'photo' mode flip
+  // is meaningful only when the active player has previously been given
+  // a face image; otherwise the plane stays hidden.
+  if (mode === 'photo') {
+    const facePlane = player.group.getObjectByName('face-plane') as
+      | THREE.Object3D
+      | undefined;
+    if (facePlane) {
+      const mat = (facePlane as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+      // Only show when the plane has a texture mounted — empty plane
+      // would render as a featureless white rectangle.
+      if (mat && mat.map) facePlane.visible = true;
+    }
   }
   // Phase H2c-fix — the dark `face-mouth-interior` plane is mounted as a
   // SIBLING of the canonical face mesh (not under it), so toggling the
@@ -1854,6 +1880,16 @@ export class GamePlayer {
    *  Returns null when no Mii face is mounted. */
   getFaceMiiGroup(): THREE.Group | null {
     return this.faceMiiBuilt?.group ?? null;
+  }
+
+  /** Phase H10 — public re-entry into the module-private `applyFaceMode`
+   *  reconciliation. Devs (and the dev-overlay's Face Mode toggle) can
+   *  flip `window.__faceMode` and call this to re-route visibility
+   *  across the canonical mesh / procedural overlay / Mii planes
+   *  without re-mounting any geometry. No-op-safe — missing pieces are
+   *  skipped (matches setFaceMii / setFaceMesh3D semantics). */
+  applyFaceMode(): void {
+    applyFaceMode(this);
   }
 
   /** Phase H4 — expose the keyframe mixer so callers (face-mirror,

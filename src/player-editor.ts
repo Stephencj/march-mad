@@ -42,6 +42,10 @@ import {
 import { listFaceAnims, loadFaceAnim } from './dev/face/face-anim-store';
 import { createFacePuppet, type FacePuppet, type BlendshapeFrame } from './dev/face/blendshape-puppet';
 import type { FaceAnimClip } from './dev/face/face-anim-clip';
+import {
+  buildFaceModeSection,
+  readFaceModeFromStorage,
+} from './dev/face-mode-toggle';
 
 const DEVPANEL_PREFIX = 'devpanel:player-editor';
 const FACE_LS_KEY = 'devpanel:player-editor:face';
@@ -294,9 +298,13 @@ function applyCachedFaceToPlayer(): void {
       player.setFaceProcedural(built);
       // Phase H2: mount Mii flat-image face when the bundle is present.
       // Default __faceMode = 'mii' when present so the planes win.
+      // Phase H10: honor the dev-overlay's localStorage override
+      // (`devpanel:face-mode`) so a stored 'procedural' or 'photo'
+      // preference survives reload.
       if (selectedFaceMesh3D.featureImages) {
         if (typeof window !== 'undefined' && window.__faceMode === undefined) {
-          window.__faceMode = 'mii';
+          const stored = readFaceModeFromStorage();
+          window.__faceMode = stored ?? 'mii';
         }
         void player.setFaceMii(selectedFaceMesh3D.featureImages);
       } else {
@@ -600,6 +608,12 @@ function buildPanel(): void {
 
   // Face picker — dropdown of saved faces from face-editor's IndexedDB.
   panel.appendChild(buildFaceSection());
+
+  // Phase H10 — Face Mode dev toggle (Mii / Procedural / Photo). The
+  // accessor returns the live `player` ref so re-rolls (which dispose
+  // and rebuild the GamePlayer) still re-route through the toggle's
+  // applyFaceMode() call.
+  panel.appendChild(buildFaceModeSection(() => player ?? null));
 
   // Player position offset (bump the model without changing its pose).
   panel.appendChild(buildPlayerOffsetSection());

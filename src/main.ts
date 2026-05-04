@@ -216,7 +216,12 @@ const devContainer = document.createElement('div');
 devContainer.id = 'dev-container';
 devContainer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
 uiOverlay.appendChild(devContainer);
-const devOverlay = new DevOverlay(devContainer);
+// Phase H10 — pass an accessor for the active player so the dev-overlay's
+// Face Mode toggle can re-route visibility on the live rig. The session
+// changes across matches; we read it via the closure each time.
+const devOverlay = new DevOverlay(devContainer, () =>
+  session?.homePlayers[0] ?? session?.awayPlayers[0] ?? null,
+);
 
 // Create UIs with their OWN containers
 const hud = new HUD(hudContainer);
