@@ -92,6 +92,10 @@ let selectedFaceMesh3D: {
     imageDataUrl: string;
     landmarks: number[];
   }>;
+  // Phase H2: baked feature-image bundle from H1's stylized baker.
+  // Triggers the Mii flat-image renderer when `__faceMode === 'mii'`
+  // (default when present).
+  featureImages?: import('./dev/face/types').FeatureImagesBundle;
 } | null = null;
 // Phase D: cache the sampled-feature bundle alongside the mesh3d payload
 // (skin/lip/brow/eye/nose/hair/hat) so player rebuilds re-apply the same
@@ -288,6 +292,16 @@ function applyCachedFaceToPlayer(): void {
       // canonical mesh. Face-anim replay loop below calls
       // updateFaceProcedural() so the procedural geometry tracks deformations.
       player.setFaceProcedural(built);
+      // Phase H2: mount Mii flat-image face when the bundle is present.
+      // Default __faceMode = 'mii' when present so the planes win.
+      if (selectedFaceMesh3D.featureImages) {
+        if (typeof window !== 'undefined' && window.__faceMode === undefined) {
+          window.__faceMode = 'mii';
+        }
+        void player.setFaceMii(selectedFaceMesh3D.featureImages);
+      } else {
+        void player.setFaceMii(null);
+      }
       builtFaceMeshCache = built;
       // Re-apply face-anim selection if any.
       if (selectedFaceAnimName) void applyFaceAnim(selectedFaceAnimName);
@@ -1124,6 +1138,9 @@ async function applyFaceSelection(name: string): Promise<void> {
         eyeColors: face.mesh3d.eyeColors,
         // G1: pass through the captured pose angles for head-mesh build.
         angles: face.mesh3d.angles,
+        // Phase H2: pass through the baked feature-image bundle — drives
+        // the Mii flat-image renderer when present + __faceMode === 'mii'.
+        featureImages: face.mesh3d.featureImages,
       };
       // Phase D: bundle sampled-feature payload — skin/lip/brow/eye/nose +
       // hair/hat — into the shape `setFaceMesh3D` accepts.
@@ -1560,6 +1577,82 @@ installSnapshotAPI(snapshotAPI);
       headGroupChildren: headGroup ? headGroup.children.map((c: THREE.Object3D) => c.name) : null,
       eyeLeftWorldPos: w(eyeLeft),
       eyeRightWorldPos: w(eyeRight),
+      miiPlanes: (() => {
+        const grp = player.group.getObjectByName('face-flat-group') as THREE.Group | undefined;
+        if (!grp) return null;
+        return {
+          worldPos: w(grp),
+          visible: grp.visible,
+          children: grp.children.map((ch) => {
+            const wp = new THREE.Vector3();
+            ch.getWorldPosition(wp);
+            const params = (
+              (ch as THREE.Mesh).geometry as unknown as {
+                parameters?: { width?: number; height?: number };
+              }
+            )?.parameters;
+            return {
+              name: ch.name,
+              worldPos: { x: wp.x, y: wp.y, z: wp.z },
+              localPos: { x: ch.position.x, y: ch.position.y, z: ch.position.z },
+              w: params?.width,
+              h: params?.height,
+              visible: ch.visible,
+              renderOrder: ch.renderOrder,
+            };
+          }),
+        };
+      })(),
+      mode: typeof window !== 'undefined' ? window.__faceMode : null,
+      craniumMat: (() => {
+        const c = player.group.getObjectByName('head-cranium') as THREE.Mesh | undefined;
+        if (!c) return null;
+        const mat = c.material as THREE.MeshBasicMaterial;
+        return {
+          color: '#' + mat.color.getHexString(),
+          name: mat.name,
+          visible: c.visible,
+        };
+      })(),
+      faceMesh3DVis: (() => {
+        const f = player.group.getObjectByName('face-mesh-3d');
+        return f ? { visible: f.visible } : null;
+      })(),
+      faceMesh3DRef: ((player as unknown as { faceMesh3D?: THREE.Mesh })
+        .faceMesh3D)
+        ? {
+            isSame: (player as unknown as { faceMesh3D?: THREE.Mesh })
+              .faceMesh3D ===
+              player.group.getObjectByName('face-mesh-3d'),
+            visible: (player as unknown as { faceMesh3D?: THREE.Mesh })
+              .faceMesh3D!.visible,
+          }
+        : null,
+      visibleMeshes: (() => {
+        const out: Array<{ name: string; type: string; visible: boolean }> = [];
+        player.group.traverse((o) => {
+          const obj = o as THREE.Object3D & { isMesh?: boolean; isGroup?: boolean };
+          if (obj.isMesh && obj.visible) {
+            // Walk ancestors to confirm full visibility chain.
+            let cur: THREE.Object3D | null = obj;
+            let allVisible = true;
+            while (cur) {
+              if (!cur.visible) { allVisible = false; break; }
+              cur = cur.parent;
+            }
+            if (allVisible) {
+              const wp = new THREE.Vector3();
+              obj.getWorldPosition(wp);
+              out.push({
+                name: obj.name || '<unnamed>',
+                type: obj.type,
+                visible: true,
+              });
+            }
+          }
+        });
+        return out;
+      })(),
     };
   },
 };

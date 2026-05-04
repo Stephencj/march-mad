@@ -183,6 +183,11 @@ let selectedFaceMesh3D: {
     imageDataUrl: string;
     landmarks: number[];
   }>;
+  // Phase H2: baked feature-image bundle from H1's stylized baker. When
+  // present AND `__faceMode === 'mii'` (default when present), the rig
+  // mounts these as flat textured planes (cranium silhouette behind).
+  // Older scans without the bundle fall through to the procedural overlay.
+  featureImages?: import('./dev/face/types').FeatureImagesBundle;
 } | null = null;
 // Phase D: cache the sampled-feature bundle alongside the mesh3d payload
 // so player rebuilds can re-apply skin/lip/brow/nose/hair/hat without an
@@ -312,6 +317,18 @@ function applyCachedFaceToPlayer(): void {
       // every frame so the procedural geometry tracks the puppet's
       // deformations.
       player.setFaceProcedural(built);
+      // Phase H2: mount the Mii flat-image face when the saved scan has a
+      // baked feature bundle. Default __faceMode = 'mii' when present so
+      // the planes win over the procedural overlay; A/B can flip via
+      // window.__faceMode = 'procedural' / 'mesh' / 'both' in DevTools.
+      if (selectedFaceMesh3D.featureImages) {
+        if (typeof window !== 'undefined' && window.__faceMode === undefined) {
+          window.__faceMode = 'mii';
+        }
+        void player.setFaceMii(selectedFaceMesh3D.featureImages);
+      } else {
+        void player.setFaceMii(null);
+      }
       // Cache the BuiltFaceMesh so the face-anim path can wrap it without
       // rebuilding. The mesh's geometry is owned by the player from here on.
       builtFaceMeshCache = built;
@@ -1278,6 +1295,9 @@ async function applyFaceSelection(name: string): Promise<void> {
         // G1: pass through the captured pose angles so the rebuild path
         // can construct a head mesh from the profile-left/right captures.
         angles: face.mesh3d.angles,
+        // Phase H2: pass through the baked feature-image bundle so the
+        // Mii flat-image renderer mounts after the canonical mesh.
+        featureImages: face.mesh3d.featureImages,
       };
       // Phase D: bundle the sampled-feature payload from the saved face's
       // mesh3d into the shape `setFaceMesh3D` expects. Each field is

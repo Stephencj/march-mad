@@ -13,6 +13,12 @@ import {
 import type { BuiltFaceMesh } from '@/dev/face/mesh-builder';
 import type { BuiltHeadMesh } from '@/dev/face/head-mesh-builder';
 import { buildHat, disposeHat, type HatType } from '@/dev/face/hat-geometry';
+import {
+  buildMiiFace,
+  deriveMeshScaleFromBundle,
+  type BuiltMiiFace,
+} from '@/dev/face/mii-face-renderer';
+import type { FeatureImagesBundle } from '@/dev/face/types';
 
 /**
  * Hair style types for Bobblehead Ballers.
@@ -39,7 +45,13 @@ type HairStyle = 'bald' | 'receding' | 'flat-top' | 'afro' | 'mohawk' | 'headban
 
 declare global {
   interface Window {
-    __faceMode?: 'mesh' | 'procedural' | 'both';
+    /** Phase H2 — extends the prior 'mesh' | 'procedural' | 'both' set
+     *  with the new Mii-style flat-image face mode. When 'mii' AND a
+     *  bundle of `mesh3d.featureImages` is present on the active face,
+     *  the player mounts `face-flat-group` (textured planes) and hides
+     *  the procedural overlay + canonical mesh features. Other modes
+     *  preserve their pre-H2 behavior. */
+    __faceMode?: 'mesh' | 'procedural' | 'both' | 'mii';
     /** G3: DevTools toggle for the beer-hand left-arm lock. Mirrors
      *  `animConfig.poses.beerHold.enabled`. Set in DevTools to flip the
      *  lock off without rebuilding. */
@@ -50,16 +62,87 @@ declare global {
 /** Apply the current `window.__faceMode` to a player's mounted faces. Safe
  *  to call before either side is mounted — missing pieces are skipped.
  *  Phase D: default flipped from 'both' to 'procedural' — the canonical
- *  mesh hides by default. */
+ *  mesh hides by default.
+ *
+ *  Phase H2: 'mii' mode — when a Mii flat-face group is mounted, hide
+ *  the canonical mesh + procedural overlay so the textured planes are
+ *  the only feature renderers visible. The cranium ellipsoid + other
+ *  head-mesh extras stay on so the silhouette is solid. */
 function applyFaceMode(player: GamePlayer): void {
   const mode =
     typeof window !== 'undefined' ? (window.__faceMode ?? 'procedural') : 'procedural';
   const built = player.getFaceMesh3D();
-  if (built) built.visible = mode !== 'procedural';
-  if (player.faceProcedural) player.faceProcedural.setVisible(mode !== 'mesh');
+  const mii = player.getFaceMiiGroup();
+  // In 'mii' mode the canonical mesh + procedural sit OUT — features
+  // are flat planes. In 'mesh' mode the canonical wins. In 'both'
+  // they all show (debug A/B). 'procedural' default hides the mesh.
+  if (built) {
+    if (mode === 'mii') built.visible = false;
+    else if (mode === 'mesh') built.visible = true;
+    else if (mode === 'both') built.visible = true;
+    else built.visible = false; // 'procedural'
+  }
+  if (player.faceProcedural) {
+    if (mode === 'mii') player.faceProcedural.setVisible(false);
+    else player.faceProcedural.setVisible(mode !== 'mesh');
+  }
+  if (mii) {
+    mii.visible = mode === 'mii';
+  }
+  // Phase H2 — in 'mii' mode, hide the realistic sclera/iris/pupil eye
+  // structure (anchored at the rig's eye sockets) so the textured-plane
+  // eyes from the Mii bundle are the only eye renderers visible. The
+  // realistic structure stays mounted (so a mode switch back to
+  // 'mesh' / 'procedural' / 'both' restores it without re-mounting),
+  // we just toggle the visible flag on the per-side `eye-*-realistic`
+  // group. In other modes, the realistic structure follows the prior
+  // setEyeStructureMode toggle (3D mesh mounted = realistic visible).
+  for (const side of ['left', 'right'] as const) {
+    const realistic = player.group.getObjectByName(`eye-${side}-realistic`);
+    const simple = player.group.getObjectByName(`eye-${side}-simple`);
+    if (mode === 'mii') {
+      if (realistic) realistic.visible = false;
+      if (simple) simple.visible = false;
+    } else {
+      // Restore: only adjust if mii had hidden them. We don't know the
+      // pre-mii state, but the canonical setFaceMesh3D path always
+      // re-runs setEyeStructureMode. The mode-switch from mii back will
+      // typically come with a re-apply.
+    }
+  }
+  // Phase H2 — also hide the procedural hat (beanie/cap dome) and hair
+  // sub-mesh in 'mii' mode. The Mii bundle's `hat` plane replaces them;
+  // leaving the procedural geometry in place would render a dark dome
+  // covering the upper head and obscure the Mii planes. The procedural
+  // pieces stay MOUNTED (so a mode-switch back restores them) — only
+  // their visible flag flips.
+  const neckGroup = player.group.getObjectByName('neck-group') as
+    | THREE.Group
+    | undefined;
+  if (neckGroup) {
+    for (const childName of ['hair', 'beanie-dome', 'cap-forward', 'cap-backward']) {
+      const child = neckGroup.getObjectByName(childName) as THREE.Object3D | undefined;
+      if (child) child.visible = mode !== 'mii';
+    }
+    // Also walk neckGroup children for any HAT group container that
+    // isn't named above (the rig's setFaceHat path mounts the geometry
+    // as a top-level group named after the hat type — match by ancestor
+    // name so children aren't missed).
+    for (const child of neckGroup.children) {
+      if (
+        child.name === 'hair' ||
+        child.name.startsWith('cap-') ||
+        child.name === 'beanie' ||
+        child.name === 'beanie-dome'
+      ) {
+        child.visible = mode !== 'mii';
+      }
+    }
+  }
   // G1 — in 'mesh' mode, hide the head-mesh-group's back/sides/ears so
   // the canonical front face renders alone (matching legacy mesh-only
-  // mode). In 'procedural' or 'both', show the full head mesh.
+  // mode). In 'procedural' / 'both' / 'mii', show the full head mesh
+  // (cranium silhouette is visible behind the features).
   for (const extra of player.getHeadMeshExtras()) {
     extra.visible = mode !== 'mesh';
   }
@@ -672,6 +755,16 @@ export class GamePlayer {
    *  iris-midpoint and clearFaceMesh3DInternal can restore them. */
   private defaultEyeLeftPos: THREE.Vector3 | null = null;
   private defaultEyeRightPos: THREE.Vector3 | null = null;
+
+  /** Phase H2 — when a baked feature-images bundle is mounted via
+   *  setFaceMii, this holds the THREE.Group of textured plane meshes
+   *  that render the user's stylized features as flat sprites on the
+   *  cranium. Mounted as a sibling of the canonical mesh inside the
+   *  `face-mesh-3d` slot. Disposed (textures + materials + geoms) on
+   *  every swap and on `setFaceMii(null)`. Null when no Mii face is
+   *  mounted (older saves without `featureImages`, or `__faceMode`
+   *  routed to procedural / mesh / both). */
+  private faceMiiBuilt: BuiltMiiFace | null = null;
 
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
@@ -1482,6 +1575,79 @@ export class GamePlayer {
   }
 
   /**
+   * Phase H2 — mount (or clear) a Mii-style flat-image face built from
+   * the H1 baker's feature-image bundle. The group is added as a sibling
+   * of the canonical mesh inside the `face-mesh-3d` slot, in the same
+   * mesh-local coord space (the slot's own offset puts the user's
+   * irises on the rig's eye anchor).
+   *
+   * Pass `null` to clear the Mii face only — the canonical mesh +
+   * cranium + procedural overlay are untouched (callers route between
+   * Mii/procedural/mesh via `window.__faceMode` and the per-call
+   * mounting decision in `applyCachedFaceToPlayer`).
+   *
+   * Visibility (procedural / canonical / Mii) is reconciled by
+   * `applyFaceMode(this)` at the end so concurrent mounts don't
+   * double-render.
+   */
+  async setFaceMii(bundle: FeatureImagesBundle | null): Promise<void> {
+    const slot = this.group.getObjectByName('face-mesh-3d') as
+      | THREE.Group
+      | undefined;
+    if (!slot) return;
+
+    // Always tear down the prior Mii group on every call (including the
+    // null clear path AND a re-apply with a different bundle). The
+    // BuiltMiiFace.dispose() frees textures + materials + geometries.
+    if (this.faceMiiBuilt) {
+      slot.remove(this.faceMiiBuilt.group);
+      this.faceMiiBuilt.dispose();
+      this.faceMiiBuilt = null;
+    }
+    if (!bundle) {
+      applyFaceMode(this);
+      return;
+    }
+
+    // Hide the canonical mesh + procedural overlay SYNCHRONOUSLY so the
+    // first frame after we accept the Mii bundle doesn't double-render
+    // the older paths (race vs. async texture decode below).
+    if (this.faceMesh3D) this.faceMesh3D.visible = false;
+    if (this.faceProcedural) this.faceProcedural.setVisible(false);
+
+    // Derive per-face uniform scale from the canonical mesh's iris
+    // distance (mesh-local-scaled) vs the bundle's iris-centroid
+    // distance (raw landmark space). Kept for forward-compat; the H2
+    // renderer no longer uses it for sizing/positioning (see
+    // TARGET_SIZE_M / ANCHOR_OFFSET_M comments in mii-face-renderer.ts)
+    // but a future revision that re-derives per-face anchors would.
+    const meshScale = this.faceMesh3D
+      ? deriveMeshScaleFromBundle(bundle, this.faceMesh3D)
+      : 1;
+    // Pass the canonical mesh's iris midpoint so the renderer can offset
+    // each plane by `+irisMidpoint`, canceling the slot's own
+    // `-irisMidpoint` translation. Without this the planes anchor to
+    // the slot's world origin (which sits `-irisMidpoint` away from
+    // where the rig's `eye-left/right` are positioned), putting eyes
+    // ~8cm low and ~3cm back. With this they land on the same anchor
+    // the rig already places its eye spheres at.
+    const irisMidpoint = this.faceMesh3D
+      ? readIrisMidpointFromMesh(this.faceMesh3D)
+      : { x: 0, y: 0, z: 0 };
+    const built = await buildMiiFace(bundle, { meshScale, irisMidpoint });
+    this.faceMiiBuilt = built;
+    slot.add(built.group);
+    applyFaceMode(this);
+  }
+
+  /** Phase H2 — expose the currently-mounted Mii face group so
+   *  `applyFaceMode` can flip its visibility based on `__faceMode`.
+   *  Returns null when no Mii face is mounted. */
+  getFaceMiiGroup(): THREE.Group | null {
+    return this.faceMiiBuilt?.group ?? null;
+  }
+
+  /**
    * Phase E — wire (or unwire) the live blendshape puppet so the procedural
    * face's conditional features (teeth, tongue) can read smoothed `jawOpen`
    * to toggle visibility. Call right after `createFacePuppet` succeeds, and
@@ -1507,6 +1673,15 @@ export class GamePlayer {
       if (slot) slot.remove(this.faceProcedural.group);
       this.faceProcedural.dispose();
       this.faceProcedural = null;
+    }
+    // Phase H2: tear down the Mii flat-image face group along with the
+    // mesh, so a setFaceImage / setFaceMesh3D(null) clear path leaves
+    // no stranded textured planes parented to the slot.
+    if (this.faceMiiBuilt) {
+      const slot = this.group.getObjectByName('face-mesh-3d') as THREE.Group | undefined;
+      if (slot) slot.remove(this.faceMiiBuilt.group);
+      this.faceMiiBuilt.dispose();
+      this.faceMiiBuilt = null;
     }
     if (this.faceMesh3DHeadShape) {
       const head = this.group.getObjectByName('head') as THREE.Mesh | undefined;

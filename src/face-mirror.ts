@@ -384,6 +384,16 @@ async function applyFaceSelection(name: string): Promise<void> {
   // call below) so blendshape-puppet deformations animate the procedural
   // features for free.
   player.setFaceProcedural(built);
+  // Phase H2: mount the Mii flat-image renderer when the saved scan has a
+  // baked feature bundle. Default __faceMode = 'mii' when present.
+  if (face.mesh3d.featureImages) {
+    if (typeof window !== 'undefined' && window.__faceMode === undefined) {
+      window.__faceMode = 'mii';
+    }
+    void player.setFaceMii(face.mesh3d.featureImages);
+  } else {
+    void player.setFaceMii(null);
+  }
   mountedFace = { mesh: built, faceName: name };
   updateMirrorBtnState();
 }
