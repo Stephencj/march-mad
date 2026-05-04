@@ -16,8 +16,10 @@ import { buildHat, disposeHat, type HatType } from '@/dev/face/hat-geometry';
 import {
   buildMiiFace,
   deriveMeshScaleFromBundle,
+  setFaceDecalSlot,
   type BuiltMiiFace,
 } from '@/dev/face/mii-face-renderer';
+import type { DecalKey } from '@/dev/face/face-decal-registry';
 import {
   createFaceKeyframeMixer,
   type FaceKeyframeMixer,
@@ -167,20 +169,16 @@ function applyFaceMode(player: GamePlayer): void {
 }
 
 /**
- * Phase H4 — translate the keyframe mixer's per-track resolved state
- * into Mii-face plane visibility flags. Until later phases introduce
- * per-keyframe textures, the only visible effect is a momentary HIDE of
- * the eye plane while a blink is closed (so the eyes "disappear" briefly
- * while the eyelid texture isn't yet authored). All other tracks
- * leave the corresponding plane visible — the mixer state still
- * propagates into BlendshapeSource for procedural-face teeth/tongue
- * gating, but the Mii-plane visual is unchanged for non-blink tracks.
+ * Phase H4/H3 — translate the keyframe mixer's per-track resolved state
+ * into Mii-face plane visibility flags. Eye blinks hide the eye plane
+ * mid-blink (no eyelid texture yet); decal-overlay drives the forehead
+ * decal slot's texture + opacity per the H3 design.
  *
  * Called every frame from `player.animate()` after `mixer.tick(dtMs)`.
  */
 function applyMixerStateToFaceMii(
   state: ReadonlyMap<FeatureTrack, TrackState>,
-  planes: Map<string, THREE.Mesh>,
+  built: BuiltMiiFace,
 ): void {
   // Eyes: hide the plane when the track is blink-full AND past ~50% of
   // the close transition. Threshold chosen so a blink looks crisp (eyes
@@ -193,12 +191,139 @@ function applyMixerStateToFaceMii(
     if (s.from === 'blink-full' && s.t < 0.5) return true;
     return false;
   };
-  const leftEye = planes.get('leftEye');
+  const leftEye = built.planes.get('leftEye');
   if (leftEye) leftEye.visible = !eyeShouldHide(state.get('eye-L'));
-  const rightEye = planes.get('rightEye');
+  const rightEye = built.planes.get('rightEye');
   if (rightEye) rightEye.visible = !eyeShouldHide(state.get('eye-R'));
-  // Other tracks: planes stay visible. Future phases (K4) will swap
-  // texture maps based on the resolved keyframe name.
+  // Other feature tracks: planes stay visible. Future phases (K4) will
+  // swap texture maps based on the resolved keyframe name.
+
+  // Phase H3 — decal-overlay track drives the forehead decal slot. v1
+  // routes ALL decals to the forehead slot (cheekL/R reserved for later
+  // phases). The mixer's asymmetric fade-in/fade-out timings (200ms in,
+  // 400ms out) are already built into `t` — we just project state into
+  // (decalKey, opacity).
+  applyDecalOverlay(state.get('decal-overlay'), built);
+}
+
+/** Resolve `(decalKey, opacity)` from the decal-overlay track's
+ *  TrackState and forward to `setFaceDecalSlot`. v1 only drives the
+ *  forehead slot. The `from` field MAY be a mid-transition reseed
+ *  encoding (`__mid__|<from>|<to>|<easedT>`); we handle that by
+ *  decoding the most-recent visible decal so a rapid composite swap
+ *  doesn't pop the decal off mid-fade. Per-player last-applied decal
+ *  state is stored on `built.lastDecalKey.forehead`. */
+function applyDecalOverlay(
+  s: TrackState | undefined,
+  built: BuiltMiiFace,
+): void {
+  const decalSlots = built.decalSlots;
+  // Window override — a debug surface set via `window.__testForceDecal`
+  // that the snapshot driver flips before capture to verify the visual
+  // pipeline. Bypasses the mixer's track state entirely. Set to
+  // `'none'` or unset to defer to the mixer.
+  const w = (typeof window !== 'undefined'
+    ? (window as unknown as { __testForceDecal?: DecalKey })
+    : null);
+  if (w && w.__testForceDecal && w.__testForceDecal !== 'none') {
+    const forced = w.__testForceDecal;
+    if (forced !== built.lastDecalKey.forehead) {
+      built.lastDecalKey.forehead = forced;
+      void setFaceDecalSlot(built, 'forehead', forced, 1.0).catch(() => {});
+    } else {
+      const mat = decalSlots.forehead.material as THREE.MeshBasicMaterial;
+      mat.opacity = 1;
+      decalSlots.forehead.visible = true;
+    }
+    return;
+  }
+
+  if (!s) return;
+
+  // Eased t (the mixer's `t` is *raw* 0..1; we apply the same easing
+  // it stored on the state to mirror what the BlendshapeSource adapter
+  // computes for visual consistency).
+  const easedT = applyEasingForState(s.t, s.easing);
+
+  // Decode mid-transition reseed if present in `from`.
+  let effectiveFrom: DecalKey = 'none';
+  const decoded = decodeMidFromForDecal(s.from);
+  if (decoded) {
+    // The visually-rendered decal at reseed time was decoded.to with
+    // weight decoded.t (eased). For decals we approximate by treating
+    // decoded.to as the dominant prior decal — that's the one the
+    // viewer saw last.
+    effectiveFrom = decoded.to as DecalKey;
+  } else {
+    effectiveFrom = (s.from as DecalKey) ?? 'none';
+  }
+  const effectiveTo: DecalKey = (s.to as DecalKey) ?? 'none';
+
+  let activeKey: DecalKey;
+  let opacity: number;
+  if (effectiveTo !== 'none') {
+    // Fading IN to a decal. Opacity ramps 0 -> 1 with eased-t.
+    activeKey = effectiveTo;
+    opacity = easedT;
+  } else if (effectiveFrom !== 'none') {
+    // Fading OUT from a decal. Opacity ramps 1 -> 0 with eased-t.
+    activeKey = effectiveFrom;
+    opacity = 1 - easedT;
+  } else {
+    activeKey = 'none';
+    opacity = 0;
+  }
+
+  // If the active decal key changed, kick off a load (which is a no-op
+  // when the texture is already cached). The opacity update happens
+  // SYNCHRONOUSLY against the slot's material — the caller sees the
+  // tween advance every frame even while the first-time texture decode
+  // is in flight.
+  const mat = decalSlots.forehead.material as THREE.MeshBasicMaterial;
+  if (activeKey !== built.lastDecalKey.forehead) {
+    built.lastDecalKey.forehead = activeKey;
+    // Fire-and-forget the texture swap. Errors are swallowed — a
+    // missing decal PNG should not crash gameplay; the slot stays
+    // hidden in that case (helper handles).
+    void setFaceDecalSlot(built, 'forehead', activeKey, opacity).catch(() => {});
+  } else if (activeKey === 'none') {
+    // No decal active and key didn't change — make sure the slot is
+    // hidden (idempotent, cheap).
+    mat.opacity = 0;
+    decalSlots.forehead.visible = false;
+  } else {
+    // Same decal key, just update the opacity tween.
+    mat.opacity = Math.max(0, Math.min(1, opacity));
+    decalSlots.forehead.visible = mat.opacity > 0.01;
+  }
+}
+
+/** Local easing impl — duplicates face-keyframe-anim.ts to avoid
+ *  exporting easing internals from that module. The mixer stores the
+ *  selected easing on each TrackState so we can reproduce its eased-t
+ *  exactly. */
+function applyEasingForState(t: number, easing: TrackState['easing']): number {
+  if (easing === 'linear') return t;
+  if (easing === 'easeOut') {
+    const u = 1 - t;
+    return 1 - u * u * u;
+  }
+  // easeInOut
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/** Detect the mixer's `__mid__|<from>|<to>|<easedT>` reseed encoding. */
+function decodeMidFromForDecal(
+  s: string,
+): { from: string; to: string; t: number } | null {
+  if (!s.startsWith('__mid__|')) return null;
+  const parts = s.split('|');
+  if (parts.length !== 4) return null;
+  return {
+    from: parts[1],
+    to: parts[2],
+    t: parseFloat(parts[3]),
+  };
 }
 
 /**
@@ -3788,7 +3913,7 @@ export class GamePlayer {
     // isn't mounted (non-Mii face mode).
     if (this.faceMixer && this.faceMiiBuilt) {
       const state = this.faceMixer.tick(dt * 1000);
-      applyMixerStateToFaceMii(state, this.faceMiiBuilt.planes);
+      applyMixerStateToFaceMii(state, this.faceMiiBuilt);
     }
 
     this.lastMoving = isMoving;

@@ -36,6 +36,7 @@
  */
 import * as THREE from 'three';
 import type { FaceFeatureCrop, FeatureImagesBundle } from './types';
+import { faceDecalRegistry, type DecalKey } from './face-decal-registry';
 
 export interface MiiFaceMountOpts {
   /** Skin tone for cranium tinting (passed through to head mesh, not used
@@ -239,16 +240,65 @@ const ORDERED_FEATURES: FeatureName[] = [
   'leftBrow', 'rightBrow',
 ];
 
+/** Phase H3 — decal slot meshes added inside the face-flat-group. Each
+ *  decal slot is a transparent plane with no map until the keyframer
+ *  toggles one in via `setFaceDecalSlot`. v1 only the forehead slot is
+ *  driven; cheekL/R remain reserved for later phases. */
+export interface DecalSlots {
+  forehead: THREE.Mesh;
+  cheekL: THREE.Mesh;
+  cheekR: THREE.Mesh;
+}
+
 export interface BuiltMiiFace {
   group: THREE.Group;
   /** Per-feature mesh, keyed by feature name. Populated only for features
    *  present in the bundle (and not gated by an `opts.show* = false`). */
   planes: Map<FeatureName, THREE.Mesh>;
+  /** Phase H3 — decal slots, all start invisible with opacity 0 + no
+   *  texture map. Populated by `setFaceDecalSlot`. */
+  decalSlots: DecalSlots;
+  /** Phase H3 — per-slot last-applied decal key. Used by the mixer-state
+   *  applier to detect changes and trigger texture swaps only when the
+   *  active decal actually flips (otherwise every frame would queue a
+   *  redundant `faceDecalRegistry.load`). */
+  lastDecalKey: { forehead: DecalKey; cheekL: DecalKey; cheekR: DecalKey };
   /** Disposable resources (textures + materials + geometries). Caller
    *  MUST call this on unmount or each face swap leaks a few hundred KB
    *  of GPU memory. */
   dispose(): void;
 }
+
+/** Per-decal-slot anchor offsets in METERS, expressed RELATIVE to the
+ *  iris midpoint (matching ANCHOR_OFFSET_M's coord convention).
+ *
+ *  - Forehead sits +60mm above iris-mid, centered. Lands inside the
+ *    upper-forehead band of the face plate (plate top = +0.115m).
+ *  - Cheeks at ±50mm X, -20mm Y — landing on each cheek apex below
+ *    the iris.
+ *  v1 mixer only drives the forehead slot. */
+const DECAL_SLOT_ANCHORS: Record<keyof DecalSlots, { x: number; y: number }> = {
+  forehead: { x:  0.000, y:  0.060 },
+  cheekL:   { x: -0.050, y: -0.020 },
+  cheekR:   { x:  0.050, y: -0.020 },
+};
+
+/** Per-decal-slot plane sizes in METERS. Forehead is wider (vein /
+ *  pain-stars are larger features); cheeks are roughly square (blush /
+ *  crease-cheek). */
+const DECAL_SLOT_SIZES: Record<keyof DecalSlots, { w: number; h: number }> = {
+  forehead: { w: 0.060, h: 0.040 },
+  cheekL:   { w: 0.040, h: 0.040 },
+  cheekR:   { w: 0.040, h: 0.040 },
+};
+
+/** Forward Z bias applied to decals — slightly higher than feature
+ *  planes so a decal on the forehead doesn't z-fight with a brow plane
+ *  underneath it. Per design plan: decals at renderOrder=11 (atop
+ *  features). */
+const DECAL_Z_BIAS = 0.025;
+
+const DECAL_RENDER_ORDER = 12;
 
 /**
  * Build a Mii-style face group from a baked feature-images bundle.
@@ -369,9 +419,49 @@ export async function buildMiiFace(
     planes.set(name, mesh);
   }
 
+  // Phase H3 — build the three decal slot meshes. All start invisible
+  // with zero opacity and no map; the keyframe mixer wires textures via
+  // `setFaceDecalSlot` once a composite triggers one. The materials are
+  // owned per-face (so opacity tweens don't leak across players) but the
+  // textures are shared via the module-level `faceDecalRegistry`.
+  const iris = opts.irisMidpoint ?? { x: 0, y: 0, z: 0 };
+  const decalSlots = {} as DecalSlots;
+  for (const slotName of ['forehead', 'cheekL', 'cheekR'] as const) {
+    const size = DECAL_SLOT_SIZES[slotName];
+    const anchor = DECAL_SLOT_ANCHORS[slotName];
+    const dGeom = new THREE.PlaneGeometry(size.w, size.h);
+    ownedGeometries.push(dGeom);
+    const dMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      // Lower alphaTest than feature planes (0.5) — decals are SOFT
+      // overlays that need to fade in, so a 0.5 cutout would pop them
+      // on at ~50% alpha. 0.1 keeps the cutout below the start of the
+      // visible-fade range so the tween reads as a smooth fade-in.
+      alphaTest: 0.1,
+      depthWrite: false,
+      opacity: 0,
+      side: THREE.FrontSide,
+    });
+    dMat.name = `face-decal-${slotName}-mat`;
+    ownedMaterials.push(dMat);
+    const dMesh = new THREE.Mesh(dGeom, dMat);
+    dMesh.name = `face-decal-${slotName}`;
+    dMesh.position.set(
+      anchor.x + iris.x,
+      anchor.y + iris.y,
+      DECAL_Z_BIAS + (opts.craniumFrontZ ?? 0) + iris.z,
+    );
+    dMesh.renderOrder = DECAL_RENDER_ORDER;
+    dMesh.visible = false;
+    group.add(dMesh);
+    decalSlots[slotName] = dMesh;
+  }
+
   return {
     group,
     planes,
+    decalSlots,
+    lastDecalKey: { forehead: 'none', cheekL: 'none', cheekR: 'none' },
     dispose() {
       for (const t of ownedTextures) t.dispose();
       for (const m of ownedMaterials) m.dispose();
@@ -381,6 +471,63 @@ export async function buildMiiFace(
       while (group.children.length > 0) group.remove(group.children[0]);
     },
   };
+}
+
+/**
+ * Phase H3 — apply (or clear) a decal texture on one of the three Mii
+ * face decal slots, animating the slot's opacity to the requested value.
+ *
+ * - `key === 'none'`: hide the slot, clear its `.map` so nothing stays
+ *   loaded, and reset opacity to 0.
+ * - any other key: load via the shared `faceDecalRegistry`, swap the
+ *   slot's `.map`, set `visible=true`, and set `material.opacity` to
+ *   the passed value (0..1). The keyframe mixer drives the opacity
+ *   ramp by passing eased-`t` values across multiple ticks.
+ *
+ * The texture cache is shared across players — a vein-forehead decal
+ * resolves a single GPU texture even with six players angry at once.
+ *
+ * Throws on load failure (lets the caller decide whether to surface or
+ * swallow). The registry evicts failed loads so a retry next frame
+ * works.
+ */
+export async function setFaceDecalSlot(
+  built: BuiltMiiFace,
+  slot: keyof DecalSlots,
+  key: DecalKey,
+  opacity: number,
+): Promise<void> {
+  const mesh = built.decalSlots[slot];
+  if (!mesh) return;
+  const mat = mesh.material as THREE.MeshBasicMaterial;
+  if (key === 'none') {
+    // Clear: hide the slot, drop the texture reference (the texture
+    // itself stays cached in the registry — no dispose here, that
+    // would defeat sharing across players).
+    mat.map = null;
+    mat.needsUpdate = true;
+    mat.opacity = 0;
+    mesh.visible = false;
+    return;
+  }
+  const texture = await faceDecalRegistry.load(key);
+  if (!texture) {
+    // Registry returned null — treat as "no decal" (defensive: a
+    // missing PNG shouldn't crash gameplay).
+    mat.map = null;
+    mat.needsUpdate = true;
+    mat.opacity = 0;
+    mesh.visible = false;
+    return;
+  }
+  if (mat.map !== texture) {
+    mat.map = texture;
+    mat.needsUpdate = true;
+  }
+  mat.opacity = Math.max(0, Math.min(1, opacity));
+  // Hide the slot when opacity is essentially zero — keeps the alpha-
+  // tested fragment shader from running for an invisible quad.
+  mesh.visible = mat.opacity > 0.01;
 }
 
 /** Decode a data URL into a THREE.Texture via an HTMLImageElement.

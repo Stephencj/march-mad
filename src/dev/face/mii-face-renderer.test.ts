@@ -86,8 +86,8 @@ describe('buildMiiFace', () => {
     const built = await buildMiiFace(makeMinBundle());
     expect(built.group).toBeInstanceOf(THREE.Group);
     expect(built.group.name).toBe('face-flat-group');
-    // 6 required features only.
-    expect(built.group.children.length).toBe(6);
+    // 6 required features + 3 decal slots (forehead/cheekL/cheekR; H3).
+    expect(built.group.children.length).toBe(6 + 3);
     expect(built.planes.size).toBe(6);
     for (const name of ['leftEye', 'rightEye', 'leftBrow', 'rightBrow', 'nose', 'mouth'] as const) {
       const mesh = built.planes.get(name);
@@ -105,7 +105,8 @@ describe('buildMiiFace', () => {
       hat: makeCrop(0.01, 0.75, 0.02, 0.32, 0.02),
     };
     const built = await buildMiiFace(bundle);
-    expect(built.group.children.length).toBe(9);
+    // 9 features + 3 decal slots.
+    expect(built.group.children.length).toBe(9 + 3);
     expect(built.planes.has('beard')).toBe(true);
     expect(built.planes.has('mustache')).toBe(true);
     expect(built.planes.has('hat')).toBe(true);
@@ -119,9 +120,34 @@ describe('buildMiiFace', () => {
       hat: makeCrop(0.01, 0.75, 0.02, 0.32, 0.02),
     };
     const built = await buildMiiFace(bundle, { showBeard: false, showHat: false });
-    expect(built.group.children.length).toBe(6); // beard + hat suppressed
+    // 6 features (beard + hat suppressed) + 3 decal slots.
+    expect(built.group.children.length).toBe(6 + 3);
     expect(built.planes.has('beard')).toBe(false);
     expect(built.planes.has('hat')).toBe(false);
+    built.dispose();
+  });
+
+  it('builds three decal slots (forehead/cheekL/cheekR) starting hidden', async () => {
+    const built = await buildMiiFace(makeMinBundle());
+    const slots = built.decalSlots;
+    expect(slots.forehead.name).toBe('face-decal-forehead');
+    expect(slots.cheekL.name).toBe('face-decal-cheekL');
+    expect(slots.cheekR.name).toBe('face-decal-cheekR');
+    for (const m of [slots.forehead, slots.cheekL, slots.cheekR]) {
+      expect(m.visible).toBe(false);
+      const mat = m.material as THREE.MeshBasicMaterial;
+      expect(mat.opacity).toBe(0);
+      expect(mat.transparent).toBe(true);
+      expect(mat.depthWrite).toBe(false);
+    }
+    // Forehead anchor: +60mm above iris midpoint.
+    expect(slots.forehead.position.y).toBeCloseTo(0.060, 5);
+    expect(slots.forehead.position.x).toBeCloseTo(0.0, 5);
+    // Cheeks at ±50mm X.
+    expect(slots.cheekL.position.x).toBeCloseTo(-0.050, 5);
+    expect(slots.cheekR.position.x).toBeCloseTo(0.050, 5);
+    expect(slots.cheekL.position.y).toBeCloseTo(-0.020, 5);
+    expect(built.lastDecalKey.forehead).toBe('none');
     built.dispose();
   });
 
