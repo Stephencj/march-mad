@@ -30,6 +30,10 @@ import {
   createFaceLiveDriver,
   type FaceLiveDriver,
 } from '@/dev/face/face-live-driver';
+import {
+  createFaceGameStateDriver,
+  type FaceGameStateDriver,
+} from '@/dev/face/face-game-state-driver';
 import type { FeatureImagesBundle } from '@/dev/face/types';
 
 /**
@@ -991,6 +995,14 @@ export class GamePlayer {
    *  player-editor, and anim-viewer dev pages wire one up). */
   private faceLiveDriver: FaceLiveDriver | null = null;
 
+  /** Phase H6 — game-state → keyframe mixer driver. Subscribes to
+   *  `animState` transitions and schedules the matching FaceAnimSequence
+   *  (concentrating, angry, joy, pain, etc.) at priority 'game-state'.
+   *  Lives ALONGSIDE the live-puppet driver — when both are active, the
+   *  mixer's priority stack lets the live puppet win on contested tracks
+   *  (live-puppet=3 > game-state=1). Null when no Mii face is mounted. */
+  private faceGameStateDriver: FaceGameStateDriver | null = null;
+
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
     this.moveSpeed = 2 + data.stats.speed * 0.35; // 2.35 to 5.5 m/s — deliberate, not frantic
@@ -1847,6 +1859,12 @@ export class GamePlayer {
       this.faceLiveDriver.detach();
       this.faceLiveDriver = null;
     }
+    // Phase H6 — drop the game-state driver. Detach releases its
+    // 'game-state' claims on the mixer (about to be disposed anyway).
+    if (this.faceGameStateDriver) {
+      this.faceGameStateDriver.detach();
+      this.faceGameStateDriver = null;
+    }
     // Phase H4 — tear down the keyframe mixer too, so a face swap
     // doesn't carry over an in-progress blink scheduler / driver
     // claims into a freshly-mounted face.
@@ -1892,6 +1910,16 @@ export class GamePlayer {
     // expression sequences + live-puppet-driven keyframes). Lazily
     // created here so non-Mii face modes pay nothing.
     this.faceMixer = createFaceKeyframeMixer();
+    // Phase H6 — game-state expression driver. Reads `this.animState`
+    // transitions and schedules face-anim sequences (concentrating,
+    // angry, joy, pain, etc.) on the mixer at priority 'game-state'.
+    // Live puppet (priority 3) wins over game-state (1) on contested
+    // tracks; the mixer handles that automatically.
+    this.faceGameStateDriver = createFaceGameStateDriver(this.faceMixer);
+    // Seed the driver with the current animState so a face mounted
+    // mid-animation reflects the current expression on its first frame
+    // (instead of waiting for the next state transition).
+    this.faceGameStateDriver.onAnimStateChange(this.animState);
     applyFaceMode(this);
   }
 
@@ -1997,6 +2025,11 @@ export class GamePlayer {
     if (this.faceLiveDriver) {
       this.faceLiveDriver.detach();
       this.faceLiveDriver = null;
+    }
+    // Phase H6 — drop the game-state driver alongside the mixer.
+    if (this.faceGameStateDriver) {
+      this.faceGameStateDriver.detach();
+      this.faceGameStateDriver = null;
     }
     // Phase H4 — dispose the keyframe mixer with the Mii face. Holding
     // it past a clear would leak the scheduler state into the next
@@ -2785,6 +2818,11 @@ export class GamePlayer {
       this.lastShoulderR = shoulderR.rotation.x;
       this.stateTransitionTimer = this.STATE_BLEND_DURATION;
       this.prevAnimState = this.animState;
+      // Phase H6 — also notify the face game-state driver so it can
+      // schedule the matching expression sequence (concentrating on
+      // dribble, angry on guard, multi-step sequence on dunk, etc.).
+      // No-op when no Mii face is mounted (driver is null).
+      this.faceGameStateDriver?.onAnimStateChange(this.animState);
     }
     if (this.stateTransitionTimer > 0) {
       this.stateTransitionTimer -= dt;
@@ -4009,6 +4047,12 @@ export class GamePlayer {
     // into the Mii face's plane visibility. A no-op when the mixer
     // isn't mounted (non-Mii face mode).
     if (this.faceMixer && this.faceMiiBuilt) {
+      // Phase H6 — advance the game-state expression sequence first.
+      // It places 'game-state' priority claims that the live puppet
+      // (priority 3) will overwrite below if active; the mixer's stack
+      // resolves the winner. Doing it before the mixer tick keeps
+      // newly-fired composites visible in the SAME frame.
+      this.faceGameStateDriver?.tick(dt * 1000);
       // Phase H5 — let the live-puppet driver place its track claims
       // BEFORE the mixer ticks, so this frame's resolved TrackState
       // already reflects the latest blendshape coefficients (no 1-frame
