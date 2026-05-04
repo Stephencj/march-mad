@@ -7,7 +7,9 @@
     "doc": "docs"
   },
   "scripts": {
+    "predev": "node scripts/copy-mocap-wasm.js",
     "dev": "vite",
+    "prebuild": "node scripts/copy-mocap-wasm.js",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
@@ -15,7 +17,8 @@
     "electron:dev": "cross-env ELECTRON_DEV=1 electron .",
     "electron:start": "npm run build && electron .",
     "electron:package": "npm run build && electron-builder --win --x64",
-    "icons": "node scripts/make-icon.js"
+    "icons": "node scripts/make-icon.js",
+    "copy-mocap-wasm": "node scripts/copy-mocap-wasm.js"
   },
   "build": {
     "appId": "com.stephencj.marchmad",
@@ -45,6 +48,7 @@
   "type": "commonjs",
   "dependencies": {
     "@dimforge/rapier3d": "^0.19.3",
+    "@mediapipe/tasks-vision": "^0.10.22",
     "three": "^0.183.2"
   },
   "devDependencies": {

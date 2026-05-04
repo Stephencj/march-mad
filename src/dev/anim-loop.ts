@@ -14,6 +14,150 @@
 import * as THREE from 'three';
 import type { GamePlayer } from '../game/player';
 import type { Ball } from '../game/ball';
+import type { PoseClip, PoseFrame } from './mocap/types';
+
+// Dad-bod rig torso length (shoulder-mid → hip-mid). The bodyPivot sits at
+// y=0.78 (player.ts:182) and shoulder-bar / hip-mesh sit ~0.27m above and
+// ~0.28m below within bodyPivot — so the rig torso ≈ 0.55m. We scale the
+// captured `bodyY` (in real-world meters) by RIG_TORSO_LEN / clip.torsoLength
+// so a 0.1m bounce in the capture maps to ~10cm of rig motion regardless of
+// the captured subject's actual height.
+const RIG_TORSO_LEN = 0.55;
+/** Neutral body-pivot height in meters; matches GamePlayer.createMesh. */
+const RIG_BASELINE_Y = 0.78;
+
+/**
+ * Apply a single retargeted PoseFrame to a player rig. Looks up joints by
+ * name each call so it works across rebuilds (setPlayer / body edits).
+ *
+ * Pure-ish: only mutates player rotations + body-pivot.position.y. Caller is
+ * responsible for invoking this AFTER `player.animate(dt)` so it wins.
+ *
+ * `torsoLength` is the captured torso length recorded on PoseClip; used to
+ * normalize the `bodyY` bounce to the rig's torso scale (see RIG_TORSO_LEN).
+ */
+export function applyPoseFrame(
+  player: GamePlayer,
+  p: PoseFrame,
+  torsoLength: number,
+): void {
+  const root = player.group;
+  const bodyPivot = root.getObjectByName('body-pivot');
+  if (!bodyPivot) return; // rig not built yet
+
+  // bodyY scaling: clip is in real-world meters relative to the subject's
+  // captured torso. Rescale to rig-meters so the magnitude reads correctly
+  // on whatever-sized dad-bod we're driving. Fall back to 1× if torsoLength
+  // is degenerate (can happen on very short / occluded captures).
+  const bodyYScale = torsoLength > 1e-3 ? RIG_TORSO_LEN / torsoLength : 1;
+  bodyPivot.position.y = RIG_BASELINE_Y + p.bodyY * bodyYScale;
+  bodyPivot.rotation.set(p.bodyPivot.x, p.bodyPivot.y, p.bodyPivot.z);
+
+  const hipMesh = root.getObjectByName('hip-mesh');
+  if (hipMesh) hipMesh.rotation.y = p.hipMeshY;
+
+  const torso = root.getObjectByName('torso');
+  if (torso) torso.rotation.y = p.torsoY;
+
+  const neck = root.getObjectByName('neck-group');
+  if (neck) neck.rotation.set(p.neck.x, p.neck.y, p.neck.z);
+
+  const shoulderL = root.getObjectByName('shoulder-left');
+  if (shoulderL) {
+    shoulderL.rotation.x = p.shoulderL.x;
+    shoulderL.rotation.z = p.shoulderL.z;
+    // Reset y so any prior anim-state writes don't bleed through.
+    shoulderL.rotation.y = 0;
+  }
+  const shoulderR = root.getObjectByName('shoulder-right');
+  if (shoulderR) {
+    shoulderR.rotation.x = p.shoulderR.x;
+    shoulderR.rotation.z = p.shoulderR.z;
+    shoulderR.rotation.y = 0;
+  }
+
+  const elbowL = root.getObjectByName('elbow-left');
+  if (elbowL) elbowL.rotation.x = p.elbowL;
+  const elbowR = root.getObjectByName('elbow-right');
+  if (elbowR) elbowR.rotation.x = p.elbowR;
+
+  const hipL = root.getObjectByName('hip-left');
+  if (hipL) {
+    hipL.rotation.x = p.hipL.x;
+    hipL.rotation.z = p.hipL.z;
+    hipL.rotation.y = 0;
+  }
+  const hipR = root.getObjectByName('hip-right');
+  if (hipR) {
+    hipR.rotation.x = p.hipR.x;
+    hipR.rotation.z = p.hipR.z;
+    hipR.rotation.y = 0;
+  }
+
+  const kneeL = root.getObjectByName('knee-left');
+  if (kneeL) kneeL.rotation.x = p.kneeL;
+  const kneeR = root.getObjectByName('knee-right');
+  if (kneeR) kneeR.rotation.x = p.kneeR;
+}
+
+/** Linear interpolation of two PoseFrames. α is clamped to [0, 1]. */
+function lerpPoseFrame(a: PoseFrame, b: PoseFrame, alpha: number): PoseFrame {
+  const t = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+  const lerp = (x: number, y: number) => x + (y - x) * t;
+  return {
+    t: lerp(a.t, b.t),
+    bodyY: lerp(a.bodyY, b.bodyY),
+    bodyPivot: {
+      x: lerp(a.bodyPivot.x, b.bodyPivot.x),
+      y: lerp(a.bodyPivot.y, b.bodyPivot.y),
+      z: lerp(a.bodyPivot.z, b.bodyPivot.z),
+    },
+    hipMeshY: lerp(a.hipMeshY, b.hipMeshY),
+    torsoY: lerp(a.torsoY, b.torsoY),
+    neck: {
+      x: lerp(a.neck.x, b.neck.x),
+      y: lerp(a.neck.y, b.neck.y),
+      z: lerp(a.neck.z, b.neck.z),
+    },
+    shoulderL: {
+      x: lerp(a.shoulderL.x, b.shoulderL.x),
+      z: lerp(a.shoulderL.z, b.shoulderL.z),
+    },
+    shoulderR: {
+      x: lerp(a.shoulderR.x, b.shoulderR.x),
+      z: lerp(a.shoulderR.z, b.shoulderR.z),
+    },
+    elbowL: lerp(a.elbowL, b.elbowL),
+    elbowR: lerp(a.elbowR, b.elbowR),
+    hipL: { x: lerp(a.hipL.x, b.hipL.x), z: lerp(a.hipL.z, b.hipL.z) },
+    hipR: { x: lerp(a.hipR.x, b.hipR.x), z: lerp(a.hipR.z, b.hipR.z) },
+    kneeL: lerp(a.kneeL, b.kneeL),
+    kneeR: lerp(a.kneeR, b.kneeR),
+  };
+}
+
+/**
+ * Sample a PoseClip at time `t` (seconds) by linearly interpolating between
+ * the two bracketing frames. Caller is responsible for wrapping `t` into
+ * [0, duration]. Single-frame clips return that frame.
+ */
+function samplePoseClip(clip: PoseClip, t: number): PoseFrame {
+  const frames = clip.frames;
+  if (frames.length === 1) return frames[0];
+  // Linear scan — clips are short (typically <300 frames), no need for a
+  // binary search. If perf becomes an issue we can cache lastIndex.
+  for (let i = 0; i < frames.length - 1; i++) {
+    const f0 = frames[i];
+    const f1 = frames[i + 1];
+    if (t >= f0.t && t <= f1.t) {
+      const span = f1.t - f0.t;
+      const alpha = span > 1e-9 ? (t - f0.t) / span : 0;
+      return lerpPoseFrame(f0, f1, alpha);
+    }
+  }
+  // t past the last frame — clamp.
+  return frames[frames.length - 1];
+}
 
 export const ANIM_IDS = [
   'idle',
@@ -66,6 +210,15 @@ export class AnimLoop {
   private readonly hoopPos: THREE.Vector3;
   private readonly passTargetPos: THREE.Vector3;
 
+  // --- Mocap-playback mode (Phase 3) ---
+  // When `mocapClip` is non-null, tick() runs an alternate path: still calls
+  // `player.animate(dt)` to keep timers/state coherent, but then overwrites
+  // every joint rotation from the lerped PoseFrame so the captured motion
+  // shows on the rig.
+  private mocapClip: PoseClip | null = null;
+  private mocapTime = 0;
+  private mocapPlaybackSpeed = 1;
+
   constructor(
     private player: GamePlayer,
     private props: AnimLoopProps = {},
@@ -109,8 +262,51 @@ export class AnimLoop {
     else this.player.forceAnimState(null);
   }
 
+  // ---------------- Mocap-playback API (Phase 3) ----------------
+
+  /**
+   * Begin looping playback of a retargeted mocap clip on this player. Forces
+   * the rig into a neutral idle state so the animate() per-state code path
+   * doesn't fight the captured rotations — we overwrite the joints AFTER
+   * animate() runs in tick().
+   */
+  playMocap(clip: PoseClip, opts?: { speed?: number }): void {
+    this.mocapClip = clip;
+    this.mocapTime = 0;
+    this.mocapPlaybackSpeed = opts?.speed ?? 1;
+    // Hide the ball — captured motion is rig-only, no prop choreography.
+    if (this.props.ball) this.props.ball.mesh.visible = false;
+    // Pin position; force idle so animate() doesn't drive any locomotion.
+    this.player.velocity.set(0, 0, 0);
+    this.player.hasBall = false;
+    this.player.isJumping = false;
+    this.player.isSprinting = false;
+    this.player.group.position.set(0, 0, 0);
+    this.player.group.rotation.x = 0;
+    this.player.forceAnimState('idle');
+  }
+
+  /** Stop mocap playback. Caller should re-arm a regular anim via setAnim(). */
+  stopMocap(): void {
+    this.mocapClip = null;
+    this.mocapTime = 0;
+    this.player.forceAnimState(null);
+  }
+
+  isPlayingMocap(): boolean {
+    return this.mocapClip !== null;
+  }
+
   /** Drive one animation frame. `dt` should already be speed-scaled by the caller. */
   tick(dt: number): void {
+    // Mocap mode: keep animate() running (it ticks down timers, manages the
+    // possession ring, etc.) but override every joint rotation from the
+    // captured PoseFrame so the rig shows the captured motion exactly.
+    if (this.mocapClip) {
+      this.tickMocap(dt);
+      return;
+    }
+
     const player = this.player;
     const ball = this.props.ball;
     const anim = this.currentAnim;
@@ -318,6 +514,53 @@ export class AnimLoop {
         ball.followHolder(player.group, false);
       }
     }
+  }
+
+  private tickMocap(dt: number): void {
+    const clip = this.mocapClip;
+    if (!clip) return;
+    const player = this.player;
+
+    // Pin position / state every tick — animate() and prior anim writes can
+    // still leave residue (e.g. group.position.y from idle bob).
+    player.velocity.set(0, 0, 0);
+    player.hasBall = false;
+    player.isJumping = false;
+    player.isSprinting = false;
+    player.forceAnimState('idle');
+
+    // Run animate() so the player's internal state machine stays consistent
+    // (timers, possession ring, etc.). We override every joint rotation
+    // immediately afterward, so any rotations animate() wrote are discarded.
+    player.animate(dt);
+
+    // Pin world transform — animate() may have nudged group.position.y for
+    // the idle bob, and the captured bodyY drives our height instead.
+    player.group.position.set(0, 0, 0);
+    player.group.rotation.set(0, player.group.rotation.y, 0);
+
+    const frames = clip.frames;
+    if (frames.length === 0) return;
+
+    if (frames.length === 1) {
+      applyPoseFrame(player, frames[0], clip.torsoLength);
+      return;
+    }
+
+    // Loop. The clip's last frame.t defines the duration (frame 0 is at t=0).
+    const duration = frames[frames.length - 1].t;
+    if (duration <= 1e-6) {
+      applyPoseFrame(player, frames[0], clip.torsoLength);
+      return;
+    }
+    this.mocapTime += dt * this.mocapPlaybackSpeed;
+    // Wrap into [0, duration). Use a while-loop to be robust to large dt
+    // (e.g. tab backgrounded) and negative speeds.
+    while (this.mocapTime >= duration) this.mocapTime -= duration;
+    while (this.mocapTime < 0) this.mocapTime += duration;
+
+    const sample = samplePoseClip(clip, this.mocapTime);
+    applyPoseFrame(player, sample, clip.torsoLength);
   }
 
   private applyDunkArc(): void {

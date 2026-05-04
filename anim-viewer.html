@@ -56,12 +56,24 @@
 </head>
 <body>
   <div id="container">
-    <div id="canvas-wrap">
+    <div id="canvas-wrap" style="position:relative;">
       <canvas id="viewer-canvas"></canvas>
+      <!-- Phase 8.2a: source-video overlay for face-anim playback. Hidden
+           until the user toggles "Show source video" AND the active clip
+           carries a videoBlob. -->
+      <video id="face-anim-source-video"
+             playsinline muted loop
+             style="position:absolute;bottom:12px;left:12px;width:200px;height:200px;
+                    border:2px solid #e94560;border-radius:6px;background:#000;
+                    transform:scaleX(-1);object-fit:cover;display:none;
+                    pointer-events:none;"></video>
     </div>
     <div id="panel">
       <h2>Animation Viewer</h2>
       <a href="index.html" class="btn" style="background:#1f2540;border-color:#e94560;color:#e94560;text-decoration:none;font-size:13px;padding:6px 8px;">&larr; Back to Game</a>
+      <a href="mocap-editor.html" class="btn" style="background:#1f2540;border-color:#e94560;color:#e94560;text-decoration:none;font-size:13px;padding:6px 8px;">Mocap Editor &rarr;</a>
+      <a href="face-editor.html" class="btn" style="background:#1f2540;border-color:#e94560;color:#e94560;text-decoration:none;font-size:13px;padding:6px 8px;">Face Editor &rarr;</a>
+      <a href="face-mirror.html" class="btn" style="background:#1f2540;border-color:#e94560;color:#e94560;text-decoration:none;font-size:13px;padding:6px 8px;">Face Mirror &rarr;</a>
       <div id="state-label">idle</div>
 
       <h3>Animation</h3>
@@ -80,6 +92,16 @@
         <div class="btn" data-anim="fall">Fall</div>
         <div class="btn" data-anim="dunk">Dunk</div>
         <div class="btn" data-anim="pass">Pass</div>
+      </div>
+
+      <h3>Mocap Clip</h3>
+      <select id="mocap-clip">
+        <option value="">(none)</option>
+      </select>
+      <label id="mocap-clip-meta" style="font-size:11px;color:#888;">Plays a saved capture from /mocap-editor on this rig.</label>
+      <div class="btn-grid" style="grid-template-columns: 2fr 1fr;">
+        <div class="btn" id="mocap-play">Play Mocap</div>
+        <div class="btn" id="mocap-stop">Stop</div>
       </div>
 
       <h3>Speed</h3>
@@ -112,6 +134,23 @@
       <label>Camera Height: <span id="cam-height-val">1.5</span></label>
       <input type="range" id="cam-dist" min="2" max="8" step="0.1" value="4" />
       <label>Camera Distance: <span id="cam-dist-val">4.0</span></label>
+
+      <h3>Face</h3>
+      <select id="face-pick">
+        <option value="">(none — default eyes)</option>
+      </select>
+      <a href="/face-editor.html" style="font-size:11px;color:#e94560;text-decoration:none;">Open Face Editor &rarr;</a>
+
+      <h3>Face Anim</h3>
+      <select id="face-anim-pick">
+        <option value="">(none)</option>
+      </select>
+      <label style="font-size:11px;color:#888;">Plays only on 3D-scanned faces. Capture clips in Face Mirror.</label>
+      <label style="font-size:11px;color:#ccc;">
+        <input type="checkbox" id="face-anim-show-video" />
+        Show source video
+      </label>
+      <a href="/face-mirror.html" style="font-size:11px;color:#e94560;text-decoration:none;">Open Face Mirror &rarr;</a>
 
       <h3>Appearance</h3>
       <select id="hair-style">

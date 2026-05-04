@@ -244,6 +244,24 @@ export interface AnimPoses {
   fall: PoseFall;
   dunk: PoseDunk;
   pass: PosePass;
+  beerHold: PoseBeerHold;
+}
+
+/**
+ * Static lock for the player's left ("beer hand") arm. Held at a fixed pose
+ * so the beer doesn't swing during walk/run/dribble. Dramatic full-body
+ * states listed in `exemptStates` bypass the lock so the beer arm can move
+ * freely during fall/dunk/shoot/jump (forcing it locked there looks broken).
+ */
+export interface PoseBeerHold {
+  shoulderX: number;
+  shoulderZ: number;
+  elbow: number;
+  enabled: boolean;
+  /** Animation states where the lock is BYPASSED (beer arm allowed to
+   *  move freely) — dramatic full-body actions where freezing one arm
+   *  looks broken. Don't include 'guard' (beer is hidden anyway). */
+  exemptStates: ReadonlyArray<string>;
 }
 
 export interface PoseIdle {
@@ -1134,6 +1152,17 @@ const DEFAULTS: AnimConfig = Object.freeze({
       ftKneeR: 0.1,
       hipL: 0,
       kneeL: 0.05,
+    }),
+    beerHold: Object.freeze({
+      shoulderX: -0.3,
+      shoulderZ: -0.4,
+      elbow: -1.4,
+      enabled: true,
+      // Dramatic full-body states bypass the lock. 'pass' and 'dribble' are
+      // INTENTIONALLY NOT exempt — beer stays clamped during dribble (per user
+      // request) and during pass (right arm throws; left arm holds beer).
+      // 'guard' is omitted because the beer is hidden in that state anyway.
+      exemptStates: Object.freeze(['fall', 'dunk', 'shoot', 'jump', 'jump-block']),
     }),
   }),
 }) as AnimConfig;

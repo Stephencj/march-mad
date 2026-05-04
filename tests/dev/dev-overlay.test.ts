@@ -161,7 +161,7 @@ describe('DevOverlay', () => {
       expect(summaries).toContain('HAIR');
     });
 
-    it('exposes all player fields (36 numeric sliders + 2 color pickers)', () => {
+    it('exposes all player fields (66 numeric sliders + 2 color pickers)', () => {
       overlay.show();
       // Count numeric inputs inside the PLAYER root details (by summary text).
       const allDetails = container.querySelectorAll('details');
@@ -176,9 +176,10 @@ describe('DevOverlay', () => {
       expect(playerRoot).not.toBeNull();
       const numericInputs = playerRoot!.querySelectorAll('input[type="number"]');
       const colorInputs = playerRoot!.querySelectorAll('input[type="color"]');
-      // HEAD(2) + BODY(10) + LIMBS(12) + SHOES(3 numeric) + HAIR(9 numeric) = 36
+      // HEAD(2) + BODY(40 — 10 base + G2 30: belly-lower 6 + pecs 6 + shoulder-slopes 6 + love-handles 6 + butt 6)
+      // + LIMBS(12) + SHOES(3 numeric) + HAIR(9 numeric) = 66
       // SHOES(1 color) + HAIR(1 color) = 2
-      expect(numericInputs.length).toBe(36);
+      expect(numericInputs.length).toBe(66);
       expect(colorInputs.length).toBe(2);
     });
 

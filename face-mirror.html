@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Face Mirror &mdash; March Madness 3v3</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: sans-serif; color: white; }
+    #container { display: flex; width: 100%; height: 100%; }
+    #stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    #stage-row {
+      flex: 1; display: flex; min-height: 0;
+    }
+    /* Webcam side — left half. Mirrored so the user feels like they're
+       looking in a mirror. The puppet still drives the un-mirrored math. */
+    #webcam-wrap {
+      flex: 1; position: relative; background: #000;
+      display: flex; align-items: center; justify-content: center;
+      min-width: 0;
+    }
+    #webcam {
+      max-width: 100%; max-height: 100%; transform: scaleX(-1);
+      object-fit: contain;
+    }
+    #webcam.off { display: none; }
+    #webcam-placeholder {
+      color: #888; font-family: monospace; font-size: 13px; text-align: center;
+      padding: 16px;
+    }
+    /* Three.js side — right half. */
+    #three-wrap { flex: 1; position: relative; background: #1a1a2e; min-width: 0; }
+    #three-canvas { width: 100%; height: 100%; display: block; }
+    #panel {
+      width: 320px; background: #16213e; padding: 16px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 10px; flex-shrink: 0;
+    }
+    #panel h2 { color: #e94560; font-size: 18px; margin-bottom: 4px; }
+    #panel h3 { color: #aaa; font-size: 13px; text-transform: uppercase; margin-top: 8px; }
+    .btn { padding: 10px; background: #2a2a4e; border: 2px solid #444; color: white; border-radius: 6px; cursor: pointer; font-size: 14px; text-align: center; user-select: none; }
+    .btn:hover:not(.disabled) { background: #3a3a5e; }
+    .btn.active { border-color: #e94560; background: #e94560; }
+    .btn.disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn.danger { border-color: #e94560; color: #e94560; }
+    .btn-row { display: flex; gap: 6px; }
+    .btn-row .btn { flex: 1; }
+    label { font-size: 13px; color: #ccc; }
+    select, input[type=text] {
+      width: 100%; padding: 6px; background: #2a2a4e; color: white;
+      border: 1px solid #444; border-radius: 4px; font-family: monospace; font-size: 13px;
+    }
+    #status {
+      background: #1a1a2e; border: 1px solid #2a2a4e; border-radius: 4px;
+      padding: 8px; font-family: monospace; font-size: 12px; color: #ffd700;
+      white-space: pre-line; min-height: 50px;
+    }
+    #toast {
+      background: #2a2410; border-left: 3px solid #ffd700; color: #ffd700;
+      font-family: monospace; font-size: 11px; padding: 6px 8px;
+      white-space: pre-wrap; word-break: break-word; display: none;
+    }
+    #toast.show { display: block; }
+    .nav-row { display: flex; gap: 4px; flex-wrap: wrap; }
+    .nav-row .btn {
+      flex: 1; min-width: 0; background: #1f2540; border-color: #e94560; color: #e94560;
+      text-decoration: none; font-size: 11px; padding: 5px 4px;
+    }
+    /* Blendshape bar chart — top 10 active shapes shown as horizontal bars,
+       so the user can see WHICH expressions MediaPipe is detecting. Helpful
+       for "the mesh isn't moving — is detection working?" debugging. */
+    #blendshape-bars {
+      display: flex; flex-direction: column; gap: 2px;
+      font-family: monospace; font-size: 10px;
+    }
+    .bs-row {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .bs-name { width: 110px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bs-bar-wrap { flex: 1; height: 8px; background: #0d101e; border-radius: 2px; overflow: hidden; }
+    .bs-bar { height: 100%; background: #5fdcff; transition: width 0.05s linear; }
+    .bs-val { width: 32px; color: #ddd; text-align: right; }
+    /* Saved-clips list — same as mocap-editor's clip-row pattern. */
+    #anim-list { display: flex; flex-direction: column; gap: 4px; }
+    .anim-row {
+      background: #1a1a2e; border: 1px solid #2a2a4e; border-radius: 4px;
+      padding: 6px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .anim-row .anim-name { font-family: monospace; font-size: 12px; color: #fff; word-break: break-all; }
+    .anim-row .anim-meta { font-family: monospace; font-size: 11px; color: #888; }
+    .anim-row .anim-actions { display: flex; gap: 4px; }
+    .anim-row .anim-actions .btn { flex: 1; padding: 4px; font-size: 11px; }
+    .anim-row.playing { border-color: #5fdcff; }
+    /* "Recording" pulse — a red dot when actively recording. */
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .rec-dot {
+      display: inline-block; width: 10px; height: 10px;
+      background: #e94560; border-radius: 50%;
+      animation: pulse 0.8s ease-in-out infinite;
+      margin-right: 4px; vertical-align: middle;
+    }
+    /* Phase 8.2a: source-video badge on saved-clip rows that have an
+       attached webcam recording. Subtle so it doesn't fight the playing
+       highlight; just enough to mark which clips support side-by-side. */
+    .anim-badge {
+      display: inline-block; font-family: monospace; font-size: 9px;
+      color: #5fdcff; border: 1px solid #5fdcff; border-radius: 2px;
+      padding: 0 3px; margin-left: 4px; vertical-align: middle;
+      letter-spacing: 1px;
+    }
+    /* Phase 8.2a: replay <video> element occupies the webcam pane during
+       playback of a clip with a source recording. Mirrored to match the
+       camera orientation the user saw while recording. */
+    #replay-video {
+      max-width: 100%; max-height: 100%; transform: scaleX(-1);
+      object-fit: contain; display: none;
+    }
+    #replay-video.show { display: block; }
+    /* Recording-time pill in the corner of the webcam pane. */
+    #rec-indicator {
+      position: absolute; top: 8px; left: 8px;
+      background: rgba(20, 8, 8, 0.8); border: 1px solid #e94560;
+      color: #fff; font-family: monospace; font-size: 11px;
+      padding: 3px 6px; border-radius: 3px;
+      display: none; align-items: center; gap: 4px;
+      pointer-events: none;
+    }
+    #rec-indicator.on { display: inline-flex; }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="stage">
+      <div id="stage-row">
+        <div id="webcam-wrap">
+          <video id="webcam" autoplay playsinline muted class="off"></video>
+          <!-- Phase 8.2a: replay-mode <video>. Hidden by default; shown
+               while playing back a clip that has a source recording. -->
+          <video id="replay-video" playsinline muted></video>
+          <div id="webcam-placeholder">
+            Click "Start camera" to enable the live mirror.<br/>
+            <span style="color:#666;font-size:11px;">Camera stream stays on this device — nothing is uploaded.</span>
+          </div>
+          <div id="rec-indicator"><span class="rec-dot"></span><span id="rec-indicator-time">0.0s</span></div>
+        </div>
+        <div id="three-wrap">
+          <canvas id="three-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+    <div id="panel">
+      <h2>Face Mirror</h2>
+      <div class="nav-row">
+        <a href="index.html" class="btn">&larr; Game</a>
+        <a href="anim-viewer.html" class="btn">Anim &rarr;</a>
+        <a href="player-editor.html" class="btn">Player &rarr;</a>
+        <a href="face-editor.html" class="btn">Face &rarr;</a>
+        <a href="mocap-editor.html" class="btn">Mocap &rarr;</a>
+      </div>
+
+      <h3>Camera</h3>
+      <div class="btn" id="btn-camera">Start camera</div>
+
+      <h3>Face (3D-scanned)</h3>
+      <select id="face-pick">
+        <option value="">(none)</option>
+      </select>
+      <label id="face-pick-status" style="font-size:11px;color:#888;">Loading library&hellip;</label>
+
+      <h3>Live Mirror</h3>
+      <div class="btn disabled" id="btn-mirror">Live mirror: OFF</div>
+      <label style="font-size:11px;color:#888;">Drives the mesh from your real-time expressions.</label>
+
+      <h3>Status</h3>
+      <div id="status">idle</div>
+      <div id="toast"></div>
+
+      <h3>Record</h3>
+      <input id="anim-name" type="text" placeholder="e.g. eyebrow-flash" />
+      <div class="btn disabled" id="btn-record">Record</div>
+      <label style="font-size:11px;color:#888;">Saves a sequence of blendshape frames you can replay later.</label>
+
+      <h3>Saved face anims</h3>
+      <div id="anim-list"></div>
+      <div class="btn-row">
+        <div class="btn" id="btn-import">Import JSON</div>
+      </div>
+      <input id="import-file" type="file" accept="application/json" style="display:none" />
+
+      <h3>Blendshape activity</h3>
+      <label style="font-size:11px;color:#888;">Top 10 active shapes (debug).</label>
+      <div id="blendshape-bars"></div>
+    </div>
+  </div>
+  <script type="module" src="/src/face-mirror.ts"></script>
+</body>
+</html>

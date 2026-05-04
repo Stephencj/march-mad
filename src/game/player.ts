@@ -1,14 +1,117 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { PlayerData } from '@/core/types';
 import { POSITION_SCALES } from '@/core/types';
 import { playerConfig } from '@/dev/player-config';
 import { animConfig } from '@/dev/anim-config';
+import {
+  createProceduralFace,
+  type BlendshapeSource,
+  type ProceduralFace,
+  type ProceduralFaceFeatures,
+} from '@/dev/face/procedural-face';
+import type { BuiltFaceMesh } from '@/dev/face/mesh-builder';
+import type { BuiltHeadMesh } from '@/dev/face/head-mesh-builder';
+import { buildHat, disposeHat, type HatType } from '@/dev/face/hat-geometry';
 
 /**
  * Hair style types for Bobblehead Ballers.
  * Each player gets a deterministic style based on their ID hash.
  */
 type HairStyle = 'bald' | 'receding' | 'flat-top' | 'afro' | 'mohawk' | 'headband';
+
+// =============================================================================
+// PHASE B / D — Face-mode dev toggle
+// -----------------------------------------------------------------------------
+// `window.__faceMode` flips between the canonical photo-textured mesh and
+// the procedural-feature overlay. Phase D flipped the default from 'both'
+// to 'procedural' — the canonical photo-textured mesh hides at startup and
+// only the procedurally-built eyelids/brows/nose/lips render. Devs can
+// flip back from DevTools:
+//
+//   window.__faceMode = 'mesh'        // only canonical photo-textured mesh
+//   window.__faceMode = 'procedural'  // only procedural features (default)
+//   window.__faceMode = 'both'        // both (Phase B compare mode)
+//
+// Then re-mount a face (face dropdown change) to apply, or call
+// `applyFaceMode(player)` directly on a known instance.
+// =============================================================================
+
+declare global {
+  interface Window {
+    __faceMode?: 'mesh' | 'procedural' | 'both';
+    /** G3: DevTools toggle for the beer-hand left-arm lock. Mirrors
+     *  `animConfig.poses.beerHold.enabled`. Set in DevTools to flip the
+     *  lock off without rebuilding. */
+    __beerHoldEnabled?: boolean;
+  }
+}
+
+/** Apply the current `window.__faceMode` to a player's mounted faces. Safe
+ *  to call before either side is mounted — missing pieces are skipped.
+ *  Phase D: default flipped from 'both' to 'procedural' — the canonical
+ *  mesh hides by default. */
+function applyFaceMode(player: GamePlayer): void {
+  const mode =
+    typeof window !== 'undefined' ? (window.__faceMode ?? 'procedural') : 'procedural';
+  const built = player.getFaceMesh3D();
+  if (built) built.visible = mode !== 'procedural';
+  if (player.faceProcedural) player.faceProcedural.setVisible(mode !== 'mesh');
+  // G1 — in 'mesh' mode, hide the head-mesh-group's back/sides/ears so
+  // the canonical front face renders alone (matching legacy mesh-only
+  // mode). In 'procedural' or 'both', show the full head mesh.
+  for (const extra of player.getHeadMeshExtras()) {
+    extra.visible = mode !== 'mesh';
+  }
+}
+
+/**
+ * Phase F6 — read the inter-iris midpoint from a built face mesh's geometry.
+ * `setFaceMesh3D` accepts a bare `THREE.Mesh` (not the full `BuiltFaceMesh`),
+ * so we re-derive the iris midpoint from the position attribute on mount.
+ *
+ * The mesh-builder centers + height-fits the geometry, leaving irises at
+ * whatever mesh-local position the user's face proportions imply (typically
+ * a few cm above + slightly in front of origin). Callers position the
+ * mount slot by `-irisMid` so the user's eyes land on the rig's eye anchor.
+ *
+ * Falls back to eye-outer-corners (33/263) when iris vertices are missing
+ * or zero (very old saves; subset-landmark tests). Returns origin when
+ * the geometry has no usable position attribute.
+ */
+function readIrisMidpointFromMesh(mesh: THREE.Mesh): { x: number; y: number; z: number } {
+  const posAttr = mesh.geometry.getAttribute('position') as
+    | THREE.BufferAttribute
+    | undefined;
+  if (!posAttr) return { x: 0, y: 0, z: 0 };
+  const arr = posAttr.array as Float32Array;
+  const LEFT_IRIS = 468;
+  const RIGHT_IRIS = 473;
+  const LEFT_EYE_OUTER = 33;
+  const RIGHT_EYE_OUTER = 263;
+  const isDegenerate = (idx: number): boolean => {
+    const base = idx * 3;
+    if (base + 2 >= arr.length) return true;
+    const x = arr[base + 0];
+    const y = arr[base + 1];
+    const z = arr[base + 2];
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return true;
+    if (x === 0 && y === 0 && z === 0) return true;
+    return false;
+  };
+  const leftIdx = isDegenerate(LEFT_IRIS) ? LEFT_EYE_OUTER : LEFT_IRIS;
+  const rightIdx = isDegenerate(RIGHT_IRIS) ? RIGHT_EYE_OUTER : RIGHT_IRIS;
+  if (isDegenerate(leftIdx) || isDegenerate(rightIdx)) {
+    return { x: 0, y: 0, z: 0 };
+  }
+  const lx = arr[leftIdx * 3 + 0];
+  const ly = arr[leftIdx * 3 + 1];
+  const lz = arr[leftIdx * 3 + 2];
+  const rx = arr[rightIdx * 3 + 0];
+  const ry = arr[rightIdx * 3 + 1];
+  const rz = arr[rightIdx * 3 + 2];
+  return { x: (lx + rx) * 0.5, y: (ly + ry) * 0.5, z: (lz + rz) * 0.5 };
+}
 
 /**
  * Weighted distribution — this is middle-aged-dad pickup-league, so
@@ -68,9 +171,345 @@ function hairColorFromHash(h: number): number {
   return colors[h % colors.length];
 }
 
+// =============================================================================
+// SHARED EYE GEOMETRIES & MATERIALS (Phase 8.4)
+// -----------------------------------------------------------------------------
+// All players on a court share the same eye geometry + non-iris materials at
+// the GPU level. Cached at module scope so up to ~6 simultaneous players cost
+// one upload per resource instead of N. Per-player variation lives only on
+// the iris MeshBasicMaterial's `color` (each player gets its own iris
+// material instance so we can `.color.setHex(...)` without affecting others).
+//
+// Sphere segment counts (12, 8) are deliberately low — these are tiny meshes
+// rendered at face-of-bobblehead scale; higher tessellation just burns
+// fragment shader work without visible improvement. Circle segments (20, 12)
+// match the same "looks round at the rendered size" target.
+// =============================================================================
+
+let sharedScleraGeom: THREE.SphereGeometry | null = null;
+let sharedIrisGeom: THREE.CircleGeometry | null = null;
+let sharedPupilGeom: THREE.CircleGeometry | null = null;
+let sharedScleraMat: THREE.MeshBasicMaterial | null = null;
+let sharedPupilMat: THREE.MeshBasicMaterial | null = null;
+
+/** Default fallback iris color (brown) used when no `eyeColors` is provided
+ *  — old saves, AI-generated uploads where landmarks failed, or default
+ *  players. Picked to read as a believable iris under the rig's lighting. */
+const DEFAULT_IRIS_COLOR = 0x6b4a2a;
+
+function getScleraGeom(radius: number): THREE.SphereGeometry {
+  // The radius is fixed (cfg.head.eyeRadius) for every player at module
+  // load — caching on first call is safe. If the config changes between
+  // calls (it doesn't; player-config.ts is a frozen object), the cached
+  // geometry would silently lock in the first radius — accepted tradeoff.
+  if (!sharedScleraGeom) {
+    sharedScleraGeom = new THREE.SphereGeometry(radius, 12, 8);
+  }
+  return sharedScleraGeom;
+}
+
+function getIrisGeom(radius: number): THREE.CircleGeometry {
+  if (!sharedIrisGeom) {
+    sharedIrisGeom = new THREE.CircleGeometry(radius, 20);
+  }
+  return sharedIrisGeom;
+}
+
+function getPupilGeom(radius: number): THREE.CircleGeometry {
+  if (!sharedPupilGeom) {
+    sharedPupilGeom = new THREE.CircleGeometry(radius, 12);
+  }
+  return sharedPupilGeom;
+}
+
+// =============================================================================
+// G2 — older-fat-guy body shape (pecs / butt / love handles / shoulder slopes)
+// -----------------------------------------------------------------------------
+// One sphere geometry per body part is cached at module scope and shared
+// across every player. The radius is read from playerConfig.body.* on first
+// call and locked in for the lifetime of the process — same accepted-tradeoff
+// pattern as `getScleraGeom`. If players edit the config sliders the cached
+// geometry won't update; users have to reload to pick up new radii. Per-player
+// variation lives only in the mesh's `scale` (hash-derived sag/size factors).
+// =============================================================================
+let sharedPecGeom: THREE.SphereGeometry | null = null;
+let sharedButtGeom: THREE.SphereGeometry | null = null;
+let sharedLoveHandleGeom: THREE.SphereGeometry | null = null;
+let sharedShoulderSlopeGeom: THREE.SphereGeometry | null = null;
+
+function getPecGeom(radius: number): THREE.SphereGeometry {
+  if (!sharedPecGeom) sharedPecGeom = new THREE.SphereGeometry(radius, 10, 8);
+  return sharedPecGeom;
+}
+
+function getButtGeom(radius: number): THREE.SphereGeometry {
+  if (!sharedButtGeom) sharedButtGeom = new THREE.SphereGeometry(radius, 12, 10);
+  return sharedButtGeom;
+}
+
+function getLoveHandleGeom(radius: number): THREE.SphereGeometry {
+  if (!sharedLoveHandleGeom) sharedLoveHandleGeom = new THREE.SphereGeometry(radius, 10, 8);
+  return sharedLoveHandleGeom;
+}
+
+function getShoulderSlopeGeom(radius: number): THREE.SphereGeometry {
+  if (!sharedShoulderSlopeGeom) sharedShoulderSlopeGeom = new THREE.SphereGeometry(radius, 8, 6);
+  return sharedShoulderSlopeGeom;
+}
+
+function getSharedScleraMat(): THREE.MeshBasicMaterial {
+  if (!sharedScleraMat) {
+    // Slightly cream off-white — pure 0xffffff reads as inhumanly bright
+    // alongside the photographed face texture; 0xf5f0e8 picks up the
+    // ambient warmth without looking yellow.
+    sharedScleraMat = new THREE.MeshBasicMaterial({ color: 0xf5f0e8 });
+  }
+  return sharedScleraMat;
+}
+
+function getSharedPupilMat(): THREE.MeshBasicMaterial {
+  if (!sharedPupilMat) {
+    sharedPupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  }
+  return sharedPupilMat;
+}
+
+/**
+ * Lazily-built procedural alphaMap for the face plane. A 128×128 RGBA
+ * texture with a smooth radial gradient — full alpha within the inner
+ * 70% radius, smoothly fading to 0 at the corners. Multiplied with the
+ * face image's color so the captured photo shows as a face-shaped patch
+ * instead of a sharp rectangle with background bleeding in at the corners.
+ * Generated once and reused across every player's face plane.
+ */
+let faceAlphaMapCache: THREE.DataTexture | null = null;
+function getFaceAlphaMap(): THREE.DataTexture {
+  if (faceAlphaMapCache) return faceAlphaMapCache;
+  const SIZE = 128;
+  const data = new Uint8Array(SIZE * SIZE * 4);
+  // Radial fade: alpha=1 within r ≤ 0.42 of UV center, fades smoothly to
+  // 0 at r=0.50. The 0.42 inner-radius keeps the eyes/mouth/nose region
+  // fully opaque on a face-filled-frame capture; the soft falloff hides
+  // background corners (chair/wall) without a hard circular cookie-cutter
+  // edge that would also crop ear/jaw at extreme angles.
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      const dx = (x + 0.5) / SIZE - 0.5;
+      const dy = (y + 0.5) / SIZE - 0.5;
+      const r = Math.sqrt(dx * dx + dy * dy);
+      const t = Math.max(0, Math.min(1, (0.5 - r) / 0.08));
+      // Smoothstep for nicer falloff than linear.
+      const a = t * t * (3 - 2 * t);
+      const idx = (y * SIZE + x) * 4;
+      data[idx + 0] = 255;
+      data[idx + 1] = 255;
+      data[idx + 2] = 255;
+      data[idx + 3] = Math.round(a * 255);
+    }
+  }
+  const tex = new THREE.DataTexture(data, SIZE, SIZE, THREE.RGBAFormat);
+  tex.needsUpdate = true;
+  faceAlphaMapCache = tex;
+  return tex;
+}
+
 function smoothstep(t: number): number {
   const c = Math.max(0, Math.min(1, t));
   return c * c * (3 - 2 * c);
+}
+
+/**
+ * Phase 7.7 — landmark-driven face-shaped alpha mask.
+ *
+ * Canonical MediaPipe FaceMesh indices for the lower-face silhouette, going
+ * from the right ear-line under the chin and back up the left ear-line.
+ * Verified against the 478-vertex tasks-vision model.
+ */
+const JAW_SILHOUETTE_INDICES: ReadonlyArray<number> = [
+  127, 234, 93, 132, 58, 172, 136, 150, 149, 176, 148, 152,
+  377, 400, 378, 379, 365, 397, 288, 361, 323, 454, 356,
+];
+
+/**
+ * Upper-face contour going right-temple → forehead apex → left-temple.
+ * MediaPipe doesn't provide a clean "upper-face" ring like it does for the
+ * jaw, so we approximate using the eyebrow-tops + forehead apex. Combined
+ * with the jaw silhouette (reversed, since this contour walks the opposite
+ * direction) this closes a polygon that covers the whole face.
+ */
+const FOREHEAD_CONTOUR_INDICES: ReadonlyArray<number> = [
+  10, 109, 67, 103, 54, 21, 162, 127,
+];
+
+/**
+ * Eye-center landmark indices. The 478-landmark variant has irises at
+ * 468-477 (5 per eye); the iris CENTER is the first vertex of each ring,
+ * 468 (left) and 473 (right). Falls back to the eye outer-corner indices
+ * (33, 263) if the iris vertices are missing or NaN — defensive against
+ * older saves or partial detections, though in practice both modes always
+ * return all 478 points.
+ */
+const LEFT_EYE_IRIS = 468;
+const RIGHT_EYE_IRIS = 473;
+const LEFT_EYE_OUTER = 33;
+const RIGHT_EYE_OUTER = 263;
+
+/**
+ * Build a per-face alpha mask from saved landmarks. The mask is drawn as a
+ * single closed polygon: jaw silhouette (right ear → chin → left ear) ∪
+ * reversed forehead contour (left temple → forehead → right temple), filled
+ * white, then a small Gaussian blur for soft edges that hide the polygon's
+ * straight-line approximation between landmark vertices.
+ *
+ * Coordinate handling: landmarks are in cropped-image [0,1] space (top-left
+ * origin, y-down). The face plane's UVs use [0,1] with v=0 at the BOTTOM.
+ * THREE.TextureLoader auto-flips PNG textures to match, and we draw the
+ * mask in image-space (v-down) so the result lines up with the texture
+ * after Three.js's flip — i.e. don't manually flip y here.
+ *
+ * Returns null if landmarks are malformed (insufficient data); caller falls
+ * back to the shared radial-gradient mask.
+ */
+function buildLandmarkAlphaMask(faceLandmarks: number[]): THREE.CanvasTexture | null {
+  if (!faceLandmarks || faceLandmarks.length < 956) return null;
+  const SIZE = 256;
+  // Prefer regular HTMLCanvasElement here — OffscreenCanvas avoids document
+  // overhead but its 2D context is unavailable in some environments (Safari
+  // pre-16.4) and CanvasTexture handles HTMLCanvas just fine.
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE;
+  canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Clear to fully transparent. The polygon below paints the kept region.
+  ctx.clearRect(0, 0, SIZE, SIZE);
+
+  // Build the mask polygon: jaw silhouette + reversed forehead contour.
+  const path = (indices: ReadonlyArray<number>, reversed: boolean) => {
+    const range = reversed
+      ? [...indices].reverse()
+      : indices;
+    for (let i = 0; i < range.length; i++) {
+      const idx = range[i];
+      const x = faceLandmarks[idx * 2] * SIZE;
+      const y = faceLandmarks[idx * 2 + 1] * SIZE;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+  };
+
+  // Soft edges: filter='blur(...)' applies to subsequent draws. Using a
+  // moderate blur (4px) hides the straight-line segments between landmarks
+  // and gives the mask a natural feathered edge. Browsers without
+  // ctx.filter support fall through silently — the hard-edged polygon is
+  // still passable if not great.
+  ctx.filter = 'blur(4px)';
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  path(JAW_SILHOUETTE_INDICES, false);
+  path(FOREHEAD_CONTOUR_INDICES, true);
+  ctx.closePath();
+  ctx.fill();
+  ctx.filter = 'none';
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Read a landmark's normalized (0..1) x,y from the flat array, with iris
+ * → outer-corner fallback. Returns null if both candidates are missing/NaN.
+ */
+function readLandmarkXY(
+  faceLandmarks: number[],
+  primaryIdx: number,
+  fallbackIdx: number,
+): { x: number; y: number } | null {
+  const p = primaryIdx * 2;
+  const px = faceLandmarks[p];
+  const py = faceLandmarks[p + 1];
+  if (Number.isFinite(px) && Number.isFinite(py)) {
+    return { x: px, y: py };
+  }
+  const f = fallbackIdx * 2;
+  const fx = faceLandmarks[f];
+  const fy = faceLandmarks[f + 1];
+  if (Number.isFinite(fx) && Number.isFinite(fy)) {
+    return { x: fx, y: fy };
+  }
+  return null;
+}
+
+/**
+ * Phase 8.4 — build an eye container with both the legacy simple-sphere
+ * (visible by default; matches the rest of the cartoon rig when no face
+ * image is applied) and the stylized-realistic structure (sclera + iris
+ * + pupil; toggled visible by `setFaceMesh3D` when a 3D face is mounted).
+ *
+ * The container is a THREE.Group so `setFaceMesh3D` can flip visibility
+ * per child without a full rig rebuild. Each eye contributes 4 meshes (1
+ * simple + 1 sclera + 1 iris + 1 pupil), but only 1 simple OR 3 realistic
+ * are visible at any given time — Three.js skips invisible meshes during
+ * draw, so the effective draw cost is the same 1 mesh per eye as before.
+ *
+ * The iris material is per-instance (cloned via `new THREE.MeshBasicMaterial`)
+ * so `setFaceMesh3D` can recolor each player without affecting siblings.
+ * Sclera + pupil materials are shared at the module level.
+ */
+function buildEye(side: 'left' | 'right', eyeRadius: number): THREE.Group {
+  const group = new THREE.Group();
+  group.name = `eye-${side}`;
+  // Position is set by the caller (createMesh) — leaving the group at the
+  // origin lets all child meshes use simple local offsets.
+
+  // (1) Simple black sphere — visible by default. Matches the prior cartoon
+  //     look for default players + the flat-image face path. Uses a fresh
+  //     MeshStandardMaterial (lit) like the previous implementation; sharing
+  //     the sclera *geometry* is fine, the material is tiny.
+  const simple = new THREE.Mesh(
+    getScleraGeom(eyeRadius),
+    new THREE.MeshStandardMaterial({ color: 0x1a1a1a }),
+  );
+  simple.name = `eye-${side}-simple`;
+  group.add(simple);
+
+  // (2) Realistic structure — initially hidden; setFaceMesh3D toggles.
+  const realistic = new THREE.Group();
+  realistic.name = `eye-${side}-realistic`;
+  realistic.visible = false;
+
+  const sclera = new THREE.Mesh(getScleraGeom(eyeRadius), getSharedScleraMat());
+  sclera.name = `eye-${side}-sclera`;
+  realistic.add(sclera);
+
+  // Iris disc — placed on the front of the sclera, just outside the sphere
+  // surface so there's no z-fighting. ~60% of the eye-radius gives a
+  // proportional iris that fills the visible eye opening without spilling
+  // onto the sclera edges (which would clip when the eyelid blink-closes).
+  const irisRadius = eyeRadius * 0.6;
+  const iris = new THREE.Mesh(
+    getIrisGeom(irisRadius),
+    // PER-INSTANCE iris material — cloned per-player so setFaceMesh3D can
+    // recolor without affecting other players sharing the rig.
+    new THREE.MeshBasicMaterial({ color: DEFAULT_IRIS_COLOR }),
+  );
+  iris.position.z = eyeRadius * 0.95; // just outside the sphere's front pole
+  iris.name = `eye-${side}-iris`;
+  realistic.add(iris);
+
+  // Pupil — small black dot at iris center. Tiny z-bias above the iris
+  // to prevent z-fighting between the two coplanar discs.
+  const pupilRadius = irisRadius * 0.45;
+  const pupil = new THREE.Mesh(getPupilGeom(pupilRadius), getSharedPupilMat());
+  pupil.position.z = iris.position.z + 0.0005;
+  pupil.name = `eye-${side}-pupil`;
+  realistic.add(pupil);
+
+  group.add(realistic);
+  return group;
 }
 
 export class GamePlayer {
@@ -135,6 +574,105 @@ export class GamePlayer {
   mutantFactor = 0;
   private baseScale = new THREE.Vector3(1, 1, 1);
 
+  /** Cached THREE.Texture for the currently-applied face image. Lives on
+   *  the instance so swapping faces can dispose the prior texture and
+   *  prevent GPU memory leaks. Null when default eye-spheres are showing. */
+  private faceTexture: THREE.Texture | null = null;
+
+  /** Phase 7.7: per-face landmark-driven alpha mask. When non-null, the
+   *  current face was applied with `faceLandmarks` and the material's
+   *  `alphaMap` points at this CanvasTexture. Disposed on every swap (and
+   *  on `setFaceImage(null)`) to avoid GPU leaks. The shared radial-fade
+   *  alpha-map cache (`getFaceAlphaMap()`) is used as the fallback when
+   *  this is null. */
+  private faceAlphaMask: THREE.CanvasTexture | null = null;
+
+  /** Cached resources for the currently-applied 3D face mesh (if any).
+   *  Tracked separately from `faceTexture` so the two paths (flat image
+   *  vs. 3D mesh) can be cleanly toggled — applying one always clears
+   *  the other. Null when no 3D mesh is mounted. */
+  private faceMesh3D: THREE.Mesh | null = null;
+  private faceMesh3DTexture: THREE.Texture | null = null;
+  /** Phase 8.2b: dark "mouth interior" plane mounted as a sibling of the
+   *  face mesh. Shows through the inner-mouth hole left by
+   *  `getInnerMouthTrianglesFiltered` when the lips part. Owned alongside
+   *  the face mesh — disposed on the same swap/clear path. */
+  private faceMouthInterior: THREE.Mesh | null = null;
+  /** Phase 7.8: per-face head proportions (W/H, D/H ratios) inferred at
+   *  scan time. When non-null, the head sphere's scale is overridden to
+   *  approximate the user's actual head shape; the mesh-builder's
+   *  eye-anatomy alignment puts the eyes on the rig anchor, but the
+   *  spherical head silhouette behind the mesh otherwise stays default
+   *  (1, 1, headDepthScale). Cleared (back to default sphere scale) on
+   *  setFaceMesh3D(null). */
+  private faceMesh3DHeadShape: { aspectWH: number; aspectDH: number } | null = null;
+  /** Phase 8.4: per-face iris colors (packed 0xRRGGBB) sampled from the
+   *  front-pose photo at scan time. Cached so player-rebuild paths can
+   *  re-apply the same colors without an IDB round trip. Null when no
+   *  3D face is mounted or the active face had no sampled colors. */
+  private faceEyeColors: { left: number; right: number } | null = null;
+
+  /** Phase B: procedural face features (eyelids, brows, nose, lips) mounted
+   *  as a sibling of the canonical mesh in the `face-mesh-3d` slot. Built
+   *  alongside the canonical mesh on every `setFaceProcedural(built)` call;
+   *  disposed alongside it via `clearFaceMesh3DInternal()`.
+   *
+   *  Per-frame contract: callers MUST invoke `updateFaceProcedural()` after
+   *  every `puppet.apply(frame)` so the procedural geometry tracks the
+   *  deformed canonical landmarks. Otherwise the procedural face stays at
+   *  rest while the canonical mesh visibly animates. */
+  faceProcedural: ProceduralFace | null = null;
+
+  /** Phase D: original head/body skin material captured at construction so
+   *  setFaceMesh3D's body-skin recolor path can restore the rig's
+   *  hash-derived skin tone when the face is cleared. Body skin parts
+   *  (head sphere, neck, forearms, lower legs) all share the same
+   *  MeshStandardMaterial instance — recoloring `.color` on this single
+   *  material recolors all six meshes at once.
+   *
+   *  Note: body skin tone leaks across players if the same player rebuilds —
+   *  handled by the per-player `setFaceMesh3D` re-application in
+   *  `applyCachedFaceToPlayer` (existing pattern in anim-viewer / player-editor).
+   *  Cached here so we have a stable reference to the material whose
+   *  `.color` we mutate, not a clone. */
+  private bodySkinMat: THREE.MeshStandardMaterial | null = null;
+  /** Phase D: hash-derived skin color captured at construction. Used to
+   *  restore the body skin material when the face is cleared. */
+  private bodySkinDefaultColor: number = 0xc9a08a;
+
+  /** Phase D: current procedural hat group (cap-forward / cap-backward /
+   *  beanie). Mounted on neckGroup as a sibling of the hair sub-mesh. The
+   *  hair sub-mesh is hidden while a hat is present and re-shown when
+   *  cleared. Disposed via `setFaceHat(null)` and on every `setFaceMesh3D`
+   *  swap path. */
+  private faceHat: THREE.Group | null = null;
+  /** Phase D: cached hash-derived hair pieces so the override path can
+   *  revert to the rig's default hair when called with null. We store the
+   *  default style + color rather than the geometry so a re-build is
+   *  cheap and avoids leftover-material lifecycle pitfalls. */
+  private defaultHairStyle: HairStyle = 'bald';
+  private defaultHairColor: number = 0x000000;
+  /** Phase D: cached features bundle from the most recent setFaceMesh3D
+   *  call — used so applyCachedFaceToPlayer-style rebuild paths in
+   *  anim-viewer / player-editor can pass the same features through to
+   *  the new mesh without re-loading from IDB. */
+  private faceFeaturesCache: ProceduralFaceFeatures | null = null;
+
+  /** G1 — when a `BuiltHeadMesh` is mounted via setFaceMesh3D, the
+   *  rig's default sphere head is hidden and this group (which contains
+   *  the front face mesh + side panels + back hemisphere + ears) is
+   *  mounted in the face-mesh-3d slot. Tracked here so clearFaceMesh3DInternal
+   *  can re-show the head sphere and dispose the head extras' geometries
+   *  + material on every swap. Null when no head mesh is mounted (older
+   *  saves, or AI uploads without profile poses). */
+  private faceHeadMeshGroup: THREE.Group | null = null;
+  private faceHeadMeshExtras: THREE.Mesh[] = [];
+  /** G1 — original eye-sphere positions captured at construction so
+   *  setFaceMesh3D can reposition the eye spheres to match the head mesh's
+   *  iris-midpoint and clearFaceMesh3DInternal can restore them. */
+  private defaultEyeLeftPos: THREE.Vector3 | null = null;
+  private defaultEyeRightPos: THREE.Vector3 | null = null;
+
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
     this.moveSpeed = 2 + data.stats.speed * 0.35; // 2.35 to 5.5 m/s — deliberate, not frantic
@@ -167,14 +705,948 @@ export class GamePlayer {
     );
   }
 
+  /**
+   * Apply (or clear) a captured face image as a texture on the head's
+   * face-plane. When a face is set the eye-spheres are hidden and the
+   * face-plane becomes visible; when cleared, the eye-spheres come back.
+   *
+   * Only called on Face-picker change in player-editor / anim-viewer (and
+   * once at construction time if the host page wants to seed it). NOT
+   * called per-frame — that would thrash the GPU upload queue.
+   *
+   * Phase 7.7: when `faceLandmarks` is provided (cropped-image-local 0..1
+   * coords, length 956), we build a face-shaped alpha mask from the
+   * MediaPipe jaw silhouette + forehead contour and translate/scale the
+   * face plane so the image's eye-midpoint lands on the rig's eye anatomy.
+   * When omitted (old saves, AI-generated uploads with no detected face)
+   * we fall back to the original radial-fade + centered-plane behavior.
+   *
+   * @param dataUrl PNG/JPG data URL from the face library (or null to clear).
+   * @param faceLandmarks Optional 478*2 flat array of landmark x,y in
+   *                      cropped-image [0,1] coords. See `FaceImage.faceLandmarks`.
+   */
+  setFaceImage(dataUrl: string | null, faceLandmarks?: number[]): void {
+    const facePlane = this.group.getObjectByName('face-plane') as
+      | THREE.Mesh
+      | undefined;
+    // Phase 8.4: eye-left / eye-right are now Groups (simple-sphere child +
+    // realistic child). The flat-image path doesn't touch the iris colors
+    // — it just makes the whole eye Group visible (which leaves the
+    // realistic-child still hidden via its own .visible = false from
+    // construction or the prior setFaceMesh3D clear path).
+    const eyeLeft = this.group.getObjectByName('eye-left') as THREE.Group | undefined;
+    const eyeRight = this.group.getObjectByName('eye-right') as THREE.Group | undefined;
+    if (!facePlane) return;
+    const mat = facePlane.material as THREE.MeshBasicMaterial;
+    const cfg = playerConfig;
+
+    // Setting a flat face image is mutually exclusive with the 3D mesh —
+    // clear any active mesh so we don't double-render. Phase 7.6.
+    this.clearFaceMesh3DInternal();
+
+    // Always dispose the previous texture before replacing — otherwise we
+    // leak GPU memory on every face swap.
+    if (this.faceTexture) {
+      this.faceTexture.dispose();
+      this.faceTexture = null;
+      mat.map = null;
+    }
+    // Same dance for the per-face alpha mask. We dispose unconditionally
+    // here; if the next branch wants one it builds a fresh CanvasTexture.
+    if (this.faceAlphaMask) {
+      this.faceAlphaMask.dispose();
+      this.faceAlphaMask = null;
+    }
+
+    if (!dataUrl) {
+      facePlane.visible = false;
+      // Restore default plane transform on clear (in case the previous
+      // face shifted it via landmarks). The shared radial alpha-map is
+      // re-attached so subsequent face applies that lack landmarks fall
+      // through to the legacy path with a valid mask.
+      facePlane.position.set(0, cfg.head.eyeOffsetY, cfg.head.facePlaneZ);
+      facePlane.scale.set(1, 1, 1);
+      mat.alphaMap = getFaceAlphaMap();
+      mat.needsUpdate = true;
+      if (eyeLeft) eyeLeft.visible = true;
+      if (eyeRight) eyeRight.visible = true;
+      const head = this.group.getObjectByName('head') as THREE.Mesh | undefined;
+      if (head) head.visible = true;
+      return;
+    }
+
+    // Phase 7.7 branch: when we have landmarks, build a face-shaped alpha
+    // mask + transform the plane to align eyes with the rig's eye anatomy.
+    // The alpha mask is built BEFORE the texture finishes loading, so the
+    // first rendered frame already has correct silhouette + transform —
+    // no flash of square photo while the PNG bytes decode.
+    let landmarkMask: THREE.CanvasTexture | null = null;
+    if (faceLandmarks && faceLandmarks.length === 956) {
+      landmarkMask = buildLandmarkAlphaMask(faceLandmarks);
+    }
+    if (landmarkMask) {
+      this.faceAlphaMask = landmarkMask;
+      mat.alphaMap = landmarkMask;
+      this.applyLandmarkPlaneTransform(facePlane, faceLandmarks!);
+    } else {
+      // Fallback path — radial fade + centered plane.
+      mat.alphaMap = getFaceAlphaMap();
+      facePlane.position.set(0, cfg.head.eyeOffsetY, cfg.head.facePlaneZ);
+      facePlane.scale.set(1, 1, 1);
+    }
+
+    const loader = new THREE.TextureLoader();
+    const tex = loader.load(dataUrl, () => {
+      // Texture finished loading — kick the material so the next render
+      // picks it up. The plane is already visible at this point so the
+      // user sees the swap as soon as the bytes arrive (data URLs decode
+      // synchronously enough that this is effectively immediate).
+      mat.needsUpdate = true;
+    });
+    // Color management: the captured PNG was rendered in sRGB by the
+    // canvas that produced it; matching colorSpace keeps skin tones from
+    // looking washed out under the standard lighting.
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.faceTexture = tex;
+    mat.map = tex;
+    mat.transparent = true;
+    mat.needsUpdate = true;
+
+    facePlane.visible = true;
+    if (eyeLeft) eyeLeft.visible = false;
+    if (eyeRight) eyeRight.visible = false;
+    // Hide the head sphere too — the face plane is the head's front from now
+    // on. Without this, the sphere pokes out around the plane edges (head
+    // diameter 0.56 vs default plane 0.5) and reads as "big round head with
+    // a small face on it". Hair stays — anchored to neck-group, not head.
+    const head = this.group.getObjectByName('head') as THREE.Mesh | undefined;
+    if (head) head.visible = false;
+  }
+
+  /**
+   * Phase 7.7 — translate + scale the face plane so the photo's eye-midpoint
+   * lands at the rig's eye anatomy `(0, eyeOffsetY, facePlaneZ)` in
+   * neck-group local space, and the photo's eye distance matches the rig's
+   * `2 × eyeOffsetX`.
+   *
+   * Inputs are in cropped-image [0,1] (top-left origin, y-down):
+   *   - left iris (468) → (lx, ly), right iris (473) → (rx, ry)
+   *   - image-space midpoint: (emx, emy) = ((lx+rx)/2, (ly+ry)/2)
+   *   - image-space eye distance: eyeDistImg = hypot(rx-lx, ry-ly)
+   *
+   * Coordinate-system bridge (image → plane-local):
+   *   - The PlaneGeometry has UV (0,0) at its (-size/2, -size/2) corner.
+   *   - THREE.TextureLoader sets `flipY = true` by default, so texture
+   *     UV (0,0) corresponds to the BOTTOM row of the source image.
+   *     image y_img → texture v = 1 - y_img/H.
+   *   - UV (u,v) → plane local ((u-0.5)*size, (v-0.5)*size).
+   *   - Therefore image (emx, emy) → plane local
+   *       midLocalX = (emx - 0.5) * planeSize    (x same direction)
+   *       midLocalY = (0.5 - emy) * planeSize    (y FLIPPED — image y-down → plane y-up)
+   *
+   * Scale: rig eye-distance is 2*eyeOffsetX. After scaling the plane by `s`
+   * the photo's on-rig eye-distance becomes eyeDistImg * planeSize * s.
+   * Solve for s: s = (2*eyeOffsetX) / (eyeDistImg * planeSize).
+   *
+   * Translation: after scaling, the eye-midpoint sits at
+   *   (s * midLocalX, s * midLocalY) in plane parent-local coords.
+   * To pin it to the rig's eye anchor (0, eyeOffsetY), translate the plane
+   * to (-s * midLocalX, eyeOffsetY - s * midLocalY).
+   *
+   * Sanity clamps: scale clamped to [0.5, 2.5]. Outside that range the
+   * input is suspect (face fills <20% or >100% of the crop) — clamp +
+   * console.warn rather than producing absurd geometry.
+   */
+  private applyLandmarkPlaneTransform(
+    facePlane: THREE.Mesh,
+    faceLandmarks: number[],
+  ): void {
+    const cfg = playerConfig;
+    const left = readLandmarkXY(faceLandmarks, LEFT_EYE_IRIS, LEFT_EYE_OUTER);
+    const right = readLandmarkXY(faceLandmarks, RIGHT_EYE_IRIS, RIGHT_EYE_OUTER);
+    if (!left || !right) {
+      // Can't compute anatomy alignment — leave the plane at defaults.
+      facePlane.position.set(0, cfg.head.eyeOffsetY, cfg.head.facePlaneZ);
+      facePlane.scale.set(1, 1, 1);
+      return;
+    }
+
+    const emx = (left.x + right.x) * 0.5;
+    const emy = (left.y + right.y) * 0.5;
+    const eyeDistImg = Math.hypot(right.x - left.x, right.y - left.y);
+    if (!(eyeDistImg > 0)) {
+      facePlane.position.set(0, cfg.head.eyeOffsetY, cfg.head.facePlaneZ);
+      facePlane.scale.set(1, 1, 1);
+      return;
+    }
+
+    const planeSize = cfg.head.facePlaneSize;
+    const rigEyeDist = 2 * cfg.head.eyeOffsetX;
+
+    // Scale: how much we have to grow the plane so its on-photo eye distance
+    // matches the rig's eye spacing. After scaling, the photo's eye-distance
+    // in world units = eyeDistImg * planeSize * scale.
+    let scale = rigEyeDist / (eyeDistImg * planeSize);
+    if (!Number.isFinite(scale)) scale = 1;
+    if (scale < 0.5 || scale > 2.5) {
+      console.warn(
+        `[face] computed face-plane scale ${scale.toFixed(3)} out of [0.5, 2.5] — clamping. ` +
+          `eyeDistImg=${eyeDistImg.toFixed(3)}, planeSize=${planeSize}, rigEyeDist=${rigEyeDist}`,
+      );
+      scale = Math.max(0.5, Math.min(2.5, scale));
+    }
+
+    // Plane-local eye-midpoint position (origin at plane center, y-up). The
+    // photo y is top-down, so flip with (0.5 - emy). The photo x lines up
+    // with plane +x as drawn (TextureLoader's default flipY=true means UV v
+    // is bottom-up; UV u is left-to-right same as image x).
+    const midLocalX = (emx - 0.5) * planeSize;
+    const midLocalY = (0.5 - emy) * planeSize;
+
+    // After scaling, the local offset becomes scale * midLocalX/Y in
+    // neck-group coords. To put midLocal at (0, eyeOffsetY), translate the
+    // plane center to (-scale*midLocalX, eyeOffsetY - scale*midLocalY).
+    const planeX = -scale * midLocalX;
+    const planeY = cfg.head.eyeOffsetY - scale * midLocalY;
+    facePlane.position.set(planeX, planeY, cfg.head.facePlaneZ);
+    facePlane.scale.set(scale, scale, 1);
+  }
+
+  /**
+   * Apply (or clear) a captured 3D face mesh. When a mesh is set the
+   * eye-spheres AND the flat face-plane are hidden, and the supplied mesh
+   * is mounted as the only child of the `face-mesh-3d` slot inside
+   * `neckGroup`. When cleared, the eye-spheres come back (matching
+   * `setFaceImage(null)`'s behavior).
+   *
+   * Mutual exclusion: applying a 3D mesh clears any flat face image, and
+   * vice versa. Caller passes ownership of the mesh — disposal of the
+   * mesh's geometry/material/texture happens here on next swap or clear.
+   *
+   * Only called on Face-picker change in player-editor / anim-viewer (and
+   * once at construction time if the host page wants to seed it). NOT
+   * called per-frame.
+   *
+   * Phase 7.8: `headShape` (optional) carries face proportions inferred
+   * from the front-pose landmarks at scan time (`aspectWH` = width/height,
+   * `aspectDH` = depth/height). When provided, the head sphere is rescaled
+   * to approximate the user's actual head shape so the silhouette behind /
+   * around the mesh (visible from non-front angles) reads as the right
+   * person. The head sphere stays VISIBLE (in contrast to Phase 7.6 which
+   * hid it) so the player's head has substance from any angle.
+   */
+  setFaceMesh3D(
+    mesh: THREE.Mesh | null,
+    headShape?: { aspectWH: number; aspectDH: number },
+    mouthInteriorOrEyeColors?: THREE.Mesh | null | { left: number; right: number },
+    maybeEyeColors?: { left: number; right: number },
+    features?: ProceduralFaceFeatures,
+    headMeshBuilt?: BuiltHeadMesh | null,
+  ): void {
+    // Phase 8.4 — back-compat shim: the prior 3-arg signature was
+    // `(mesh, headShape, mouthInterior)`. The new 4-arg shape is
+    // `(mesh, headShape, mouthInterior, eyeColors)`. Existing call sites
+    // (anim-viewer, player-editor) pass `mouthInterior` in slot 3 and
+    // — after this PR — `eyeColors` in slot 4. To keep the signature
+    // simple we detect which form was passed: if slot-3 is a plain object
+    // with numeric `left`/`right` it's the eyeColors form; otherwise it's
+    // mouthInterior (THREE.Mesh, null, or undefined).
+    //
+    // Phase D adds `features` as the 5th positional arg — sampled values
+    // for the procedural face's skin/lip/brow/eye/nose, plus optional
+    // `hair` / `hat` / `bodySkinTone` extensions consumed inside this
+    // method. Old callers pass `undefined` and procedural features fall
+    // back to defaults.
+    let mouthInterior: THREE.Mesh | null = null;
+    let eyeColors: { left: number; right: number } | undefined;
+    if (
+      mouthInteriorOrEyeColors &&
+      typeof mouthInteriorOrEyeColors === 'object' &&
+      !(mouthInteriorOrEyeColors as THREE.Object3D).isObject3D &&
+      typeof (mouthInteriorOrEyeColors as { left?: unknown }).left === 'number'
+    ) {
+      eyeColors = mouthInteriorOrEyeColors as { left: number; right: number };
+    } else {
+      mouthInterior = (mouthInteriorOrEyeColors as THREE.Mesh | null | undefined) ?? null;
+      eyeColors = maybeEyeColors;
+    }
+
+    const slot = this.group.getObjectByName('face-mesh-3d') as
+      | THREE.Group
+      | undefined;
+    if (!slot) return;
+    const facePlane = this.group.getObjectByName('face-plane') as
+      | THREE.Mesh
+      | undefined;
+    const eyeLeft = this.group.getObjectByName('eye-left') as THREE.Group | undefined;
+    const eyeRight = this.group.getObjectByName('eye-right') as THREE.Group | undefined;
+    const cfg = playerConfig;
+    const head = this.group.getObjectByName('head') as THREE.Mesh | undefined;
+
+    // Dispose the prior mesh, if any.
+    this.clearFaceMesh3DInternal();
+
+    if (!mesh) {
+      // Restore default appearance (simple-sphere eyes + invisible face-plane).
+      // Phase 8.4 — also revert the realistic eye structure: hide the
+      // sclera/iris/pupil group, show the simple sphere. The iris material's
+      // color stays as it was (the next setFaceMesh3D apply will re-set it),
+      // which is fine because the realistic Group is hidden anyway.
+      // Note: head sphere visibility is no longer toggled (Phase 7.8 — it
+      // stays visible so non-front angles read correctly), but its scale
+      // must reset to the default `(1, 1, headDepthScale)` in case a prior
+      // face provided a `headShape` override.
+      this.toggleEyeRealistic(false);
+      if (eyeLeft) eyeLeft.visible = true;
+      if (eyeRight) eyeRight.visible = true;
+      if (facePlane) facePlane.visible = false;
+      if (head) {
+        head.scale.set(1, 1, cfg.head.headDepthScale);
+        // G1 — re-show the head sphere if the prior face mounted a head
+        // mesh (which had hidden the sphere).
+        head.visible = true;
+      }
+      // G1 — restore default eye-sphere positions in case the prior face
+      // had repositioned them to align with its iris-midpoint.
+      if (eyeLeft && this.defaultEyeLeftPos) eyeLeft.position.copy(this.defaultEyeLeftPos);
+      if (eyeRight && this.defaultEyeRightPos) eyeRight.position.copy(this.defaultEyeRightPos);
+      // Phase F6 — restore the slot's default position so a subsequent
+      // mount that DOESN'T re-set it (e.g. from a different code path)
+      // doesn't inherit the prior face's iris-aligned offset.
+      slot.position.set(0, cfg.head.eyeOffsetY, cfg.head.eyeOffsetZ);
+      this.faceMesh3DHeadShape = null;
+      this.faceEyeColors = null;
+      // Phase D: clear any sampled-feature side effects on the body /
+      // accessories. Resets body skin material to the rig's hash-derived
+      // color, drops any hat, and reverts any hair-style override.
+      this.restoreBodySkinMaterial();
+      this.setFaceHat(null);
+      this.setFaceHairOverride(null, null);
+      this.faceFeaturesCache = null;
+      return;
+    }
+
+    // Clear any flat face image still cached so we don't render two
+    // overlapping faces. Disposes the previous flat texture and the
+    // Phase 7.7 per-face alpha mask if one was active.
+    if (this.faceTexture) {
+      this.faceTexture.dispose();
+      this.faceTexture = null;
+      if (facePlane) {
+        const mat = facePlane.material as THREE.MeshBasicMaterial;
+        mat.map = null;
+        mat.needsUpdate = true;
+      }
+    }
+    if (this.faceAlphaMask) {
+      this.faceAlphaMask.dispose();
+      this.faceAlphaMask = null;
+      if (facePlane) {
+        const mat = facePlane.material as THREE.MeshBasicMaterial;
+        mat.alphaMap = getFaceAlphaMap();
+        mat.needsUpdate = true;
+      }
+    }
+
+    // Track the mesh for disposal on the next swap. Texture is discovered
+    // from the material so the caller doesn't have to pass it separately.
+    this.faceMesh3D = mesh;
+    const matMesh = mesh.material as THREE.MeshBasicMaterial;
+    this.faceMesh3DTexture = matMesh.map ?? null;
+
+    // Phase F6 — position the slot so the mesh's iris-midpoint lands on the
+    // rig's eye-anatomy anchor `(0, eyeOffsetY, eyeOffsetZ)`. The mesh is
+    // height-fit (forehead-to-chin = HEAD_FACE_AREA) so its irises are no
+    // longer guaranteed to be at mesh-local origin — typical post-fit iris
+    // midpoint is ~(0, +0.07, +0.03) (eyes sit slightly above + in front of
+    // the bbox center because there's more forehead/cranium above the eyes
+    // than chin below). We offset the slot by `-irisMidpoint` so eyes land
+    // on the rig anchor; the rest of the face (lips, nose, brows, jaw) hangs
+    // below/around naturally and fits inside the head sphere.
+    //
+    // The eye-spheres remain at fixed `(±eyeOffsetX, eyeOffsetY, eyeOffsetZ)`.
+    // For users whose face proportions differ from rig spec, the procedural
+    // mesh's eye openings may sit a few mm off the eye-spheres — acceptable
+    // for v1; the alternative (forcing every face to rig spec) made the
+    // entire face fail to fit the head.
+    const irisMid = readIrisMidpointFromMesh(mesh);
+    slot.position.set(
+      0 - irisMid.x,
+      cfg.head.eyeOffsetY - irisMid.y,
+      cfg.head.eyeOffsetZ - irisMid.z,
+    );
+
+    // G1 — when a `BuiltHeadMesh` is provided AND its head-mesh build
+    // succeeded, mount the WHOLE head group (which includes the front
+    // face mesh + side panels + back hemisphere + ears) into the slot
+    // and HIDE the rig's default head sphere. The head group's children
+    // are already in mesh-local coords; the slot's iris-aligned offset
+    // handles world placement. Otherwise (no head mesh, or
+    // headMeshSuccess=false), mount the front face mesh directly and
+    // leave the head sphere visible (legacy behavior).
+    const useHeadMesh =
+      !!headMeshBuilt && headMeshBuilt.headMeshSuccess && !!headMeshBuilt.headMesh;
+    if (useHeadMesh) {
+      // The head group already contains `mesh` (the front face) and may
+      // contain `mouthInterior` if buildHeadMesh added it. Mount the
+      // group as the sole slot child.
+      this.faceHeadMeshGroup = headMeshBuilt!.headMesh;
+      this.faceHeadMeshExtras = headMeshBuilt!.headExtras ?? [];
+      slot.add(headMeshBuilt!.headMesh);
+      // The mouth interior was added to the head group in buildHeadMesh
+      // — track it so disposal still flows through faceMouthInterior.
+      if (mouthInterior) {
+        this.faceMouthInterior = mouthInterior;
+      }
+      if (head) head.visible = false;
+    } else {
+      slot.add(mesh);
+      // Phase 8.2b: mount the dark mouth-interior plane (if provided) as a
+      // SIBLING of the face mesh inside the same slot. Its position is in
+      // mesh-local coords (set by buildFaceMesh) — the slot's own transform
+      // handles world placement. Disposed alongside the face mesh.
+      if (mouthInterior) {
+        this.faceMouthInterior = mouthInterior;
+        slot.add(mouthInterior);
+      }
+    }
+    // Phase 8.3: keep the eye structures VISIBLE behind the mesh. The
+    // canonical FaceMesh tessellation doesn't include the iris (468–477) in
+    // its edge graph, so the 3-cycle topology builder produces no triangles
+    // for the iris area — the mesh has natural eye-shaped HOLES at the
+    // eyelid rings. Without something behind, the user sees through the
+    // head into the scene (the "cutout, no eyes" bug).
+    //
+    // Phase 8.4: swap from the simple black sphere to the stylized-realistic
+    // sclera/iris/pupil structure when a 3D face is applied. The simple
+    // sphere reads as freaky black blobs through the photo-textured eye
+    // openings; the realistic structure reads as actual eyes with the
+    // sampled iris color. Both share the eye Group's position so they land
+    // exactly under the mesh's eye holes.
+    this.toggleEyeRealistic(true);
+    if (eyeColors) {
+      this.applyEyeColors(eyeColors);
+      this.faceEyeColors = { left: eyeColors.left, right: eyeColors.right };
+    } else {
+      // Reset to default brown so the previous face's iris color doesn't
+      // leak into a new face that has no `eyeColors` (older save, AI
+      // upload, face-mirror's 3-arg call). Without this, swapping from a
+      // green-eyed face to a no-color face would show green irises on a
+      // person who isn't green-eyed — a subtle visual leak.
+      this.applyEyeColors({ left: DEFAULT_IRIS_COLOR, right: DEFAULT_IRIS_COLOR });
+      this.faceEyeColors = null;
+    }
+    if (eyeLeft) eyeLeft.visible = true;
+    if (eyeRight) eyeRight.visible = true;
+    if (facePlane) facePlane.visible = false;
+    // Phase 7.8: keep the head sphere VISIBLE behind the mesh (legacy
+    // path). The mesh covers the front/3-quarter silhouette by being
+    // slightly larger; the sphere fills the back/side silhouette so the
+    // head reads as solid from any angle. Per-face `headShape` (if
+    // provided) scales the sphere's W/H/D ratios to approximate the
+    // user's actual head.
+    //
+    // G1: when `useHeadMesh` is true, the head sphere is HIDDEN (the
+    // head-mesh-group provides the back/side silhouette as real
+    // geometry instead). We skip the scale logic in that branch since
+    // the sphere is invisible anyway, and rely on
+    // clearFaceMesh3DInternal to restore visibility on the next clear.
+    if (head) {
+      this.faceMesh3DHeadShape = headShape ?? null;
+      if (useHeadMesh) {
+        // Hidden — leave scale alone (set to defaults by clear-path).
+        head.visible = false;
+        head.scale.set(1, 1, cfg.head.headDepthScale);
+      } else if (headShape) {
+        // x,y,z = aspectWH, 1, aspectDH × headDepthScale. The depth-scale
+        // multiplier preserves the existing front-back squash slider so a
+        // user who tuned `headDepthScale` to taste keeps that on top of
+        // the per-face depth ratio.
+        head.scale.set(
+          headShape.aspectWH,
+          1,
+          headShape.aspectDH * cfg.head.headDepthScale,
+        );
+      } else {
+        // No per-face shape — restore the rig default. (1, 1, headDepthScale).
+        head.scale.set(1, 1, cfg.head.headDepthScale);
+      }
+    }
+
+    // G1 — when a head mesh is mounted, reposition the eye spheres so
+    // their X aligns with the user's actual iris-X distance (read from
+    // the face-mesh's iris vertices, post-fit). This kills the
+    // iris-X-mismatch where stock-rig eye-spheres sat at fixed
+    // ±eyeOffsetX while the user's actual irises landed at slightly
+    // different X positions. The slot's own offset handles Y/Z; only X
+    // varies per-face.
+    if (useHeadMesh && eyeLeft && eyeRight) {
+      // Read both iris vertex X positions (post-fit, mesh-local).
+      const posAttr = mesh.geometry.getAttribute('position') as
+        | THREE.BufferAttribute
+        | undefined;
+      if (posAttr) {
+        const arr = posAttr.array as Float32Array;
+        const LEFT_IRIS_VERT = 468;
+        const RIGHT_IRIS_VERT = 473;
+        const lx = arr[LEFT_IRIS_VERT * 3 + 0];
+        const rx = arr[RIGHT_IRIS_VERT * 3 + 0];
+        if (Number.isFinite(lx) && Number.isFinite(rx) && Math.abs(rx - lx) > 0.01) {
+          // Slot's transform: x_world = x_local - irisMid.x + 0
+          // So an iris at mesh-local lx ends up at world x = lx - irisMid.x.
+          // We want the eye-sphere's parent (neckGroup) X to match.
+          // The eye-spheres are children of neckGroup (same parent as
+          // the slot), so eye.position.x = lx - irisMid.x lines them up.
+          eyeLeft.position.x = lx - irisMid.x;
+          eyeRight.position.x = rx - irisMid.x;
+          // Y/Z: we want eyes at irisMidpoint.y/z in neckGroup space.
+          // Slot is at (cfg.head.eyeOffsetY - irisMid.y, ...) and the
+          // mesh's iris vertices land at mesh-local (lx, ly, lz). After
+          // slot-translate they land at (lx - irisMid.x,
+          // ly + cfg.head.eyeOffsetY - irisMid.y, lz + cfg.head.eyeOffsetZ - irisMid.z).
+          // For the eye-midpoint (irisMid.y in mesh-local) that simplifies
+          // to (0 mid-x, cfg.head.eyeOffsetY, cfg.head.eyeOffsetZ).
+          // Per-eye Y/Z: the eyes track the user's iris Y/Z, not just
+          // the midpoint, so use ly/lz directly.
+          const ly = arr[LEFT_IRIS_VERT * 3 + 1];
+          const lz = arr[LEFT_IRIS_VERT * 3 + 2];
+          const ry = arr[RIGHT_IRIS_VERT * 3 + 1];
+          const rz = arr[RIGHT_IRIS_VERT * 3 + 2];
+          if (Number.isFinite(ly) && Number.isFinite(lz)) {
+            eyeLeft.position.y = ly + (cfg.head.eyeOffsetY - irisMid.y);
+            eyeLeft.position.z = lz + (cfg.head.eyeOffsetZ - irisMid.z);
+          }
+          if (Number.isFinite(ry) && Number.isFinite(rz)) {
+            eyeRight.position.y = ry + (cfg.head.eyeOffsetY - irisMid.y);
+            eyeRight.position.z = rz + (cfg.head.eyeOffsetZ - irisMid.z);
+          }
+        }
+      }
+    }
+
+    // Phase D — apply sampled features beyond the canonical mesh's eye
+    // colors / head shape. The procedural-face overlay (mounted by
+    // setFaceProcedural after this returns) reads the same `features`
+    // bundle from this cache so its eyelids/brows/lips/nose pick up the
+    // sampled values when applyCachedFaceToPlayer rebuilds.
+    this.faceFeaturesCache = features ?? null;
+    // Recolor body skin (head sphere, neck, forearms, lower legs) so the
+    // visible-behind-the-mesh silhouette matches the user's skin tone.
+    // Falls back to the rig's hash-derived default when no skinTone arrived.
+    const featuresExt = features as
+      | (ProceduralFaceFeatures & {
+          hair?: { style: HairStyle; color: number } | null;
+          hat?: { type: HatType; color: number } | null;
+          bodySkinTone?: number;
+        })
+      | undefined;
+    const bodySkin = featuresExt?.bodySkinTone ?? features?.skinTone;
+    if (typeof bodySkin === 'number') {
+      this.applyBodySkinTone(bodySkin);
+    } else {
+      this.restoreBodySkinMaterial();
+    }
+    // Apply hair-style override (or revert) and hat. Hat takes precedence —
+    // when a hat is detected we hide the hair sub-mesh regardless of the
+    // hair payload (defensive: per Phase C convention `hair` is null when
+    // `hat` is set, but we treat hat-presence as authoritative here).
+    if (featuresExt?.hair) {
+      this.setFaceHairOverride(featuresExt.hair.style, featuresExt.hair.color);
+    } else {
+      this.setFaceHairOverride(null, null);
+    }
+    if (featuresExt?.hat) {
+      this.setFaceHat(featuresExt.hat);
+    } else {
+      this.setFaceHat(null);
+    }
+  }
+
+  /**
+   * Phase 8.4 — toggle between the simple-sphere and realistic eye
+   * structures on both sides. `true` = show realistic (sclera/iris/pupil),
+   * hide the simple black sphere. `false` = show simple, hide realistic.
+   *
+   * Both structures live as siblings under each `eye-${side}` Group; we
+   * just flip `visible` on the relevant child. Three.js skips invisible
+   * meshes during draw, so this has zero per-frame cost.
+   */
+  private toggleEyeRealistic(showRealistic: boolean): void {
+    for (const side of ['left', 'right'] as const) {
+      const simple = this.group.getObjectByName(`eye-${side}-simple`);
+      const realistic = this.group.getObjectByName(`eye-${side}-realistic`);
+      if (simple) simple.visible = !showRealistic;
+      if (realistic) realistic.visible = showRealistic;
+    }
+  }
+
+  /**
+   * Phase 8.4 — apply per-eye iris colors. Each iris mesh has its own
+   * MeshBasicMaterial (cloned at construction in `buildEye`) so we can
+   * mutate `.color.setHex(...)` per player without touching shared
+   * sclera/pupil materials or other players' irises.
+   */
+  private applyEyeColors(eyeColors: { left: number; right: number }): void {
+    for (const side of ['left', 'right'] as const) {
+      const iris = this.group.getObjectByName(`eye-${side}-iris`) as THREE.Mesh | undefined;
+      if (!iris) continue;
+      const mat = iris.material as THREE.MeshBasicMaterial;
+      mat.color.setHex(eyeColors[side]);
+      mat.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Phase D — recolor the body skin material (head sphere, neck, forearms,
+   * lower legs) to match the sampled forehead skin tone. All six body
+   * skin meshes share `this.bodySkinMat`, so mutating `.color` once
+   * updates every mesh — no per-mesh traversal needed.
+   *
+   * Body skin tone leaks across players if the SAME player rebuilds
+   * (the underlying material is the same instance), but the per-player
+   * `setFaceMesh3D` re-application path in `applyCachedFaceToPlayer`
+   * (anim-viewer / player-editor / face-mirror) re-pushes the color on
+   * every rebuild, so in practice the cache stays correct.
+   */
+  private applyBodySkinTone(color: number): void {
+    if (!this.bodySkinMat) return;
+    this.bodySkinMat.color.setHex(color);
+    this.bodySkinMat.needsUpdate = true;
+  }
+
+  /**
+   * Phase D — restore the body skin material to the rig's hash-derived
+   * default color. Called from `setFaceMesh3D(null)` and the apply-path
+   * when no `skinTone` was sampled (so a previous face's skin doesn't
+   * leak onto a face with no sampled tone).
+   */
+  private restoreBodySkinMaterial(): void {
+    if (!this.bodySkinMat) return;
+    this.bodySkinMat.color.setHex(this.bodySkinDefaultColor);
+    this.bodySkinMat.needsUpdate = true;
+  }
+
+  /**
+   * Phase D — replace the player's hair sub-mesh with one built from a
+   * sampled style + color (overrides the hash-derived default). Pass
+   * `null` (for both args) to revert to the hash-derived default — used
+   * when a face is cleared or its sampled hair payload is absent.
+   *
+   * Implementation mirrors the body slider rebuild pattern: the existing
+   * `hair` child of `neckGroup` is removed + disposed, a fresh hair
+   * Object3D is created via `createHair`, and tagged with the same
+   * `name='hair'` so subsequent calls find it.
+   *
+   * Hat presence (see `setFaceHat`) hides the hair regardless of the
+   * override — the hat-mounted player has no visible hair until the hat
+   * is cleared.
+   */
+  setFaceHairOverride(style: HairStyle | null, color: number | null): void {
+    const neckGroup = this.group.getObjectByName('neck-group') as
+      | THREE.Group
+      | undefined;
+    if (!neckGroup) return;
+    const prev = neckGroup.getObjectByName('hair') as THREE.Object3D | undefined;
+    if (prev) {
+      neckGroup.remove(prev);
+      // Dispose any per-mesh resources owned by the prior hair sub-mesh.
+      prev.traverse((obj) => {
+        const m = obj as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+        if (m.material) {
+          const mats = Array.isArray(m.material) ? m.material : [m.material];
+          for (const mat of mats) (mat as THREE.Material).dispose();
+        }
+      });
+    }
+    const useStyle = style ?? this.defaultHairStyle;
+    const useColor = color ?? this.defaultHairColor;
+    const hair = this.createHair(useStyle, useColor);
+    hair.name = 'hair';
+    neckGroup.add(hair);
+    // If a hat is currently mounted, the hair must remain hidden — hat
+    // takes precedence (defensive against re-applying hair after a hat
+    // was set, e.g. an edit-flow that rebuilds in a different order).
+    if (this.faceHat) hair.visible = false;
+  }
+
+  /**
+   * Phase D — mount (or clear) a procedural hat on `neckGroup`. When set,
+   * the existing hair sub-mesh is hidden so the hat doesn't sit on top
+   * of overlapping hair geometry. When cleared, the hair sub-mesh is
+   * re-shown (its geometry survives — we only flipped `visible`).
+   *
+   * The hat geometry is built procedurally (see `hat-geometry.ts`) so
+   * GPU cost is comparable to a hair sub-mesh: 1–2 small primitives,
+   * one MeshStandardMaterial. Disposed on every swap and on `null`.
+   */
+  setFaceHat(hat: { type: HatType; color: number } | null): void {
+    const neckGroup = this.group.getObjectByName('neck-group') as
+      | THREE.Group
+      | undefined;
+    if (!neckGroup) return;
+    // Tear down any prior hat unconditionally — even when the new hat
+    // matches the old, building fresh keeps the lifecycle uniform with
+    // the rest of the face-feature paths.
+    if (this.faceHat) {
+      neckGroup.remove(this.faceHat);
+      disposeHat(this.faceHat);
+      this.faceHat = null;
+    }
+    const hair = neckGroup.getObjectByName('hair') as THREE.Object3D | undefined;
+    if (!hat) {
+      // No hat — re-show the hair sub-mesh so the rig falls back to its
+      // (default or override) hairstyle.
+      if (hair) hair.visible = true;
+      return;
+    }
+    this.faceHat = buildHat(hat.type, hat.color);
+    neckGroup.add(this.faceHat);
+    // Hide the hair sub-mesh so the hat sits cleanly on the head sphere.
+    if (hair) hair.visible = false;
+  }
+
+  /**
+   * Phase 8: expose the currently-mounted 3D face mesh so the live blendshape
+   * puppet (in face-mirror.ts) can wrap it. Returns null when no 3D face is
+   * applied (the player is showing default eye-spheres or a flat face image).
+   *
+   * The puppet mutates the geometry's `position` attribute in place — owned
+   * by the mesh, which is owned by this player. Disposal still flows through
+   * `setFaceMesh3D(null)`; the puppet's own `dispose()` only restores rest
+   * positions and drops its caches, it does NOT free the mesh.
+   */
+  getFaceMesh3D(): THREE.Mesh | null {
+    return this.faceMesh3D;
+  }
+
+  /** G1 — expose the head mesh's extras (back/sides/ears) so the
+   *  visibility-toggle path (`window.__faceMode`) can hide/show them.
+   *  Returns an empty array when no head mesh is mounted. */
+  getHeadMeshExtras(): ReadonlyArray<THREE.Mesh> {
+    return this.faceHeadMeshExtras;
+  }
+
+  /**
+   * Phase B — mount (or clear) a procedural-face overlay built from the
+   * supplied `BuiltFaceMesh`. The procedural face mounts as a SIBLING of
+   * the canonical mesh in the `face-mesh-3d` slot; both render together
+   * by default so a developer can compare them. The `window.__faceMode`
+   * global toggle (read by `applyFaceMode`) flips visibility.
+   *
+   * Call this AFTER `setFaceMesh3D(...)` — the canonical mesh must already
+   * be mounted so the procedural face can read its position attribute as
+   * a landmark anchor system. Pass `null` (or omit the BuiltFaceMesh) to
+   * clear without re-creating.
+   *
+   * Caller still owns the BuiltFaceMesh's geometry/texture/mesh — those are
+   * managed by `setFaceMesh3D`. This method only adds the procedural sibling
+   * group and tracks it for disposal.
+   */
+  setFaceProcedural(built: BuiltFaceMesh | null): void {
+    // Dispose any prior procedural face on every call — the canonical mesh
+    // it referenced may have been replaced.
+    if (this.faceProcedural) {
+      const slot = this.group.getObjectByName('face-mesh-3d') as THREE.Group | undefined;
+      if (slot) slot.remove(this.faceProcedural.group);
+      this.faceProcedural.dispose();
+      this.faceProcedural = null;
+    }
+    if (!built) return;
+    const slot = this.group.getObjectByName('face-mesh-3d') as THREE.Group | undefined;
+    if (!slot) return;
+    // Phase D: pass the cached sampled features so the procedural face's
+    // skin/lip/brow/eye/nose features pick up the per-face values. When
+    // setFaceMesh3D was called without features (old saves, AI uploads),
+    // the cache is null and createProceduralFace falls back to defaults.
+    this.faceProcedural = createProceduralFace(
+      built,
+      undefined,
+      this.faceFeaturesCache ?? undefined,
+    );
+    slot.add(this.faceProcedural.group);
+    applyFaceMode(this);
+  }
+
+  /**
+   * Phase B — call every frame AFTER `puppet.apply(frame)` to refresh the
+   * procedural face's geometry from the now-deformed canonical landmarks.
+   * Cheap (~96 vertex writes per face); no-op when no procedural face is
+   * mounted. MUST be called by every loop that drives the puppet
+   * (face-mirror live + replay, anim-viewer face-anim replay, player-editor
+   * face-anim replay) — otherwise the procedural overlay stays at rest
+   * while the canonical mesh animates.
+   */
+  updateFaceProcedural(): void {
+    this.faceProcedural?.update();
+  }
+
+  /**
+   * Phase E — wire (or unwire) the live blendshape puppet so the procedural
+   * face's conditional features (teeth, tongue) can read smoothed `jawOpen`
+   * to toggle visibility. Call right after `createFacePuppet` succeeds, and
+   * pass `null` when the puppet is disposed/detached so conditional features
+   * hide rather than freeze at the last-applied state.
+   */
+  setFaceProceduralBlendshapeSource(src: BlendshapeSource | null): void {
+    this.faceProcedural?.setBlendshapeSource(src);
+  }
+
+  /** Shared cleanup for the 3D mesh slot. Disposes geometry, material, and
+   *  texture of the previous mesh (if any), and removes it from the slot.
+   *  Also restores the head sphere's scale to the rig default (Phase 7.8 —
+   *  per-face headShape may have stretched it) and reverts the eye structure
+   *  back to the simple black sphere (Phase 8.4 — realistic eyes are only
+   *  shown while a 3D mesh is mounted). */
+  private clearFaceMesh3DInternal(): void {
+    // Phase B: tear down the procedural face overlay first — it holds a
+    // reference to the canonical mesh's geometry buffer (only used during
+    // update(), but disposing in this order keeps the lifecycle clean).
+    if (this.faceProcedural) {
+      const slot = this.group.getObjectByName('face-mesh-3d') as THREE.Group | undefined;
+      if (slot) slot.remove(this.faceProcedural.group);
+      this.faceProcedural.dispose();
+      this.faceProcedural = null;
+    }
+    if (this.faceMesh3DHeadShape) {
+      const head = this.group.getObjectByName('head') as THREE.Mesh | undefined;
+      if (head) {
+        const cfg = playerConfig;
+        head.scale.set(1, 1, cfg.head.headDepthScale);
+      }
+      this.faceMesh3DHeadShape = null;
+    }
+    if (!this.faceMesh3D) return;
+    // Phase 8.4 — flip back to the simple-sphere eyes whenever the 3D mesh
+    // is torn down. Catches both the explicit `setFaceMesh3D(null)` clear
+    // path and the `setFaceImage(...)` path (which calls this internal
+    // helper before mounting the flat texture, leaving us in default-eye
+    // territory). The setFaceMesh3D(null) branch ALSO calls
+    // toggleEyeRealistic(false) explicitly, but that path runs before this
+    // helper's early-return check is reached when faceMesh3D is null —
+    // doing it twice is idempotent.
+    this.toggleEyeRealistic(false);
+    this.faceEyeColors = null;
+    const slot = this.group.getObjectByName('face-mesh-3d') as
+      | THREE.Group
+      | undefined;
+    // G1 — when a head mesh group was mounted, the face mesh lives
+    // INSIDE the group (not directly under the slot). Remove the group
+    // from the slot, then dispose its extras (side panels, back, ears)
+    // before disposing the face mesh + mouth interior.
+    if (this.faceHeadMeshGroup) {
+      if (slot) slot.remove(this.faceHeadMeshGroup);
+      // Dispose the back/sides/ears geometries. The shared skin material
+      // is referenced by all of them — dispose once after the loop.
+      let sharedSkinMat: THREE.Material | null = null;
+      for (const extra of this.faceHeadMeshExtras) {
+        // Detach from group too (defensive — group is already detached
+        // from the scene, but child geometries still need explicit
+        // disposal).
+        extra.geometry.dispose();
+        const m = extra.material as THREE.Material | THREE.Material[];
+        if (!Array.isArray(m)) {
+          if (m && !sharedSkinMat) sharedSkinMat = m;
+        }
+      }
+      if (sharedSkinMat) sharedSkinMat.dispose();
+      this.faceHeadMeshExtras = [];
+      // Re-show the rig's head sphere (it was hidden when the head
+      // mesh mounted).
+      const head = this.group.getObjectByName('head') as THREE.Mesh | undefined;
+      if (head) {
+        head.visible = true;
+        const cfg = playerConfig;
+        head.scale.set(1, 1, cfg.head.headDepthScale);
+      }
+      // Restore default eye-sphere positions (the apply path may have
+      // moved them to align with the head mesh's iris-X).
+      const eyeLeft = this.group.getObjectByName('eye-left') as THREE.Group | undefined;
+      const eyeRight = this.group.getObjectByName('eye-right') as THREE.Group | undefined;
+      if (eyeLeft && this.defaultEyeLeftPos) eyeLeft.position.copy(this.defaultEyeLeftPos);
+      if (eyeRight && this.defaultEyeRightPos) eyeRight.position.copy(this.defaultEyeRightPos);
+      this.faceHeadMeshGroup = null;
+    } else if (slot) {
+      slot.remove(this.faceMesh3D);
+    }
+    this.faceMesh3D.geometry.dispose();
+    const mat = this.faceMesh3D.material as THREE.Material | THREE.Material[];
+    if (Array.isArray(mat)) {
+      for (const m of mat) m.dispose();
+    } else {
+      mat.dispose();
+    }
+    if (this.faceMesh3DTexture) {
+      this.faceMesh3DTexture.dispose();
+      this.faceMesh3DTexture = null;
+    }
+    this.faceMesh3D = null;
+    // Phase 8.2b: dispose the mouth-interior sibling alongside the face
+    // mesh. Owns its own (small, untextured) geometry + MeshBasicMaterial.
+    // G1: when the mouth interior was added to the head group (not the
+    // slot directly), it's already detached via the group-removal above
+    // — we just dispose its geometry/material.
+    if (this.faceMouthInterior) {
+      if (slot && this.faceMouthInterior.parent === slot) {
+        slot.remove(this.faceMouthInterior);
+      }
+      this.faceMouthInterior.geometry.dispose();
+      const mmat = this.faceMouthInterior.material as
+        | THREE.Material
+        | THREE.Material[];
+      if (Array.isArray(mmat)) {
+        for (const m of mmat) m.dispose();
+      } else {
+        mmat.dispose();
+      }
+      this.faceMouthInterior = null;
+    }
+    // Phase D — also tear down any procedural hat + revert the body skin
+    // material on every clear path (setFaceMesh3D(null) and the mutual-
+    // exclusion path from setFaceImage). The setFaceMesh3D null branch
+    // calls these too; doing it here additionally is idempotent and
+    // catches the setFaceImage flow.
+    if (this.faceHat) {
+      const neckGroup = this.group.getObjectByName('neck-group') as
+        | THREE.Group
+        | undefined;
+      if (neckGroup) neckGroup.remove(this.faceHat);
+      disposeHat(this.faceHat);
+      this.faceHat = null;
+      // Re-show the hash-derived hair sub-mesh (which the hat was hiding).
+      const hair = this.group.getObjectByName('hair') as THREE.Object3D | undefined;
+      if (hair) hair.visible = true;
+    }
+    this.restoreBodySkinMaterial();
+    // Drop the cached features so a subsequent procedural rebuild starts
+    // with defaults (a stale features bundle would otherwise leak from
+    // the cleared face onto the next default render).
+    this.faceFeaturesCache = null;
+  }
+
   private createMesh(color: number): THREE.Group {
     const group = new THREE.Group();
     const h = hashId(this.data.id);
     const skinColor = skinToneFromHash(h);
     const hairColor = hairColorFromHash(h);
 
-    // ---- Skin material (shared) ----
+    // G2: hash-derived per-player variation for pec sag + butt size. Computed
+    // once at construction (not per-frame); applied as a multiplier on the
+    // mesh's scale only. Different bytes of the hash drive different
+    // dimensions so they're independent — a player can have flat pecs and a
+    // big butt or vice versa.
+    const pecSagFactor = 0.7 + (h % 100) / 100 * 0.6;          // [0.7, 1.3]
+    const buttSizeFactor = 0.85 + ((h >> 8) % 100) / 100 * 0.4; // [0.85, 1.25]
+
+    // ---- Skin material (shared across head, neck, forearms, lower legs) ----
+    // Phase D: cached on the instance so `setFaceMesh3D` can mutate `.color`
+    // when a sampled `skinTone` arrives, and `clearFaceMesh3DInternal()` can
+    // restore the hash-derived default. Mutating `.color` on a single
+    // shared material recolors every mesh that references it (six body
+    // parts) at zero GPU cost.
     const skinMat = new THREE.MeshStandardMaterial({ color: skinColor });
+    this.bodySkinMat = skinMat;
+    this.bodySkinDefaultColor = skinColor;
     const jerseyMat = new THREE.MeshStandardMaterial({ color });
 
     // ========== BODY PIVOT (root joint at hip height) ==========
@@ -184,14 +1656,109 @@ export class GamePlayer {
     group.add(bodyPivot);
 
     // ========== TORSO (relative to body-pivot) ==========
+    // G2: RoundedBoxGeometry replaces the prior boxy BoxGeometry — softens
+    // the silhouette so the torso reads as a soft middle-aged trunk rather
+    // than a cardboard rectangle. Same apparent dimensions; corner radius is
+    // a small fraction of the smallest side. 4 segments per side gives
+    // smooth-enough corners at typical render distance without bloating
+    // vertex count.
     const cfg = playerConfig;
+    const torsoMinDim = Math.min(cfg.body.torsoWidth, cfg.body.torsoHeight, cfg.body.torsoDepth);
+    const torsoCornerRadius = torsoMinDim * 0.25;
     const torso = new THREE.Mesh(
-      new THREE.BoxGeometry(cfg.body.torsoWidth, cfg.body.torsoHeight, cfg.body.torsoDepth),
+      new RoundedBoxGeometry(
+        cfg.body.torsoWidth,
+        cfg.body.torsoHeight,
+        cfg.body.torsoDepth,
+        4,
+        torsoCornerRadius,
+      ),
       jerseyMat,
     );
     torso.position.set(0, 0.2, 0);
     torso.name = 'torso';
     bodyPivot.add(torso);
+
+    // ========== BEER BELLY ==========
+    // An ellipsoid bulging out the front of the torso. Same jersey material so
+    // it reads as "huge gut under the shirt" rather than exposed skin. Lives
+    // on body-pivot so squash/stretch (jump anticipation, dunk land) inherits.
+    const bellyGeo = new THREE.SphereGeometry(cfg.body.bellyRadius, 16, 12);
+    const belly = new THREE.Mesh(bellyGeo, jerseyMat);
+    belly.position.set(0, cfg.body.bellyY, cfg.body.bellyZ);
+    belly.scale.set(1, cfg.body.bellyScaleY, cfg.body.bellyScaleZ);
+    belly.name = 'belly';
+    bodyPivot.add(belly);
+
+    // ========== G2: SAGGING BELLY LOWER LOBE ==========
+    // A second smaller belly sphere below the existing one — old men's
+    // bellies hang low and sag. Reuses the same `bellyGeo` (cached at
+    // module scope by the upper belly above) and only varies via scale.
+    const bellyLower = new THREE.Mesh(bellyGeo, jerseyMat);
+    bellyLower.position.set(0, cfg.body.bellyLowerY, cfg.body.bellyLowerZ);
+    bellyLower.scale.set(
+      cfg.body.bellyLowerScaleX,
+      cfg.body.bellyLowerScaleY,
+      cfg.body.bellyLowerScaleZ,
+    );
+    bellyLower.name = 'belly-lower';
+    bodyPivot.add(bellyLower);
+
+    // ========== G2: PEC MOUNDS ==========
+    // Soft pec mounds, mirrored at ±pecOffsetX. Hash-derived sag factor varies
+    // the vertical scale per player so some are flat and others noticeably
+    // saggy. Same jersey material — under the shirt, no exposed skin.
+    const pecGeo = getPecGeom(cfg.body.pecRadius);
+    const pecLeft = new THREE.Mesh(pecGeo, jerseyMat);
+    pecLeft.position.set(-cfg.body.pecOffsetX, cfg.body.pecY, cfg.body.pecZ);
+    pecLeft.scale.set(1, cfg.body.pecScaleY * pecSagFactor, cfg.body.pecScaleZ);
+    pecLeft.name = 'pec-left';
+    bodyPivot.add(pecLeft);
+
+    const pecRight = new THREE.Mesh(pecGeo, jerseyMat);
+    pecRight.position.set(cfg.body.pecOffsetX, cfg.body.pecY, cfg.body.pecZ);
+    pecRight.scale.set(1, cfg.body.pecScaleY * pecSagFactor, cfg.body.pecScaleZ);
+    pecRight.name = 'pec-right';
+    bodyPivot.add(pecRight);
+
+    // ========== G2: LOVE HANDLES ==========
+    // Ellipsoid bulges on the lower-side torso, half-buried in the hip area.
+    // Mirrored at ±loveHandleOffsetX. Same jersey material.
+    const loveHandleGeo = getLoveHandleGeom(cfg.body.loveHandleRadius);
+    const loveHandleLeft = new THREE.Mesh(loveHandleGeo, jerseyMat);
+    loveHandleLeft.position.set(-cfg.body.loveHandleOffsetX, cfg.body.loveHandleY, 0);
+    loveHandleLeft.scale.set(
+      cfg.body.loveHandleScaleX,
+      cfg.body.loveHandleScaleY,
+      cfg.body.loveHandleScaleZ,
+    );
+    loveHandleLeft.name = 'love-handle-left';
+    bodyPivot.add(loveHandleLeft);
+
+    const loveHandleRight = new THREE.Mesh(loveHandleGeo, jerseyMat);
+    loveHandleRight.position.set(cfg.body.loveHandleOffsetX, cfg.body.loveHandleY, 0);
+    loveHandleRight.scale.set(
+      cfg.body.loveHandleScaleX,
+      cfg.body.loveHandleScaleY,
+      cfg.body.loveHandleScaleZ,
+    );
+    loveHandleRight.name = 'love-handle-right';
+    bodyPivot.add(loveHandleRight);
+
+    // ========== G2: BIG ASS ==========
+    // Squashed sphere on the back of the hips. Hash-varied X-scale per
+    // player (0.85–1.25) so some dads have bigger butts than others. Same
+    // jersey material — covered by shorts.
+    const buttGeo = getButtGeom(cfg.body.buttRadius);
+    const butt = new THREE.Mesh(buttGeo, jerseyMat);
+    butt.position.set(0, cfg.body.buttY, cfg.body.buttZ);
+    butt.scale.set(
+      cfg.body.buttScaleX * buttSizeFactor,
+      cfg.body.buttScaleY,
+      cfg.body.buttScaleZ,
+    );
+    butt.name = 'butt';
+    bodyPivot.add(butt);
 
     // ========== NECK GROUP (at top of torso) ==========
     const neckGroup = new THREE.Group();
@@ -205,22 +1772,71 @@ export class GamePlayer {
     neck.name = 'neck';
     neckGroup.add(neck);
 
-    // Head on top of neck
+    // Head on top of neck. Z-squash the sphere so the front of the head
+    // is flatter — the face-plane (sibling of head, not a child, so it
+    // doesn't inherit this scale) can then sit flush against the skin
+    // across its full width without the sphere poking out around the
+    // edges. Eyes are also siblings, so their positions are unaffected.
     const head = new THREE.Mesh(new THREE.SphereGeometry(cfg.head.radius, 8, 6), skinMat);
     head.position.set(0, cfg.head.positionY, 0);
+    head.scale.z = cfg.head.headDepthScale;
     head.name = 'head';
     neckGroup.add(head);
 
-    // Eyes on head (relative to neck group)
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
-    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(cfg.head.eyeRadius, 4, 4), eyeMat);
+    // Eyes on head (relative to neck group). Phase 8.4 — each `eye-${side}`
+    // is now a Group containing a simple-sphere child (visible by default)
+    // plus a hidden realistic sclera/iris/pupil child that `setFaceMesh3D`
+    // toggles on. See `buildEye` for the structure rationale.
+    const eyeLeft = buildEye('left', cfg.head.eyeRadius);
     eyeLeft.position.set(-cfg.head.eyeOffsetX, cfg.head.eyeOffsetY, cfg.head.eyeOffsetZ);
-    eyeLeft.name = 'eye-left';
     neckGroup.add(eyeLeft);
-    const eyeRight = eyeLeft.clone();
+    const eyeRight = buildEye('right', cfg.head.eyeRadius);
     eyeRight.position.set(cfg.head.eyeOffsetX, cfg.head.eyeOffsetY, cfg.head.eyeOffsetZ);
-    eyeRight.name = 'eye-right';
     neckGroup.add(eyeRight);
+    // G1: cache default eye positions so setFaceMesh3D can move them to
+    // align with the head-mesh's irisMidpoint (when a head mesh is
+    // mounted), and clearFaceMesh3DInternal can restore them on clear.
+    this.defaultEyeLeftPos = eyeLeft.position.clone();
+    this.defaultEyeRightPos = eyeRight.position.clone();
+
+    // Face plane — flat textured quad sitting just past the front of the
+    // head sphere. Hidden by default; setFaceImage() loads a texture into
+    // its material and toggles visibility (and hides the eye-spheres).
+    // DoubleSide so the face stays visible even when the player rotates
+    // 180° (e.g. turning to face the hoop while we orbit-cam them).
+    //
+    // alphaMap: a procedural radial-gradient texture (full-opacity in the
+    // center, fading to transparent at the corners) so the captured photo
+    // doesn't show as a sharp rectangle with background bleeding in at the
+    // corners. The face image fills the center; chair/wall corners fade out.
+    const faceMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      side: THREE.DoubleSide,
+      alphaMap: getFaceAlphaMap(),
+    });
+    const facePlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(cfg.head.facePlaneSize, cfg.head.facePlaneSize),
+      faceMat,
+    );
+    facePlane.position.set(0, cfg.head.eyeOffsetY, cfg.head.facePlaneZ);
+    facePlane.visible = false;
+    facePlane.name = 'face-plane';
+    neckGroup.add(facePlane);
+
+    // Phase 7.6: empty slot for the 3D face mesh produced by the Face
+    // Editor's Scan flow. setFaceMesh3D() mounts the user's mesh as the
+    // sole child of this group and hides the eye-spheres + face-plane;
+    // setFaceImage() conversely clears this group and unhides them.
+    //
+    // Phase 7.8: slot Z is `eyeOffsetZ` (the rig's eye-anatomy Z), NOT
+    // `facePlaneZ`. The mesh-builder centers the mesh on its eye-midpoint
+    // in mesh-local coords, so anchoring this slot at the rig's eye-Z
+    // puts the user's eyes precisely on the rig's eye anchor. Y also uses
+    // `eyeOffsetY` (was already correct; eye anatomy Y).
+    const faceMesh3DSlot = new THREE.Group();
+    faceMesh3DSlot.position.set(0, cfg.head.eyeOffsetY, cfg.head.eyeOffsetZ);
+    faceMesh3DSlot.name = 'face-mesh-3d';
+    neckGroup.add(faceMesh3DSlot);
 
     // ========== HAIR (added to neckGroup) ==========
     // hairOverride (0..5) maps to the style list in HAIR_STYLE_WEIGHTS order;
@@ -229,6 +1845,10 @@ export class GamePlayer {
     const style = hairOverride !== undefined
       ? (HAIR_STYLE_WEIGHTS[hairOverride % HAIR_STYLE_WEIGHTS.length].style)
       : pickHairStyleFromHash(h);
+    // Phase D: remember the hash-derived defaults so `setFaceHairOverride(null)`
+    // can revert to them after a sampled-style override is cleared.
+    this.defaultHairStyle = style;
+    this.defaultHairColor = hairColor;
     const hair = this.createHair(style, hairColor);
     hair.name = 'hair';
     neckGroup.add(hair);
@@ -246,14 +1866,40 @@ export class GamePlayer {
     shoulderCapRight.name = 'shoulder-cap-right';
     bodyPivot.add(shoulderCapRight);
 
-    // Shoulder bar connecting across the top of the torso
-    const shoulderBarGeo = new THREE.BoxGeometry(
-      cfg.body.shoulderBarWidth, cfg.body.shoulderBarHeight, cfg.body.shoulderBarDepth,
+    // ========== G2: SLOPED SHOULDERS ==========
+    // Replaces the prior boxy `shoulder-bar` mesh. Two ellipsoid wedges that
+    // taper from the neck out to the shoulder caps, like sloping trapezius
+    // muscles. Each is a sphere geometry scaled non-uniformly along X (extends
+    // outward), Y (squashed vertically), and Z (slightly less depth) to bridge
+    // smoothly between the neck and the shoulder caps.
+    const shoulderSlopeGeo = getShoulderSlopeGeom(cfg.body.shoulderSlopeRadius);
+    const shoulderSlopeLeft = new THREE.Mesh(shoulderSlopeGeo, jerseyMat);
+    shoulderSlopeLeft.position.set(
+      -cfg.body.shoulderSlopeOffsetX,
+      cfg.body.shoulderSlopeY,
+      0,
     );
-    const shoulderBar = new THREE.Mesh(shoulderBarGeo, jerseyMat);
-    shoulderBar.position.set(0, cfg.body.shoulderBarY, 0);
-    shoulderBar.name = 'shoulder-bar';
-    bodyPivot.add(shoulderBar);
+    shoulderSlopeLeft.scale.set(
+      cfg.body.shoulderSlopeScaleX,
+      cfg.body.shoulderSlopeScaleY,
+      cfg.body.shoulderSlopeScaleZ,
+    );
+    shoulderSlopeLeft.name = 'shoulder-slope-left';
+    bodyPivot.add(shoulderSlopeLeft);
+
+    const shoulderSlopeRight = new THREE.Mesh(shoulderSlopeGeo, jerseyMat);
+    shoulderSlopeRight.position.set(
+      cfg.body.shoulderSlopeOffsetX,
+      cfg.body.shoulderSlopeY,
+      0,
+    );
+    shoulderSlopeRight.scale.set(
+      cfg.body.shoulderSlopeScaleX,
+      cfg.body.shoulderSlopeScaleY,
+      cfg.body.shoulderSlopeScaleZ,
+    );
+    shoulderSlopeRight.name = 'shoulder-slope-right';
+    bodyPivot.add(shoulderSlopeRight);
 
     // Shoulder joint groups
     const shoulderLeft = new THREE.Group();
@@ -1786,6 +3432,38 @@ export class GamePlayer {
       const blend = smoothstep(1 - this.stateTransitionTimer / this.STATE_BLEND_DURATION);
       shoulderL.rotation.x = this.lastShoulderL + (shoulderL.rotation.x - this.lastShoulderL) * blend;
       shoulderR.rotation.x = this.lastShoulderR + (shoulderR.rotation.x - this.lastShoulderR) * blend;
+    }
+
+    // ── G3: Beer-hand (left arm) lock ────────────────────────────────────
+    // Hold the left arm at a fixed pose so the beer doesn't swing during
+    // walk/run/dribble/pass. Positioned AFTER the per-state switch, AFTER
+    // the post-switch Z-reset, AND AFTER the state-transition blend so the
+    // lock has the final word — nothing later in animate() touches the
+    // left shoulder/elbow rotations.
+    //
+    // Note on transition blend: `lastShoulderL` was captured at the top of
+    // animate() BEFORE this block ran, so transitioning INTO a locked state
+    // lerps from prev-state's swing into the lock value. Since both the
+    // pre-blend and post-blend values are then overwritten by the lock,
+    // the lerp is effectively a no-op for left shoulder X — desirable
+    // (no flicker; the lock simply pins the arm immediately).
+    //
+    // The bodyPivot rotation rotates the entire upper body INCLUDING the
+    // locked arm, so the beer leans with the body lean (correct anatomy:
+    // beer doesn't swing relative to torso).
+    //
+    // dribble + pass are intentionally NOT exempt: dribble per user request
+    // (locked even while dribbling); pass because the right arm throws and
+    // the left should keep holding the beer.
+    const bh = animConfig.poses.beerHold;
+    // DevTools override: window.__beerHoldEnabled, when defined, wins.
+    const lockEnabled =
+      typeof window !== 'undefined' && typeof window.__beerHoldEnabled === 'boolean'
+        ? window.__beerHoldEnabled
+        : bh.enabled;
+    if (lockEnabled && !bh.exemptStates.includes(this.animState)) {
+      shoulderL.rotation.set(bh.shoulderX, 0, bh.shoulderZ);
+      elbowL.rotation.set(bh.elbow, 0, 0);
     }
 
     // Secondary motion: head counter-rotates slightly against body lean

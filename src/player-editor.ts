@@ -18,8 +18,30 @@ import { serializeAnim, applyAnimJSON, resetAnim } from './dev/anim-config';
 import { persistDetails, detailsKey } from './dev/details-state';
 import { AnimLoop, ANIM_IDS, type AnimId } from './dev/anim-loop';
 import { buildBodySections } from './dev/body-sliders';
+import { listFaces, loadFace } from './dev/face/store';
+import {
+  buildFaceMeshFromStored,
+  unflattenLandmarks,
+  type BuiltFaceMesh,
+} from './dev/face/mesh-builder';
+import {
+  buildHeadMeshFromAngles,
+  type BuiltHeadMesh,
+} from './dev/face/head-mesh-builder';
+import {
+  bundleFaceFeatures,
+  type ProceduralFaceFeatures,
+  type ProceduralFaceApplyExtension,
+} from './dev/face/procedural-face';
+import { listFaceAnims, loadFaceAnim } from './dev/face/face-anim-store';
+import { createFacePuppet, type FacePuppet, type BlendshapeFrame } from './dev/face/blendshape-puppet';
+import type { FaceAnimClip } from './dev/face/face-anim-clip';
 
 const DEVPANEL_PREFIX = 'devpanel:player-editor';
+const FACE_LS_KEY = 'devpanel:player-editor:face';
+const FACE_ANIM_LS_KEY = 'devpanel:player-editor:face-anim';
+// Phase 8.2a: persistence for the "Show source video" toggle. '1' / '0'.
+const FACE_ANIM_SHOW_VIDEO_LS_KEY = 'devpanel:player-editor:face-anim-show-video';
 
 // Ordered to match HAIR_STYLE_WEIGHTS in game/player.ts
 const HAIR_STYLES = ['bald', 'receding', 'flat-top', 'afro', 'mohawk', 'headband'] as const;
@@ -28,6 +50,49 @@ const POSITIONS: Position[] = ['PG', 'SG', 'SF', 'PF', 'C'];
 let teamColor = 0xe94560;
 let hairOverride: number = 0; // 0..3
 let positionOverride: Position | undefined = undefined;
+// Selected face library entry. `''` means "(none — default eyes)". Persisted
+// in localStorage so the editor remembers across reloads.
+let selectedFaceName: string = (() => {
+  try { return localStorage.getItem(FACE_LS_KEY) ?? ''; } catch { return ''; }
+})();
+// Most recently loaded face dataUrl, refreshed when the picker changes or
+// the player rebuilds. Cached so rebuilds (which dispose+recreate the mesh)
+// re-apply the active face without an async IDB hit. Phase 7.6 adds
+// `selectedFaceMesh3D` — present when the picked entry has a mesh3d field;
+// rebuild path reconstructs the THREE.Mesh from this without IDB.
+let selectedFaceDataUrl: string | null = null;
+// Phase 7.7: cache the detected 478-landmark set alongside the dataUrl so
+// rebuildPlayer() can re-apply the same face-shaped alpha mask + plane
+// transform after the rig is recreated. Undefined when the active face has
+// no landmarks (older saves, AI-generated uploads with no detected face).
+let selectedFaceLandmarks: number[] | undefined = undefined;
+// Phase 7.8: cache per-face headShape alongside the mesh3d payload so the
+// rebuild path can re-apply the head-sphere scaling consistently. Optional —
+// older scans without it use the rig default.
+let selectedFaceMesh3D: {
+  vertices: number[];
+  uvs: number[];
+  imageDataUrl: string;
+  headShape?: { aspectWH: number; aspectDH: number };
+  // Phase 8.4: per-face iris colors sampled at scan time. Optional —
+  // older saves and AI uploads (no detection) leave this undefined and
+  // the runtime falls back to default brown irises.
+  eyeColors?: { left: number; right: number };
+  // G1: per-pose captures (front + 4 sides + 2 profiles). When profile
+  // entries are present, the rebuild path calls `buildHeadMeshFromAngles`
+  // to produce a real head mesh that REPLACES the rig sphere head.
+  angles?: Array<{
+    poseName: 'front' | 'left' | 'right' | 'up' | 'down' | 'profile-left' | 'profile-right';
+    imageDataUrl: string;
+    landmarks: number[];
+  }>;
+} | null = null;
+// Phase D: cache the sampled-feature bundle alongside the mesh3d payload
+// (skin/lip/brow/eye/nose/hair/hat) so player rebuilds re-apply the same
+// procedural-face values without an IDB round trip.
+let selectedFaceFeatures:
+  | (ProceduralFaceFeatures & ProceduralFaceApplyExtension)
+  | undefined = undefined;
 // Stable id across body-slider rebuilds so skin tone + hair-color RNG rolls
 // don't flicker while the user tunes dimensions. Only the explicit Re-roll
 // button bumps this to generate a new appearance.
@@ -150,6 +215,194 @@ function rebuildPlayer(): void {
   }
   animLoop.setAnim(savedAnim); // resets per-anim timers; next tick re-triggers fresh
   applyAnimPropsVisibility();
+  // Re-apply the cached face after a rebuild — the new mesh starts with
+  // default eyes and an invisible face plane otherwise. Prefer the 3D path
+  // when available; fall back to flat dataUrl on either no-mesh3d or build
+  // failure (so a corrupt mesh entry doesn't leave the player faceless).
+  applyCachedFaceToPlayer();
+}
+
+function applyCachedFaceToPlayer(): void {
+  if (!player) return;
+  // Phase 8: tear down active face-anim puppet before swapping the mesh —
+  // the puppet references the prior mesh's position attribute.
+  stopFaceAnimPlayback();
+  if (selectedFaceMesh3D) {
+    try {
+      // G1: prefer the head-mesh path (front face + side panels + back +
+      // ears) when profile poses are available. Falls back to face-only
+      // when angles are missing or head-mesh construction fails.
+      let built: BuiltFaceMesh;
+      let headBuilt: BuiltHeadMesh | null = null;
+      const angles = selectedFaceMesh3D.angles;
+      const skinToneForHead =
+        (selectedFaceFeatures as { bodySkinTone?: number } | undefined)?.bodySkinTone ??
+        selectedFaceFeatures?.skinTone;
+      if (angles && angles.length > 0) {
+        try {
+          const frontLM = unflattenLandmarks(selectedFaceMesh3D.vertices);
+          headBuilt = buildHeadMeshFromAngles(
+            frontLM,
+            angles,
+            selectedFaceMesh3D.imageDataUrl,
+            { skinTone: skinToneForHead },
+          );
+          built = headBuilt;
+        } catch (err) {
+          console.warn('player-editor: head-mesh build failed, falling back to face-only', err);
+          built = buildFaceMeshFromStored(
+            selectedFaceMesh3D.vertices,
+            selectedFaceMesh3D.uvs,
+            selectedFaceMesh3D.imageDataUrl,
+          );
+          headBuilt = null;
+        }
+      } else {
+        built = buildFaceMeshFromStored(
+          selectedFaceMesh3D.vertices,
+          selectedFaceMesh3D.uvs,
+          selectedFaceMesh3D.imageDataUrl,
+        );
+      }
+      player.setFaceMesh3D(
+        built.mesh,
+        selectedFaceMesh3D.headShape,
+        built.mouthInterior,
+        selectedFaceMesh3D.eyeColors,
+        // Phase D: sampled-feature bundle (skin/lip/brow/eye/nose +
+        // hair/hat/bodySkinTone). Drives the procedural face's per-face
+        // colors and the head/body skin recoloring.
+        selectedFaceFeatures,
+        // G1: pass the head-mesh build (or null) so setFaceMesh3D can
+        // mount the head group when successful, or fall back to the
+        // sphere head when null/unsuccessful.
+        headBuilt,
+      );
+      // Phase B: mount the procedural-face overlay as a sibling of the
+      // canonical mesh. Face-anim replay loop below calls
+      // updateFaceProcedural() so the procedural geometry tracks deformations.
+      player.setFaceProcedural(built);
+      builtFaceMeshCache = built;
+      // Re-apply face-anim selection if any.
+      if (selectedFaceAnimName) void applyFaceAnim(selectedFaceAnimName);
+      return;
+    } catch (err) {
+      console.warn('player-editor: 3D face rebuild failed, falling back to flat', err);
+    }
+  }
+  builtFaceMeshCache = null;
+  if (selectedFaceDataUrl !== null) {
+    player.setFaceImage(selectedFaceDataUrl, selectedFaceLandmarks);
+  } else {
+    player.setFaceImage(null);
+  }
+}
+
+// --- Face anim playback (Phase 8) ---
+let builtFaceMeshCache: BuiltFaceMesh | null = null;
+let facePuppet: FacePuppet | null = null;
+let faceAnimRaf = 0;
+let selectedFaceAnimName: string = (() => {
+  try { return localStorage.getItem(FACE_ANIM_LS_KEY) ?? ''; } catch { return ''; }
+})();
+// Phase 8.2a: "Show source video" toggle state + tracking for the corner
+// overlay's object URL so we can revoke it on every clip change / stop.
+let faceAnimShowVideo: boolean = (() => {
+  try { return localStorage.getItem(FACE_ANIM_SHOW_VIDEO_LS_KEY) === '1'; } catch { return false; }
+})();
+let faceAnimVideoUrl: string | null = null;
+
+function stopFaceAnimPlayback(): void {
+  if (faceAnimRaf) {
+    cancelAnimationFrame(faceAnimRaf);
+    faceAnimRaf = 0;
+  }
+  if (facePuppet) {
+    facePuppet.dispose();
+    facePuppet = null;
+  }
+  // Phase E: detach the procedural face's blendshape source so teeth /
+  // tongue hide on stop rather than freezing at the last-applied state.
+  player?.setFaceProceduralBlendshapeSource(null);
+  // Phase 8.2a: tear down the source-video overlay + revoke its URL.
+  const sourceVideoEl = document.getElementById('face-anim-source-video') as HTMLVideoElement | null;
+  if (sourceVideoEl) {
+    sourceVideoEl.pause();
+    sourceVideoEl.removeAttribute('src');
+    sourceVideoEl.load();
+    sourceVideoEl.style.display = 'none';
+  }
+  if (faceAnimVideoUrl) {
+    URL.revokeObjectURL(faceAnimVideoUrl);
+    faceAnimVideoUrl = null;
+  }
+}
+
+async function applyFaceAnim(name: string): Promise<void> {
+  stopFaceAnimPlayback();
+  selectedFaceAnimName = name;
+  try {
+    if (name) localStorage.setItem(FACE_ANIM_LS_KEY, name);
+    else localStorage.removeItem(FACE_ANIM_LS_KEY);
+  } catch { /* ignore */ }
+  if (!name) return;
+  if (!builtFaceMeshCache) {
+    console.warn('player-editor: face-anim selected but no 3D mesh mounted');
+    return;
+  }
+  let clip: FaceAnimClip | null;
+  try {
+    clip = await loadFaceAnim(name);
+  } catch (err) {
+    console.warn('player-editor: loadFaceAnim failed', err);
+    return;
+  }
+  if (!clip || clip.frames.length === 0) return;
+  facePuppet = createFacePuppet(builtFaceMeshCache, { smooth: false });
+  // Phase E: hand the puppet to the procedural face for conditional-feature
+  // visibility (teeth, tongue) driven off smoothed jawOpen.
+  player?.setFaceProceduralBlendshapeSource(facePuppet);
+
+  // Phase 8.2a: source-video overlay. Same logic as anim-viewer — only
+  // mounted when the toggle is on AND the clip carries a Blob; the
+  // master clock for blendshape lookup is then video.currentTime.
+  let videoMaster = false;
+  const sourceVideoEl = document.getElementById('face-anim-source-video') as HTMLVideoElement | null;
+  if (faceAnimShowVideo && clip.videoBlob && sourceVideoEl) {
+    faceAnimVideoUrl = URL.createObjectURL(clip.videoBlob);
+    sourceVideoEl.src = faceAnimVideoUrl;
+    sourceVideoEl.muted = true;
+    sourceVideoEl.loop = true;
+    sourceVideoEl.style.display = 'block';
+    sourceVideoEl.play().catch((err) => {
+      console.warn('player-editor: source video play() rejected', err);
+    });
+    videoMaster = true;
+  }
+
+  const startMs = performance.now();
+  const videoOffsetSec = (clip.videoStartOffsetMs ?? 0) / 1000;
+  const tick = () => {
+    if (!facePuppet) return;
+    let elapsedSec: number;
+    if (videoMaster && sourceVideoEl) {
+      elapsedSec = Math.max(0, sourceVideoEl.currentTime - videoOffsetSec);
+    } else {
+      elapsedSec = (performance.now() - startMs) / 1000;
+    }
+    const idx = Math.floor(elapsedSec * clip!.fps) % clip!.frames.length;
+    if (idx >= 0) {
+      const sparse = clip!.frames[idx];
+      const frame: BlendshapeFrame = new Map();
+      for (const k of Object.keys(sparse)) frame.set(k, sparse[k]);
+      facePuppet.apply(frame);
+      // Phase B: refresh the procedural-face overlay so its geometry tracks
+      // the puppet's now-deformed canonical landmarks.
+      player?.updateFaceProcedural();
+    }
+    faceAnimRaf = requestAnimationFrame(tick);
+  };
+  faceAnimRaf = requestAnimationFrame(tick);
 }
 
 /** Hoop + ball show only for the animations that use them. */
@@ -295,6 +548,9 @@ function buildPanel(): void {
 
   // Preview controls (not part of the config — affect just the editor view)
   panel.appendChild(buildPreviewSection());
+
+  // Face picker — dropdown of saved faces from face-editor's IndexedDB.
+  panel.appendChild(buildFaceSection());
 
   // Player position offset (bump the model without changing its pose).
   panel.appendChild(buildPlayerOffsetSection());
@@ -537,6 +793,328 @@ function buildPreviewSection(): HTMLElement {
   details.appendChild(colorRow);
 
   return details;
+}
+
+/** Face picker section — dropdown populated from /face-editor's IDB plus a
+ *  link to /face-editor.html. Selection is persisted in localStorage and
+ *  applied (or cleared) on the live player via setFaceImage(). */
+function buildFaceSection(): HTMLElement {
+  const details = document.createElement('details');
+  details.open = true;
+  Object.assign(details.style, { marginBottom: '12px' });
+  persistDetails(details, detailsKey(DEVPANEL_PREFIX, 'FACE'));
+
+  const summary = document.createElement('summary');
+  summary.textContent = 'FACE';
+  Object.assign(summary.style, {
+    cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
+    color: '#aaa', padding: '4px 0', letterSpacing: '1px',
+  });
+  details.appendChild(summary);
+
+  const row = document.createElement('div');
+  Object.assign(row.style, {
+    display: 'flex', gap: '8px', alignItems: 'center',
+    padding: '6px 0', borderBottom: '1px solid #222',
+  });
+
+  const label = document.createElement('label');
+  label.textContent = 'Face';
+  Object.assign(label.style, { fontSize: '12px', color: '#ddd' });
+  row.appendChild(label);
+
+  const select = document.createElement('select');
+  Object.assign(select.style, {
+    flex: '1', padding: '4px', background: '#0d101e',
+    color: '#fff', border: '1px solid #333', borderRadius: '3px', fontSize: '12px',
+  });
+  details.appendChild(row);
+  row.appendChild(select);
+
+  // Refresh button — manually re-pulls listFaces() in case the visibilitychange
+  // path missed (e.g., user came in via direct link, not tab switch).
+  const refreshBtn = document.createElement('button');
+  refreshBtn.textContent = '↻';
+  refreshBtn.title = 'Refresh face library';
+  Object.assign(refreshBtn.style, {
+    padding: '4px 8px', background: '#2a2a4e', color: '#fff',
+    border: '1px solid #444', borderRadius: '3px', cursor: 'pointer', fontSize: '12px',
+  });
+  refreshBtn.addEventListener('click', () => { void populateFaceSelect(select, statusEl); });
+  row.appendChild(refreshBtn);
+
+  // Status line — shows count or error so we can diagnose empty dropdowns.
+  const statusEl = document.createElement('div');
+  Object.assign(statusEl.style, { fontSize: '11px', color: '#888', padding: '2px 0' });
+  statusEl.textContent = 'Loading…';
+  details.appendChild(statusEl);
+
+  // Async-populate (no top-level await, this is a non-async builder).
+  void populateFaceSelect(select, statusEl);
+
+  select.addEventListener('change', () => {
+    void applyFaceSelection(select.value);
+  });
+
+  // Hint + nav link to /face-editor for capturing more faces.
+  const linkRow = document.createElement('div');
+  Object.assign(linkRow.style, { display: 'flex', justifyContent: 'flex-end', padding: '4px 0' });
+  const link = document.createElement('a');
+  link.href = '/face-editor.html';
+  link.textContent = 'Open Face Editor →';
+  Object.assign(link.style, {
+    fontSize: '11px', color: '#e94560', textDecoration: 'none',
+  });
+  linkRow.appendChild(link);
+  details.appendChild(linkRow);
+
+  // --- Face Anim picker (Phase 8) ---
+  // Plays a saved blendshape clip on top of the currently-mounted 3D face
+  // mesh. Disabled (alert + revert) when the active face is flat.
+  const animRow = document.createElement('div');
+  Object.assign(animRow.style, {
+    display: 'flex', gap: '8px', alignItems: 'center',
+    padding: '6px 0', borderBottom: '1px solid #222',
+  });
+  const animLabel = document.createElement('label');
+  animLabel.textContent = 'Anim';
+  Object.assign(animLabel.style, { fontSize: '12px', color: '#ddd' });
+  animRow.appendChild(animLabel);
+  const animSelect = document.createElement('select');
+  Object.assign(animSelect.style, {
+    flex: '1', padding: '4px', background: '#0d101e',
+    color: '#fff', border: '1px solid #333', borderRadius: '3px', fontSize: '12px',
+  });
+  animRow.appendChild(animSelect);
+  details.appendChild(animRow);
+
+  const animHint = document.createElement('div');
+  animHint.textContent = 'Plays only on 3D-scanned faces.';
+  Object.assign(animHint.style, { fontSize: '10px', color: '#666', padding: '2px 0' });
+  details.appendChild(animHint);
+
+  void populateFaceAnimSelect(animSelect);
+  animSelect.addEventListener('change', () => {
+    const name = animSelect.value;
+    if (name && !builtFaceMeshCache) {
+      alert('Face anims play only on 3D-scanned faces. Pick a [3D] face above first.');
+      animSelect.value = selectedFaceAnimName || '';
+      return;
+    }
+    void applyFaceAnim(name);
+  });
+
+  // Phase 8.2a: "Show source video" toggle — enables the corner overlay
+  // that mirrors the user's webcam recording for side-by-side comparison.
+  // Persists across reloads.
+  const showVideoRow = document.createElement('label');
+  Object.assign(showVideoRow.style, {
+    display: 'flex', gap: '6px', alignItems: 'center',
+    padding: '4px 0', fontSize: '11px', color: '#ccc', cursor: 'pointer',
+  });
+  const showVideoCb = document.createElement('input');
+  showVideoCb.type = 'checkbox';
+  showVideoCb.checked = faceAnimShowVideo;
+  showVideoCb.addEventListener('change', () => {
+    faceAnimShowVideo = showVideoCb.checked;
+    try {
+      localStorage.setItem(FACE_ANIM_SHOW_VIDEO_LS_KEY, faceAnimShowVideo ? '1' : '0');
+    } catch { /* ignore */ }
+    // Restart the active playback so the new mode takes effect immediately.
+    if (selectedFaceAnimName) void applyFaceAnim(selectedFaceAnimName);
+  });
+  showVideoRow.appendChild(showVideoCb);
+  const showVideoLabel = document.createElement('span');
+  showVideoLabel.textContent = 'Show source video (when available)';
+  showVideoRow.appendChild(showVideoLabel);
+  details.appendChild(showVideoRow);
+
+  // Track the select for visibilitychange repopulation, mirroring the
+  // existing face-select tracking below.
+  lastFaceAnimSelect = animSelect;
+
+  const mirrorLinkRow = document.createElement('div');
+  Object.assign(mirrorLinkRow.style, { display: 'flex', justifyContent: 'flex-end', padding: '4px 0' });
+  const mirrorLink = document.createElement('a');
+  mirrorLink.href = '/face-mirror.html';
+  mirrorLink.textContent = 'Capture in Face Mirror →';
+  Object.assign(mirrorLink.style, {
+    fontSize: '11px', color: '#e94560', textDecoration: 'none',
+  });
+  mirrorLinkRow.appendChild(mirrorLink);
+  details.appendChild(mirrorLinkRow);
+
+  return details;
+}
+
+let lastFaceAnimSelect: HTMLSelectElement | null = null;
+
+async function populateFaceAnimSelect(select: HTMLSelectElement): Promise<void> {
+  let clips: Awaited<ReturnType<typeof listFaceAnims>> = [];
+  try {
+    clips = await listFaceAnims();
+  } catch (err) {
+    console.warn('player-editor: listFaceAnims failed', err);
+  }
+  select.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '(none)';
+  select.appendChild(none);
+  for (const c of clips) {
+    const opt = document.createElement('option');
+    opt.value = c.name;
+    opt.textContent = `${c.name} (${c.frameCount}f, ${c.durationSec.toFixed(1)}s)`;
+    select.appendChild(opt);
+  }
+  if (selectedFaceAnimName && clips.some((c) => c.name === selectedFaceAnimName)) {
+    select.value = selectedFaceAnimName;
+    void applyFaceAnim(selectedFaceAnimName);
+  } else {
+    select.value = '';
+    if (selectedFaceAnimName) {
+      selectedFaceAnimName = '';
+      try { localStorage.removeItem(FACE_ANIM_LS_KEY); } catch { /* ignore */ }
+    }
+  }
+}
+
+// Refresh the face library on tab focus — the user may have just captured a
+// new face in /face-editor in another tab.
+let lastFaceSelect: HTMLSelectElement | null = null;
+let lastFaceStatusEl: HTMLDivElement | null = null;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && lastFaceSelect) {
+    void populateFaceSelect(lastFaceSelect, lastFaceStatusEl);
+  }
+  if (document.visibilityState === 'visible' && lastFaceAnimSelect) {
+    void populateFaceAnimSelect(lastFaceAnimSelect);
+  }
+});
+
+async function populateFaceSelect(
+  select: HTMLSelectElement,
+  statusEl: HTMLDivElement | null,
+): Promise<void> {
+  lastFaceSelect = select;
+  lastFaceStatusEl = statusEl;
+  let faces: Awaited<ReturnType<typeof listFaces>> = [];
+  let errMsg: string | null = null;
+  try {
+    faces = await listFaces();
+  } catch (err) {
+    errMsg = err instanceof Error ? err.message : String(err);
+    console.warn('face: listFaces failed', err);
+  }
+  select.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '(none — default eyes)';
+  select.appendChild(none);
+  for (const f of faces) {
+    const opt = document.createElement('option');
+    opt.value = f.name;
+    // [3D] prefix mirrors the badge in the face-editor library grid.
+    opt.textContent = f.has3D ? `[3D] ${f.name}` : f.name;
+    select.appendChild(opt);
+  }
+  if (statusEl) {
+    if (errMsg) {
+      statusEl.style.color = '#ff7a7a';
+      statusEl.textContent = `IDB error: ${errMsg}`;
+    } else if (faces.length === 0) {
+      statusEl.style.color = '#888';
+      statusEl.textContent = 'No saved faces yet — open Face Editor to capture one.';
+    } else {
+      statusEl.style.color = '#888';
+      statusEl.textContent = `${faces.length} face${faces.length === 1 ? '' : 's'} in library.`;
+    }
+  }
+  // Restore the persisted selection if it still exists in the library.
+  const restoreName = selectedFaceName;
+  if (restoreName && faces.some((f) => f.name === restoreName)) {
+    select.value = restoreName;
+    await applyFaceSelection(restoreName);
+  } else {
+    select.value = '';
+    if (selectedFaceName) {
+      // Selection was deleted from the library — fall back to default eyes
+      // silently per the brief.
+      selectedFaceName = '';
+      try { localStorage.removeItem(FACE_LS_KEY); } catch { /* ignore */ }
+    }
+    await applyFaceSelection('');
+  }
+}
+
+async function applyFaceSelection(name: string): Promise<void> {
+  selectedFaceName = name;
+  try {
+    if (name) localStorage.setItem(FACE_LS_KEY, name);
+    else localStorage.removeItem(FACE_LS_KEY);
+  } catch { /* ignore quota / privacy mode */ }
+
+  if (!name) {
+    selectedFaceDataUrl = null;
+    selectedFaceLandmarks = undefined;
+    selectedFaceMesh3D = null;
+    selectedFaceFeatures = undefined;
+    if (player) {
+      player.setFaceMesh3D(null);
+      player.setFaceImage(null);
+    }
+    return;
+  }
+  try {
+    const face = await loadFace(name);
+    if (!face) {
+      // Stale selection (deleted between listFaces and now). Silent fallback.
+      selectedFaceDataUrl = null;
+      selectedFaceLandmarks = undefined;
+      selectedFaceMesh3D = null;
+      selectedFaceFeatures = undefined;
+      if (player) {
+        player.setFaceMesh3D(null);
+        player.setFaceImage(null);
+      }
+      return;
+    }
+    selectedFaceDataUrl = face.dataUrl;
+    selectedFaceLandmarks = face.faceLandmarks;
+    if (face.mesh3d && Array.isArray(face.mesh3d.vertices) && face.mesh3d.vertices.length > 0) {
+      selectedFaceMesh3D = {
+        vertices: face.mesh3d.vertices,
+        uvs: face.mesh3d.uvs,
+        imageDataUrl: face.dataUrl,
+        // Phase 7.8: pass through the optional headShape (older scans that
+        // predate this field leave it `undefined`, and the player rig falls
+        // back to its default sphere scale).
+        headShape: face.mesh3d.headShape,
+        // Phase 8.4: pass through optional iris colors (older scans leave
+        // it `undefined`, runtime falls back to default brown).
+        eyeColors: face.mesh3d.eyeColors,
+        // G1: pass through the captured pose angles for head-mesh build.
+        angles: face.mesh3d.angles,
+      };
+      // Phase D: bundle sampled-feature payload — skin/lip/brow/eye/nose +
+      // hair/hat — into the shape `setFaceMesh3D` accepts.
+      selectedFaceFeatures = bundleFaceFeatures(face.mesh3d);
+    } else {
+      selectedFaceMesh3D = null;
+      selectedFaceFeatures = undefined;
+    }
+    applyCachedFaceToPlayer();
+  } catch (err) {
+    console.warn('face: loadFace failed', err);
+    selectedFaceDataUrl = null;
+    selectedFaceLandmarks = undefined;
+    selectedFaceMesh3D = null;
+    selectedFaceFeatures = undefined;
+    if (player) {
+      player.setFaceMesh3D(null);
+      player.setFaceImage(null);
+    }
+  }
 }
 
 function buildDropdown(label: string, options: string[], current: string, onChange: (v: string) => void): HTMLElement {

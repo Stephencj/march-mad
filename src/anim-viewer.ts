@@ -26,8 +26,34 @@ import {
   type BodyColorSpec,
   type BodySectionSpec,
 } from './dev/body-sliders';
+import { AnimLoop } from './dev/anim-loop';
+import { listClips, loadClip } from './dev/mocap/clip-store';
+import { retarget } from './dev/mocap/retarget';
+import { listFaces, loadFace } from './dev/face/store';
+import {
+  buildFaceMeshFromStored,
+  unflattenLandmarks,
+  type BuiltFaceMesh,
+} from './dev/face/mesh-builder';
+import {
+  buildHeadMeshFromAngles,
+  type BuiltHeadMesh,
+} from './dev/face/head-mesh-builder';
+import {
+  bundleFaceFeatures,
+  type ProceduralFaceFeatures,
+  type ProceduralFaceApplyExtension,
+} from './dev/face/procedural-face';
+import { listFaceAnims, loadFaceAnim } from './dev/face/face-anim-store';
+import { createFacePuppet, type FacePuppet, type BlendshapeFrame } from './dev/face/blendshape-puppet';
+import type { FaceAnimClip } from './dev/face/face-anim-clip';
 
 const DEVPANEL_PREFIX = 'devpanel:anim-viewer';
+const FACE_LS_KEY = 'devpanel:anim-viewer:face';
+const FACE_ANIM_LS_KEY = 'devpanel:anim-viewer:face-anim';
+// Phase 8.2a: persistence for the "Show source video" toggle. Stored as
+// '1' / '0' so we can flip it without bringing in JSON.parse.
+const FACE_ANIM_SHOW_VIDEO_LS_KEY = 'devpanel:anim-viewer:face-anim-show-video';
 
 // --- Renderer ---
 const canvas = document.getElementById('viewer-canvas') as HTMLCanvasElement;
@@ -116,6 +142,57 @@ let shootIdleTimer = 0;
 let player: GamePlayer;
 let passTarget: GamePlayer | null = null;
 
+// Face picker state. `selectedFaceName` is the IDB key; the dataUrl is
+// cached so player rebuilds (which dispose+recreate the mesh) re-apply
+// the face without re-hitting IDB. Phase 7.6 adds `selectedFaceMesh3D` —
+// the parsed mesh3d payload (raw landmarks/uvs + image) cached so the
+// rebuild path can reconstruct the THREE.Mesh without an IDB round trip.
+let selectedFaceName: string = (() => {
+  try { return localStorage.getItem(FACE_LS_KEY) ?? ''; } catch { return ''; }
+})();
+let selectedFaceDataUrl: string | null = null;
+// Phase 7.7: cache the detected 478-landmark set alongside the dataUrl so
+// rebuildPlayer / createPlayer can re-apply the same face-shaped alpha mask
+// + plane transform after the rig is recreated. Undefined when the active
+// face has no landmarks (older saves, stylized AI uploads).
+let selectedFaceLandmarks: number[] | undefined = undefined;
+// Phase 7.8: cache per-face headShape alongside the mesh3d payload so the
+// rebuild path can re-apply the head-sphere scaling consistently. Optional —
+// older scans without it use the rig default.
+let selectedFaceMesh3D: {
+  vertices: number[];
+  uvs: number[];
+  imageDataUrl: string;
+  headShape?: { aspectWH: number; aspectDH: number };
+  // Phase 8.4: per-face iris colors sampled at scan time. Optional —
+  // older saves and AI uploads (no detection) leave this undefined and
+  // the runtime falls back to default brown irises.
+  eyeColors?: { left: number; right: number };
+  // G1: per-pose captures (front + 4 sides + 2 profiles). When profile
+  // entries are present, the rebuild path calls `buildHeadMeshFromAngles`
+  // to produce a real head mesh that REPLACES the rig sphere head.
+  // Older scans without profiles fall through to the sphere-head path.
+  angles?: Array<{
+    poseName: 'front' | 'left' | 'right' | 'up' | 'down' | 'profile-left' | 'profile-right';
+    imageDataUrl: string;
+    landmarks: number[];
+  }>;
+} | null = null;
+// Phase D: cache the sampled-feature bundle alongside the mesh3d payload
+// so player rebuilds can re-apply skin/lip/brow/nose/hair/hat without an
+// IDB round trip. Bundled as the same `features` shape that
+// `setFaceMesh3D` accepts as its 5th positional arg.
+let selectedFaceFeatures:
+  | (ProceduralFaceFeatures & ProceduralFaceApplyExtension)
+  | undefined = undefined;
+
+// --- Mocap-playback state ---
+// Lazily instantiated when the user clicks Play Mocap. While `mocapActive`
+// is true the inline animation switch below is bypassed and `mocapAnimLoop`
+// drives the rig instead. Stop returns control to the regular path.
+let mocapAnimLoop: AnimLoop | null = null;
+let mocapActive = false;
+
 // Parent container so user-provided XYZ offset sliders can bump the player
 // without fighting the per-animation position logic. Child transforms
 // compose automatically, so ball.followHolder() still tracks correctly.
@@ -157,6 +234,215 @@ function createPlayer(teamColor: number, hairId: number, position?: Position) {
 
   player.isHumanControlled = true; // show the indicator
   playerContainer.add(player.group);
+
+  // Re-apply the cached face after a rebuild. The new mesh starts with
+  // default eye-spheres + invisible face-plane until setFaceImage / setFaceMesh3D
+  // is called. Prefer the 3D mesh path when available — it carries more detail
+  // and the flat dataUrl is still available as a fallback if mesh build fails.
+  applyCachedFaceToPlayer();
+}
+
+function applyCachedFaceToPlayer(): void {
+  if (!player) return;
+  // Phase 8: any active face-anim puppet must be torn down before we
+  // mount a new mesh (the puppet holds a reference to the prior mesh's
+  // position attribute). The replay loop is restarted by `applyFaceAnim`
+  // after the new mesh lands.
+  stopFaceAnimPlayback();
+  if (selectedFaceMesh3D) {
+    try {
+      // G1: prefer the head-mesh path (front face + side panels + back +
+      // ears) when profile poses are available in the saved angles. The
+      // resulting BuiltHeadMesh extends BuiltFaceMesh, so the procedural
+      // overlay + face-anim path stay unchanged.
+      let built: BuiltFaceMesh;
+      let headBuilt: BuiltHeadMesh | null = null;
+      const angles = selectedFaceMesh3D.angles;
+      const skinToneForHead =
+        (selectedFaceFeatures as { bodySkinTone?: number } | undefined)?.bodySkinTone ??
+        selectedFaceFeatures?.skinTone;
+      if (angles && angles.length > 0) {
+        try {
+          const frontLM = unflattenLandmarks(selectedFaceMesh3D.vertices);
+          headBuilt = buildHeadMeshFromAngles(
+            frontLM,
+            angles,
+            selectedFaceMesh3D.imageDataUrl,
+            { skinTone: skinToneForHead },
+          );
+          built = headBuilt;
+        } catch (err) {
+          console.warn('anim-viewer: head-mesh build failed, falling back to face-only', err);
+          built = buildFaceMeshFromStored(
+            selectedFaceMesh3D.vertices,
+            selectedFaceMesh3D.uvs,
+            selectedFaceMesh3D.imageDataUrl,
+          );
+          headBuilt = null;
+        }
+      } else {
+        built = buildFaceMeshFromStored(
+          selectedFaceMesh3D.vertices,
+          selectedFaceMesh3D.uvs,
+          selectedFaceMesh3D.imageDataUrl,
+        );
+      }
+      player.setFaceMesh3D(
+        built.mesh,
+        selectedFaceMesh3D.headShape,
+        built.mouthInterior,
+        selectedFaceMesh3D.eyeColors,
+        // Phase D: sampled-feature bundle (skin/lip/brow/eye/nose +
+        // hair/hat/bodySkinTone). Drives the procedural face's per-face
+        // colors and the head/body skin recoloring.
+        selectedFaceFeatures,
+        // G1: pass the head-mesh build (or null) so setFaceMesh3D can
+        // mount the head group when successful, or fall back to the
+        // sphere head when null/unsuccessful.
+        headBuilt,
+      );
+      // Phase B: mount the procedural-face overlay alongside the canonical
+      // mesh. The face-anim replay loop (below) calls updateFaceProcedural()
+      // every frame so the procedural geometry tracks the puppet's
+      // deformations.
+      player.setFaceProcedural(built);
+      // Cache the BuiltFaceMesh so the face-anim path can wrap it without
+      // rebuilding. The mesh's geometry is owned by the player from here on.
+      builtFaceMeshCache = built;
+      // Re-apply the active face-anim selection (if any) on the new mesh.
+      if (selectedFaceAnimName) void applyFaceAnim(selectedFaceAnimName);
+      return;
+    } catch (err) {
+      console.warn('anim-viewer: 3D face rebuild failed, falling back to flat', err);
+    }
+  }
+  builtFaceMeshCache = null;
+  if (selectedFaceDataUrl !== null) {
+    player.setFaceImage(selectedFaceDataUrl, selectedFaceLandmarks);
+  } else {
+    player.setFaceImage(null);
+  }
+}
+
+// =============================================================================
+// FACE ANIM playback (Phase 8)
+// Drives a saved blendshape clip onto the currently-mounted 3D face mesh.
+// Lives alongside the existing face dropdown — only active when both a 3D
+// face and a clip are selected. Persisted across reloads via FACE_ANIM_LS_KEY.
+// =============================================================================
+
+let builtFaceMeshCache: BuiltFaceMesh | null = null;
+let facePuppet: FacePuppet | null = null;
+let faceAnimRaf = 0;
+let selectedFaceAnimName: string = (() => {
+  try { return localStorage.getItem(FACE_ANIM_LS_KEY) ?? ''; } catch { return ''; }
+})();
+// Phase 8.2a: "Show source video" toggle state. The overlay only appears
+// when BOTH this flag is on AND the active clip carries a videoBlob.
+let faceAnimShowVideo: boolean = (() => {
+  try { return localStorage.getItem(FACE_ANIM_SHOW_VIDEO_LS_KEY) === '1'; } catch { return false; }
+})();
+// Object URL for the currently-displayed source video. Tracked so we can
+// revoke it on every clip change / playback stop (no Blob leak).
+let faceAnimVideoUrl: string | null = null;
+
+function stopFaceAnimPlayback(): void {
+  if (faceAnimRaf) {
+    cancelAnimationFrame(faceAnimRaf);
+    faceAnimRaf = 0;
+  }
+  if (facePuppet) {
+    facePuppet.dispose();
+    facePuppet = null;
+  }
+  // Phase E: detach the procedural face's blendshape source so teeth /
+  // tongue hide on stop rather than freezing at the last-applied state.
+  player.setFaceProceduralBlendshapeSource(null);
+  // Phase 8.2a: tear down the source-video overlay + revoke its URL.
+  const sourceVideoEl = document.getElementById('face-anim-source-video') as HTMLVideoElement | null;
+  if (sourceVideoEl) {
+    sourceVideoEl.pause();
+    sourceVideoEl.removeAttribute('src');
+    sourceVideoEl.load();
+    sourceVideoEl.style.display = 'none';
+  }
+  if (faceAnimVideoUrl) {
+    URL.revokeObjectURL(faceAnimVideoUrl);
+    faceAnimVideoUrl = null;
+  }
+}
+
+async function applyFaceAnim(name: string): Promise<void> {
+  stopFaceAnimPlayback();
+  selectedFaceAnimName = name;
+  try {
+    if (name) localStorage.setItem(FACE_ANIM_LS_KEY, name);
+    else localStorage.removeItem(FACE_ANIM_LS_KEY);
+  } catch { /* ignore */ }
+  if (!name) return;
+  // Mesh required — flat-face path can't be deformed.
+  if (!builtFaceMeshCache) {
+    console.warn('anim-viewer: face-anim selected but no 3D mesh mounted');
+    return;
+  }
+  let clip: FaceAnimClip | null;
+  try {
+    clip = await loadFaceAnim(name);
+  } catch (err) {
+    console.warn('anim-viewer: loadFaceAnim failed', err);
+    return;
+  }
+  if (!clip || clip.frames.length === 0) return;
+  facePuppet = createFacePuppet(builtFaceMeshCache, { smooth: false });
+  // Phase E: hand the puppet to the procedural face for conditional-feature
+  // visibility (teeth, tongue) driven off smoothed jawOpen.
+  player.setFaceProceduralBlendshapeSource(facePuppet);
+
+  // Phase 8.2a: if the toggle is on AND the clip carries source video,
+  // mount it in the small corner overlay. Master clock for blendshape
+  // lookup is then the video's currentTime — keeps the overlay locked
+  // to the rig even at irregular rAF rates.
+  let videoMaster = false;
+  const sourceVideoEl = document.getElementById('face-anim-source-video') as HTMLVideoElement | null;
+  if (faceAnimShowVideo && clip.videoBlob && sourceVideoEl) {
+    faceAnimVideoUrl = URL.createObjectURL(clip.videoBlob);
+    sourceVideoEl.src = faceAnimVideoUrl;
+    sourceVideoEl.muted = true;
+    sourceVideoEl.loop = true;
+    sourceVideoEl.style.display = 'block';
+    sourceVideoEl.play().catch((err) => {
+      console.warn('anim-viewer: source video play() rejected', err);
+    });
+    videoMaster = true;
+  }
+
+  const startMs = performance.now();
+  const videoOffsetSec = (clip.videoStartOffsetMs ?? 0) / 1000;
+  const tick = () => {
+    if (!facePuppet) return;
+    let elapsedSec: number;
+    if (videoMaster && sourceVideoEl) {
+      // Drive blendshape lookup from the loop'd video. modulo handles loop
+      // wrap; subtract the recorded start offset so frames[0] aligns with
+      // video.t=0 from the user's perspective.
+      elapsedSec = Math.max(0, sourceVideoEl.currentTime - videoOffsetSec);
+    } else {
+      elapsedSec = (performance.now() - startMs) / 1000;
+    }
+    // Loop the clip — anim-viewer's whole pattern is "looping animations".
+    const idx = Math.floor(elapsedSec * clip!.fps) % clip!.frames.length;
+    if (idx >= 0) {
+      const sparse = clip!.frames[idx];
+      const frame: BlendshapeFrame = new Map();
+      for (const k of Object.keys(sparse)) frame.set(k, sparse[k]);
+      facePuppet.apply(frame);
+      // Phase B: refresh the procedural-face overlay so its geometry tracks
+      // the puppet's now-deformed canonical landmarks.
+      player.updateFaceProcedural();
+    }
+    faceAnimRaf = requestAnimationFrame(tick);
+  };
+  faceAnimRaf = requestAnimationFrame(tick);
 }
 
 createPlayer(0xe94560, 0);
@@ -191,6 +477,30 @@ function animate() {
   const rawDt = (now - lastTime) / 1000;
   lastTime = now;
   const dt = rawDt * animSpeed;
+
+  // Mocap-playback shortcut. When active, bypass the per-anim switch +
+  // ball/dunk/pass logic entirely and let AnimLoop drive the rig from the
+  // captured PoseFrame stream. Camera + state-label + ball visibility are
+  // handled separately so the rest of the page UI keeps working.
+  if (mocapActive && mocapAnimLoop) {
+    mocapAnimLoop.tick(dt);
+    ball.mesh.visible = false;
+    if (passTarget) passTarget.group.visible = false;
+    // Camera stays under user / auto-rotate control.
+    if (autoRotate) {
+      camAngle += rawDt * 0.5;
+      camera.position.set(
+        Math.sin(camAngle) * camDist,
+        camHeight,
+        Math.cos(camAngle) * camDist,
+      );
+      camera.lookAt(0, 0.8, 0);
+    } else {
+      controls.update();
+    }
+    renderer.render(scene, camera);
+    return;
+  }
 
   // Drive the animation state
   switch (currentAnim) {
@@ -613,6 +923,138 @@ document.querySelectorAll('[data-anim]').forEach(btn => {
   });
 });
 
+// =============================================================================
+// MOCAP CLIP playback
+// Picks a clip from IndexedDB (populated by /mocap-editor.html) and drives the
+// rig directly from the retargeted PoseClip via AnimLoop. While playing, the
+// regular animation buttons + speed slider are visually disabled — the speed
+// slider is still read for animSpeed (it wraps around the mocap dt too).
+// =============================================================================
+
+const mocapSelect = document.getElementById('mocap-clip') as HTMLSelectElement;
+const mocapMetaEl = document.getElementById('mocap-clip-meta') as HTMLElement;
+const mocapPlayBtn = document.getElementById('mocap-play') as HTMLElement;
+const mocapStopBtn = document.getElementById('mocap-stop') as HTMLElement;
+
+const ANIM_BTN_NODES = Array.from(
+  document.querySelectorAll<HTMLElement>('[data-anim]'),
+);
+
+function setMocapPlayDisabled(disabled: boolean): void {
+  mocapPlayBtn.style.opacity = disabled ? '0.4' : '';
+  mocapPlayBtn.style.pointerEvents = disabled ? 'none' : '';
+}
+
+function setRegularAnimButtonsDisabled(disabled: boolean): void {
+  for (const btn of ANIM_BTN_NODES) {
+    btn.style.opacity = disabled ? '0.4' : '';
+    btn.style.pointerEvents = disabled ? 'none' : '';
+  }
+}
+
+async function refreshMocapDropdown(): Promise<void> {
+  let clips: Awaited<ReturnType<typeof listClips>> = [];
+  try {
+    clips = await listClips();
+  } catch (err) {
+    console.warn('mocap: listClips failed', err);
+  }
+  // Preserve the user's selection when possible.
+  const prev = mocapSelect.value;
+  mocapSelect.innerHTML = '';
+  if (clips.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(no clips — record one in /mocap-editor.html)';
+    mocapSelect.appendChild(opt);
+    mocapSelect.disabled = true;
+    setMocapPlayDisabled(true);
+    mocapMetaEl.textContent = 'Plays a saved capture from /mocap-editor on this rig.';
+    return;
+  }
+  mocapSelect.disabled = false;
+  setMocapPlayDisabled(mocapActive);
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '(none)';
+  mocapSelect.appendChild(placeholder);
+  for (const c of clips) {
+    const opt = document.createElement('option');
+    opt.value = c.name;
+    opt.textContent = `${c.name} (${c.frameCount}f, ${c.targetAnim})`;
+    mocapSelect.appendChild(opt);
+  }
+  if (prev && clips.some((c) => c.name === prev)) {
+    mocapSelect.value = prev;
+    updateMocapMeta();
+  } else {
+    mocapMetaEl.textContent = 'Plays a saved capture from /mocap-editor on this rig.';
+  }
+}
+
+function updateMocapMeta(): void {
+  const opt = mocapSelect.options[mocapSelect.selectedIndex];
+  if (!opt || opt.value === '') {
+    mocapMetaEl.textContent = 'Plays a saved capture from /mocap-editor on this rig.';
+    return;
+  }
+  // The label already encodes frame count + targetAnim — surface targetAnim
+  // explicitly so the user knows what motion the clip represents.
+  mocapMetaEl.textContent = `Source: ${opt.textContent}`;
+}
+
+mocapSelect.addEventListener('change', updateMocapMeta);
+
+mocapPlayBtn.addEventListener('click', async () => {
+  const name = mocapSelect.value;
+  if (!name) return;
+  let clip;
+  try {
+    clip = await loadClip(name);
+  } catch (err) {
+    alert('Load failed: ' + (err instanceof Error ? err.message : String(err)));
+    return;
+  }
+  if (!clip) {
+    alert(`Clip "${name}" not found in storage.`);
+    return;
+  }
+  const poseClip = retarget(clip);
+  if (!mocapAnimLoop) mocapAnimLoop = new AnimLoop(player, { ball });
+  else mocapAnimLoop.setPlayer(player);
+  mocapAnimLoop.playMocap(poseClip);
+  mocapActive = true;
+  setRegularAnimButtonsDisabled(true);
+  mocapPlayBtn.classList.add('active');
+  hoop.visible = false;
+  document.getElementById('state-label')!.textContent = `mocap: ${clip.name}`;
+});
+
+mocapStopBtn.addEventListener('click', () => {
+  if (!mocapActive) return;
+  mocapActive = false;
+  if (mocapAnimLoop) mocapAnimLoop.stopMocap();
+  setRegularAnimButtonsDisabled(false);
+  mocapPlayBtn.classList.remove('active');
+  // Restore the previously selected anim so the regular path resumes cleanly.
+  player.forceAnimState(null);
+  player.group.position.set(0, 0, 0);
+  player.group.rotation.set(0, 0, 0);
+  document.getElementById('state-label')!.textContent = currentAnim;
+  applyHoopVisibility();
+});
+
+// Refresh the dropdown when the page becomes visible again — the user may
+// have just recorded a clip in another tab.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    void refreshMocapDropdown();
+  }
+});
+
+// Initial population.
+void refreshMocapDropdown();
+
 // Speed slider
 const speedSlider = document.getElementById('speed') as HTMLInputElement;
 speedSlider.addEventListener('input', () => {
@@ -705,6 +1147,220 @@ colorInput.addEventListener('input', () => {
   const pos = (document.getElementById('position') as HTMLSelectElement).value as Position | '';
   createPlayer(color, parseInt(hairSelect.value), pos || undefined);
 });
+
+// Face picker — populated from /face-editor's IDB. Selecting a face
+// applies its image as a texture on the head's face-plane (and hides
+// the eye-spheres); selecting "(none)" restores default eyes.
+const facePick = document.getElementById('face-pick') as HTMLSelectElement;
+
+async function populateFacePick(): Promise<void> {
+  let faces: Awaited<ReturnType<typeof listFaces>> = [];
+  let errMsg: string | null = null;
+  try {
+    faces = await listFaces();
+  } catch (err) {
+    errMsg = err instanceof Error ? err.message : String(err);
+    console.warn('face: listFaces failed', err);
+  }
+  facePick.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '(none — default eyes)';
+  facePick.appendChild(none);
+  for (const f of faces) {
+    const opt = document.createElement('option');
+    opt.value = f.name;
+    // [3D] prefix flags entries with mesh3d, mirroring the badge in the
+    // face-editor library grid.
+    opt.textContent = f.has3D ? `[3D] ${f.name}` : f.name;
+    facePick.appendChild(opt);
+  }
+  // Update the status hint so the user can see whether the list is empty,
+  // populated, or errored. Created once next to the select if missing.
+  let status = document.getElementById('face-pick-status') as HTMLDivElement | null;
+  if (!status) {
+    status = document.createElement('div');
+    status.id = 'face-pick-status';
+    Object.assign(status.style, { fontSize: '11px', padding: '2px 0' });
+    facePick.parentElement?.insertBefore(status, facePick.nextSibling);
+  }
+  if (errMsg) {
+    status.style.color = '#ff7a7a';
+    status.textContent = `IDB error: ${errMsg}`;
+  } else if (faces.length === 0) {
+    status.style.color = '#888';
+    status.textContent = 'No saved faces yet — open Face Editor to capture one.';
+  } else {
+    status.style.color = '#888';
+    status.textContent = `${faces.length} face${faces.length === 1 ? '' : 's'} in library.`;
+  }
+  if (selectedFaceName && faces.some((f) => f.name === selectedFaceName)) {
+    facePick.value = selectedFaceName;
+    await applyFaceSelection(selectedFaceName);
+  } else {
+    facePick.value = '';
+    if (selectedFaceName) {
+      // Stale persisted selection; clear silently.
+      selectedFaceName = '';
+      try { localStorage.removeItem(FACE_LS_KEY); } catch { /* ignore */ }
+    }
+    await applyFaceSelection('');
+  }
+}
+
+async function applyFaceSelection(name: string): Promise<void> {
+  selectedFaceName = name;
+  try {
+    if (name) localStorage.setItem(FACE_LS_KEY, name);
+    else localStorage.removeItem(FACE_LS_KEY);
+  } catch { /* ignore */ }
+
+  if (!name) {
+    selectedFaceDataUrl = null;
+    selectedFaceLandmarks = undefined;
+    selectedFaceMesh3D = null;
+    selectedFaceFeatures = undefined;
+    if (player) {
+      player.setFaceMesh3D(null);
+      player.setFaceImage(null);
+    }
+    return;
+  }
+  try {
+    const face = await loadFace(name);
+    if (!face) {
+      // Stale: deleted between list and load. Silent fallback per brief.
+      selectedFaceDataUrl = null;
+      selectedFaceLandmarks = undefined;
+      selectedFaceMesh3D = null;
+      selectedFaceFeatures = undefined;
+      if (player) {
+        player.setFaceMesh3D(null);
+        player.setFaceImage(null);
+      }
+      return;
+    }
+    selectedFaceDataUrl = face.dataUrl;
+    selectedFaceLandmarks = face.faceLandmarks;
+    if (face.mesh3d && Array.isArray(face.mesh3d.vertices) && face.mesh3d.vertices.length > 0) {
+      selectedFaceMesh3D = {
+        vertices: face.mesh3d.vertices,
+        uvs: face.mesh3d.uvs,
+        imageDataUrl: face.dataUrl,
+        // Phase 7.8: pass through the optional headShape (older scans that
+        // predate this field leave it `undefined`, and the player rig falls
+        // back to its default sphere scale).
+        headShape: face.mesh3d.headShape,
+        // Phase 8.4: pass through optional iris colors (older scans leave
+        // it `undefined`, runtime falls back to default brown).
+        eyeColors: face.mesh3d.eyeColors,
+        // G1: pass through the captured pose angles so the rebuild path
+        // can construct a head mesh from the profile-left/right captures.
+        angles: face.mesh3d.angles,
+      };
+      // Phase D: bundle the sampled-feature payload from the saved face's
+      // mesh3d into the shape `setFaceMesh3D` expects. Each field is
+      // independently optional — old saves missing some/all of these
+      // sampled fields fall through to procedural-face defaults.
+      selectedFaceFeatures = bundleFaceFeatures(face.mesh3d);
+    } else {
+      selectedFaceMesh3D = null;
+      selectedFaceFeatures = undefined;
+    }
+    applyCachedFaceToPlayer();
+  } catch (err) {
+    console.warn('face: loadFace failed', err);
+    selectedFaceDataUrl = null;
+    selectedFaceLandmarks = undefined;
+    selectedFaceMesh3D = null;
+    selectedFaceFeatures = undefined;
+    if (player) {
+      player.setFaceMesh3D(null);
+      player.setFaceImage(null);
+    }
+  }
+}
+
+facePick.addEventListener('change', () => {
+  void applyFaceSelection(facePick.value);
+});
+
+// Refresh when returning to this tab — the user may have just captured a
+// new face in /face-editor.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    void populateFacePick();
+    void populateFaceAnimPick();
+  }
+});
+
+void populateFacePick();
+
+// --- Face Anim picker (Phase 8) ---
+const faceAnimPick = document.getElementById('face-anim-pick') as HTMLSelectElement | null;
+
+async function populateFaceAnimPick(): Promise<void> {
+  if (!faceAnimPick) return;
+  let clips: Awaited<ReturnType<typeof listFaceAnims>> = [];
+  try {
+    clips = await listFaceAnims();
+  } catch (err) {
+    console.warn('anim-viewer: listFaceAnims failed', err);
+  }
+  faceAnimPick.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '(none)';
+  faceAnimPick.appendChild(none);
+  for (const c of clips) {
+    const opt = document.createElement('option');
+    opt.value = c.name;
+    opt.textContent = `${c.name} (${c.frameCount}f, ${c.durationSec.toFixed(1)}s)`;
+    faceAnimPick.appendChild(opt);
+  }
+  if (selectedFaceAnimName && clips.some((c) => c.name === selectedFaceAnimName)) {
+    faceAnimPick.value = selectedFaceAnimName;
+    // Re-apply on populate so a reload restores looping playback.
+    void applyFaceAnim(selectedFaceAnimName);
+  } else {
+    faceAnimPick.value = '';
+    if (selectedFaceAnimName) {
+      // Stale persisted clip — clear silently.
+      selectedFaceAnimName = '';
+      try { localStorage.removeItem(FACE_ANIM_LS_KEY); } catch { /* ignore */ }
+    }
+  }
+}
+
+faceAnimPick?.addEventListener('change', () => {
+  const name = faceAnimPick.value;
+  if (name && !builtFaceMeshCache) {
+    alert('Face anims play only on 3D-scanned faces. Pick a [3D] face above first.');
+    faceAnimPick.value = selectedFaceAnimName || '';
+    return;
+  }
+  void applyFaceAnim(name);
+});
+
+void populateFaceAnimPick();
+
+// Phase 8.2a: "Show source video" toggle. When flipped, restart the
+// active face-anim playback so the master-clock decision (wall-clock vs
+// video.currentTime) is re-evaluated. Persists across reloads.
+const faceAnimShowVideoCheckbox = document.getElementById(
+  'face-anim-show-video',
+) as HTMLInputElement | null;
+if (faceAnimShowVideoCheckbox) {
+  faceAnimShowVideoCheckbox.checked = faceAnimShowVideo;
+  faceAnimShowVideoCheckbox.addEventListener('change', () => {
+    faceAnimShowVideo = faceAnimShowVideoCheckbox.checked;
+    try {
+      localStorage.setItem(FACE_ANIM_SHOW_VIDEO_LS_KEY, faceAnimShowVideo ? '1' : '0');
+    } catch { /* ignore quota / privacy mode */ }
+    // Restart any active playback so the toggle takes effect immediately.
+    if (selectedFaceAnimName) void applyFaceAnim(selectedFaceAnimName);
+  });
+}
 
 // Export Player GLB — snapshots the current player mesh for inspection in Blender.
 // Edits in Blender don't flow back; the procedural code rebuilds the player on every match.
@@ -1288,3 +1944,91 @@ if (allBtnRow) {
     }, 0);
   });
 }
+
+// =============================================================================
+// F4 verification-harness debug hook.
+// Exposes the few escape hatches `scripts/verify-face-render.cjs` needs to
+// drive this page from puppeteer:
+//   - apply a face by name (bypasses the dropdown's change event flow)
+//   - aim the camera at a yaw/pitch around the head (orbit-style)
+//   - pump a single-blendshape value through a temporary FacePuppet so the
+//     mesh visibly deforms before screenshot
+// Kept tiny + idempotent so it can stay in the bundle long-term without
+// risk. No-ops gracefully when the rig isn't ready / no face is mounted.
+// =============================================================================
+declare global {
+  interface Window { __animViewerDebug?: AnimViewerDebug }
+}
+interface AnimViewerDebug {
+  setCameraAngle(yaw: number, pitch: number, dist?: number): void;
+  applyBlendshape(name: string, value: number): void;
+  applyFaceByName(name: string): Promise<void>;
+  resetBlendshapes(): void;
+  hasMesh3D(): boolean;
+  refreshFaceList(): Promise<void>;
+}
+
+// Standalone puppet used by the verification harness so blendshape pokes
+// don't require an active face-anim clip. Re-created on demand because
+// applyFaceSelection() / applyCachedFaceToPlayer() rebuild the underlying
+// BuiltFaceMesh and the puppet caches a position-attribute reference.
+let f4Puppet: FacePuppet | null = null;
+function f4EnsurePuppet(): FacePuppet | null {
+  if (!builtFaceMeshCache) return null;
+  if (f4Puppet) return f4Puppet;
+  // smooth=false so a single .apply() call lands the deformation on this frame
+  // — the harness expects "set value, screenshot" without the EMA settling
+  // window that interactive playback uses.
+  f4Puppet = createFacePuppet(builtFaceMeshCache, { smooth: false });
+  player.setFaceProceduralBlendshapeSource(f4Puppet);
+  return f4Puppet;
+}
+
+(window as unknown as { __animViewerDebug: AnimViewerDebug }).__animViewerDebug = {
+  setCameraAngle(yaw: number, pitch: number, dist?: number): void {
+    // Force OrbitControls off so our manual position survives the next
+    // animate() tick. autoRotate stays whatever the UI says — caller can
+    // toggle the checkbox via puppeteer if it matters.
+    controls.enabled = false;
+    const r = dist ?? camDist;
+    const target = new THREE.Vector3(0, 0.9, 0); // approx head height
+    const x = r * Math.cos(pitch) * Math.sin(yaw);
+    const y = target.y + r * Math.sin(pitch);
+    const z = r * Math.cos(pitch) * Math.cos(yaw);
+    camera.position.set(x, y, z);
+    controls.target.copy(target);
+    camera.lookAt(target);
+    controls.update();
+  },
+  applyBlendshape(name: string, value: number): void {
+    const p = f4EnsurePuppet();
+    if (!p) return;
+    const frame: BlendshapeFrame = new Map([[name, value]]);
+    // smooth:false puppet — one apply() lands the full deformation. Pump a
+    // few extra times so any latent EMA-style consumer downstream stabilizes
+    // (the procedural-face conditional features read smoothed values).
+    for (let i = 0; i < 6; i++) p.apply(frame);
+    player.updateFaceProcedural();
+  },
+  resetBlendshapes(): void {
+    if (f4Puppet) {
+      f4Puppet.reset();
+      player.updateFaceProcedural();
+    }
+  },
+  async applyFaceByName(name: string): Promise<void> {
+    // Tear down any previous F4 puppet so it doesn't outlive the mesh it
+    // was bound to (createFacePuppet caches the position attribute).
+    if (f4Puppet) {
+      f4Puppet.dispose();
+      f4Puppet = null;
+    }
+    await applyFaceSelection(name);
+  },
+  hasMesh3D(): boolean {
+    return builtFaceMeshCache !== null;
+  },
+  async refreshFaceList(): Promise<void> {
+    await populateFacePick();
+  },
+};
