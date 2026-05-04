@@ -25,6 +25,7 @@ const puppeteer = require('puppeteer');
 const CANDIDATE_URLS = [
   'http://localhost:5173/face-editor.html',
   'http://localhost:5174/face-editor.html',
+  'http://localhost:5188/face-editor.html',
   'http://localhost:4173/face-editor.html',
 ];
 

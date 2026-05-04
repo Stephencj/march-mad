@@ -16,6 +16,8 @@ import {
   landmarkBboxExpanded,
   posterize,
   edgeEnhance,
+  applyLumaDarkAlphaMask,
+  bakeFacePlate,
 } from './feature-baker';
 
 // ---------- Mock 2D context ------------------------------------------------
@@ -211,5 +213,45 @@ describe('edgeEnhance', () => {
       expect(ctx._data[i]).toBeGreaterThanOrEqual(0);
       expect(ctx._data[i]).toBeLessThanOrEqual(255);
     }
+  });
+});
+
+// ---------- Phase H2c — alpha-mask helpers --------------------------------
+
+describe('applyLumaDarkAlphaMask', () => {
+  it('drops alpha to 0 for pixels lighter than skinTone × 0.6', () => {
+    // skin tone ~0xc9a08a (mid-tan, luma ≈ 175). threshold ≈ 105.
+    // Mix three pixels: dark (40), threshold-ish (110), bright (220).
+    const ctx = makeMockCtx(3, 1);
+    ctx._data[0] = 40;  ctx._data[1] = 40;  ctx._data[2] = 40;  ctx._data[3] = 255;
+    ctx._data[4] = 110; ctx._data[5] = 110; ctx._data[6] = 110; ctx._data[7] = 255;
+    ctx._data[8] = 220; ctx._data[9] = 220; ctx._data[10] = 220; ctx._data[11] = 255;
+    applyLumaDarkAlphaMask(ctx, 3, 1, 0xc9a08a);
+    // Dark pixel stays opaque; bright pixel becomes transparent.
+    expect(ctx._data[3]).toBe(255);
+    expect(ctx._data[11]).toBe(0);
+  });
+
+  it('falls back to absolute threshold (80) when skinTone undefined', () => {
+    const ctx = makeMockCtx(2, 1);
+    ctx._data[0] = 50;  ctx._data[1] = 50;  ctx._data[2] = 50;  ctx._data[3] = 255;  // luma 50 < 80 → opaque
+    ctx._data[4] = 200; ctx._data[5] = 200; ctx._data[6] = 200; ctx._data[7] = 255;  // luma 200 ≥ 80 → transparent
+    applyLumaDarkAlphaMask(ctx, 2, 1);
+    expect(ctx._data[3]).toBe(255);
+    expect(ctx._data[7]).toBe(0);
+  });
+});
+
+// ---------- bakeFacePlate (export sanity) ---------------------------------
+
+describe('bakeFacePlate', () => {
+  it('is exported as a named function', () => {
+    // Full-pipeline verification (composite plate PNG actually contains
+    // skin + nose + beard pixels) is performed by the puppeteer dump
+    // script (`scripts/dump-feature-crops.cjs`) reading real PNGs back.
+    // Here we only verify the function is exposed for the renderer +
+    // reprocess path to import.
+    expect(typeof bakeFacePlate).toBe('function');
+    expect(bakeFacePlate.length).toBeGreaterThanOrEqual(3);
   });
 });

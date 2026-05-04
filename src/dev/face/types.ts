@@ -197,6 +197,16 @@ export interface FeatureImagesBundle {
   beard?: FaceFeatureCrop;
   mustache?: FaceFeatureCrop;
   hat?: FaceFeatureCrop;
+  /** Phase H2c — composite face plate. ONE alpha-composited PNG covering
+   *  the face area (chin to forehead) with skin tone as the base, plus
+   *  nose / beard / mustache regions baked in with soft-edge masks. When
+   *  present, the renderer mounts this as a single textured plane on the
+   *  cranium front and SKIPS individual nose/beard/mustache planes (which
+   *  read as photo-rectangle artifacts). Eyes/brows/mouth still mount as
+   *  alpha-masked overlay planes on TOP of the plate. Optional for
+   *  backward compatibility — old saves without it fall back to the per-
+   *  feature plane layout. */
+  facePlate?: FaceFeatureCrop;
 }
 
 /** Beard / facial-hair region tags. Used as keys on `mesh3d.beard`. */

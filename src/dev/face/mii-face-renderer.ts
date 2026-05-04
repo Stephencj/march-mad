@@ -78,9 +78,13 @@ export interface MiiFaceMountOpts {
  *  slot-local Y, but the cranium ellipsoid curves backward as Y
  *  increases — by Y=0.105m the cranium surface is ~3 cm BEHIND the
  *  iris-plane Z, so the hat needs an additional ~3.5 cm forward bias
- *  to clear the cranium silhouette. Same for beard at low Y. */
+ *  to clear the cranium silhouette. Same for beard at low Y.
+ *
+ *  Phase H2c — facePlate sits behind every overlay plane (lowest Z),
+ *  acting as the "skin canvas" the eyes/brows/mouth float in front of. */
 const Z_BIAS: Record<FeatureName, number> = {
   hat:       0.035,
+  facePlate: 0.005,
   beard:     0.030,
   nose:      0.020,
   mouth:     0.015,
@@ -137,6 +141,15 @@ const TARGET_SIZE_M: Record<FeatureName, { w: number; h: number }> = {
   // to read as a recognizable cap rather than getting compressed into
   // an unreadable strip.
   hat:       { w: 0.220, h: 0.140 },
+  // Phase H2c — facePlate. Spans from chin to forehead in canonical
+  // mesh-local space. The cranium silhouette is ~0.36m wide × ~0.42m
+  // tall; the plate fills most of that. The plate carries beard +
+  // mustache + nose pixels, so its size needs to cover where the eyes
+  // (±0.090m) and brows (±0.090m) sit — i.e. at least 0.20m wide so
+  // the eye anchors fall comfortably inside the plate's faded edge.
+  // 0.26m × 0.34m gives generous margin around all anchors with the
+  // elliptical vignette at 0.85 solid radius.
+  facePlate: { w: 0.260, h: 0.340 },
 };
 
 /** Per-feature ANCHOR position in METERS of mesh-local-scaled coords,
@@ -178,6 +191,10 @@ const ANCHOR_OFFSET_M: Record<FeatureName, { x: number; y: number }> = {
   // higher so the visible cap pixels (in the LOWER ~30% of the crop)
   // land at the actual brim line.
   hat:       { x:  0.000, y:  0.150 },
+  // Phase H2c — facePlate centered horizontally and just below iris-Y
+  // so the chin region sits at -0.10 and the forehead at +0.10 (plate
+  // half-height = 0.125m, so plate center -0.025 → range [-0.150, +0.100]).
+  facePlate: { x:  0.000, y: -0.025 },
 };
 
 /** Per-feature renderOrder. Group is at 10; higher = drawn later =
@@ -188,6 +205,12 @@ const ANCHOR_OFFSET_M: Record<FeatureName, { x: number; y: number }> = {
  *  upper lip, but a low-hanging mustache still looks right behind the
  *  mouth's upper-lip pixels). */
 const RENDER_ORDER: Record<FeatureName, number> = {
+  // facePlate sits BELOW everything — it's the skin canvas the overlays
+  // float on top of. Hat then overlays anything outside the face plate
+  // (forehead/scalp). Beard/mustache overlap with facePlate but are
+  // omitted from the render path entirely when facePlate is present
+  // (they're already composited into the plate).
+  facePlate: 7,
   hat:       8,
   beard:     9,
   mustache:  10,
@@ -203,9 +226,11 @@ type FeatureName =
   | 'leftEye' | 'rightEye'
   | 'leftBrow' | 'rightBrow'
   | 'nose' | 'mouth'
-  | 'beard' | 'mustache' | 'hat';
+  | 'beard' | 'mustache' | 'hat'
+  | 'facePlate';
 
 const ORDERED_FEATURES: FeatureName[] = [
+  'facePlate',
   'hat', 'beard', 'mustache',
   'nose', 'mouth',
   'leftEye', 'rightEye',
@@ -250,6 +275,13 @@ export async function buildMiiFace(
   const ownedMaterials: THREE.Material[] = [];
   const ownedGeometries: THREE.BufferGeometry[] = [];
 
+  // Phase H2c — when bundle has a facePlate, the nose/beard/mustache
+  // pixels are already composited into the plate. Skip those individual
+  // overlay planes (they read as photo rectangles, defeating the whole
+  // pivot). Old saves without facePlate fall through to the original
+  // per-feature plane layout.
+  const hasFacePlate = !!(bundle as Partial<Record<FeatureName, FaceFeatureCrop>>).facePlate;
+
   // Resolve which features to render. Required ones (eyes/brows/nose/mouth)
   // always present; conditional ones gated by both bundle presence AND
   // opts.show* flags.
@@ -260,6 +292,9 @@ export async function buildMiiFace(
     if (name === 'hat' && !showHat) continue;
     if (name === 'beard' && !showBeard) continue;
     if (name === 'mustache' && !showMustache) continue;
+    // When facePlate is present, drop the individual nose/beard/mustache
+    // planes — they're already in the plate.
+    if (hasFacePlate && (name === 'nose' || name === 'beard' || name === 'mustache')) continue;
     featuresToBuild.push(name);
   }
 
