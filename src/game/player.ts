@@ -18,6 +18,12 @@ import {
   deriveMeshScaleFromBundle,
   type BuiltMiiFace,
 } from '@/dev/face/mii-face-renderer';
+import {
+  createFaceKeyframeMixer,
+  type FaceKeyframeMixer,
+  type FeatureTrack,
+  type TrackState,
+} from '@/dev/face/face-keyframe-anim';
 import type { FeatureImagesBundle } from '@/dev/face/types';
 
 /**
@@ -158,6 +164,41 @@ function applyFaceMode(player: GamePlayer): void {
   for (const extra of player.getHeadMeshExtras()) {
     extra.visible = mode !== 'mesh';
   }
+}
+
+/**
+ * Phase H4 — translate the keyframe mixer's per-track resolved state
+ * into Mii-face plane visibility flags. Until later phases introduce
+ * per-keyframe textures, the only visible effect is a momentary HIDE of
+ * the eye plane while a blink is closed (so the eyes "disappear" briefly
+ * while the eyelid texture isn't yet authored). All other tracks
+ * leave the corresponding plane visible — the mixer state still
+ * propagates into BlendshapeSource for procedural-face teeth/tongue
+ * gating, but the Mii-plane visual is unchanged for non-blink tracks.
+ *
+ * Called every frame from `player.animate()` after `mixer.tick(dtMs)`.
+ */
+function applyMixerStateToFaceMii(
+  state: ReadonlyMap<FeatureTrack, TrackState>,
+  planes: Map<string, THREE.Mesh>,
+): void {
+  // Eyes: hide the plane when the track is blink-full AND past ~50% of
+  // the close transition. Threshold chosen so a blink looks crisp (eyes
+  // disappear early in the close) without flickering on the mid-blink
+  // reseed path. When `to !== 'blink-full'` and `from !== 'blink-full'`,
+  // the eye is fully open so plane is visible.
+  const eyeShouldHide = (s: TrackState | undefined): boolean => {
+    if (!s) return false;
+    if (s.to === 'blink-full' && s.t >= 0.5) return true;
+    if (s.from === 'blink-full' && s.t < 0.5) return true;
+    return false;
+  };
+  const leftEye = planes.get('leftEye');
+  if (leftEye) leftEye.visible = !eyeShouldHide(state.get('eye-L'));
+  const rightEye = planes.get('rightEye');
+  if (rightEye) rightEye.visible = !eyeShouldHide(state.get('eye-R'));
+  // Other tracks: planes stay visible. Future phases (K4) will swap
+  // texture maps based on the resolved keyframe name.
 }
 
 /**
@@ -777,6 +818,15 @@ export class GamePlayer {
    *  mounted (older saves without `featureImages`, or `__faceMode`
    *  routed to procedural / mesh / both). */
   private faceMiiBuilt: BuiltMiiFace | null = null;
+
+  /** Phase H4 — the keyframe mixer driving the Mii face's per-feature
+   *  animation tracks (eye blinks, brow raises, mouth shapes, etc.).
+   *  Lazily created the first time a Mii face mounts; owns its own
+   *  scheduler state for idle-blinks. The mixer also implements
+   *  `BlendshapeSource` so passing it to
+   *  `setFaceProceduralBlendshapeSource` keeps procedural-face
+   *  teeth/tongue gating reading the same contract. */
+  private faceMixer: FaceKeyframeMixer | null = null;
 
   constructor(data: PlayerData, position: THREE.Vector3, teamColor: number) {
     this.data = data;
@@ -1626,6 +1676,13 @@ export class GamePlayer {
       this.faceMiiBuilt.dispose();
       this.faceMiiBuilt = null;
     }
+    // Phase H4 — tear down the keyframe mixer too, so a face swap
+    // doesn't carry over an in-progress blink scheduler / driver
+    // claims into a freshly-mounted face.
+    if (this.faceMixer) {
+      this.faceMixer.dispose();
+      this.faceMixer = null;
+    }
     if (!bundle) {
       applyFaceMode(this);
       return;
@@ -1659,6 +1716,11 @@ export class GamePlayer {
     const built = await buildMiiFace(bundle, { meshScale, irisMidpoint });
     this.faceMiiBuilt = built;
     slot.add(built.group);
+    // Phase H4 — spin up the keyframe mixer alongside the Mii face. The
+    // mixer is what drives idle blinks (and, in later phases, game-state
+    // expression sequences + live-puppet-driven keyframes). Lazily
+    // created here so non-Mii face modes pay nothing.
+    this.faceMixer = createFaceKeyframeMixer();
     applyFaceMode(this);
   }
 
@@ -1667,6 +1729,15 @@ export class GamePlayer {
    *  Returns null when no Mii face is mounted. */
   getFaceMiiGroup(): THREE.Group | null {
     return this.faceMiiBuilt?.group ?? null;
+  }
+
+  /** Phase H4 — expose the keyframe mixer so callers (face-mirror,
+   *  anim-viewer, player-editor) can route puppet output through it
+   *  AND so future H5/H6 phases can attach scripted/game-state drivers.
+   *  Returns null when no Mii face is mounted (the mixer is only
+   *  meaningful for the Mii face path). */
+  getFaceMixer(): FaceKeyframeMixer | null {
+    return this.faceMixer;
   }
 
   /**
@@ -1704,6 +1775,13 @@ export class GamePlayer {
       if (slot) slot.remove(this.faceMiiBuilt.group);
       this.faceMiiBuilt.dispose();
       this.faceMiiBuilt = null;
+    }
+    // Phase H4 — dispose the keyframe mixer with the Mii face. Holding
+    // it past a clear would leak the scheduler state into the next
+    // mounted face.
+    if (this.faceMixer) {
+      this.faceMixer.dispose();
+      this.faceMixer = null;
     }
     if (this.faceMesh3DHeadShape) {
       const head = this.group.getObjectByName('head') as THREE.Mesh | undefined;
@@ -3700,6 +3778,17 @@ export class GamePlayer {
       } else {
         hair.position.y = this.hairRestY;
       }
+    }
+
+    // Phase H4 — drive the Mii face keyframe mixer once per frame. The
+    // mixer ticks its idle-blink scheduler (and, in later phases, runs
+    // game-state expression sequences + reads live-puppet keyframes),
+    // resolves a per-track TrackState map, and we project the result
+    // into the Mii face's plane visibility. A no-op when the mixer
+    // isn't mounted (non-Mii face mode).
+    if (this.faceMixer && this.faceMiiBuilt) {
+      const state = this.faceMixer.tick(dt * 1000);
+      applyMixerStateToFaceMii(state, this.faceMiiBuilt.planes);
     }
 
     this.lastMoving = isMoving;

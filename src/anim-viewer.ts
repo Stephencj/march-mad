@@ -419,7 +419,12 @@ async function applyFaceAnim(name: string): Promise<void> {
   facePuppet = createFacePuppet(builtFaceMeshCache, { smooth: false });
   // Phase E: hand the puppet to the procedural face for conditional-feature
   // visibility (teeth, tongue) driven off smoothed jawOpen.
-  player.setFaceProceduralBlendshapeSource(facePuppet);
+  // Phase H4: route through the keyframe mixer when a Mii face is mounted
+  // (the mixer is also a BlendshapeSource via its track-state adapter).
+  {
+    const mixer = player.getFaceMixer();
+    player.setFaceProceduralBlendshapeSource(mixer ?? facePuppet);
+  }
 
   // Phase 8.2a: if the toggle is on AND the clip carries source video,
   // mount it in the small corner overlay. Master clock for blendshape
@@ -2021,7 +2026,12 @@ function f4EnsurePuppet(): FacePuppet | null {
   // — the harness expects "set value, screenshot" without the EMA settling
   // window that interactive playback uses.
   f4Puppet = createFacePuppet(builtFaceMeshCache, { smooth: false });
-  player.setFaceProceduralBlendshapeSource(f4Puppet);
+  // Phase H4: prefer the keyframe mixer when present — it satisfies
+  // BlendshapeSource by translating track state into ARKit scalars.
+  {
+    const mixer = player.getFaceMixer();
+    player.setFaceProceduralBlendshapeSource(mixer ?? f4Puppet);
+  }
   return f4Puppet;
 }
 

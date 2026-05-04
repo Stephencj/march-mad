@@ -500,7 +500,12 @@ function startLiveMirror(): void {
   }
   // Phase E: hand the puppet to the procedural face so its conditional
   // features (teeth, tongue) can read the smoothed jawOpen coefficient.
-  player?.setFaceProceduralBlendshapeSource(puppet);
+  // Phase H4: when a Mii face is mounted, the keyframe mixer is the
+  // BlendshapeSource (it implements the same contract by translating
+  // resolved track state into ARKit scalars). The puppet still feeds
+  // the mixer in K2; for K1 we just route through whichever is present.
+  const mixer = player?.getFaceMixer();
+  player?.setFaceProceduralBlendshapeSource(mixer ?? puppet);
   liveMirrorOn = true;
   setStatus('Mirroring.');
   // Drive MediaPipe at the video-frame cadence. Reusing `requestVideoFrameCallback`
@@ -971,7 +976,13 @@ async function playClip(name: string): Promise<void> {
   if (!puppet) puppet = createFacePuppet(mountedFace.mesh, { smooth: false });
   // Phase E: replay drives the procedural face's conditional features off
   // the same puppet's smoothed jawOpen.
-  player.setFaceProceduralBlendshapeSource(puppet);
+  // Phase H4: prefer the keyframe mixer when a Mii face is mounted —
+  // it satisfies BlendshapeSource and (later phases) takes the puppet's
+  // output as a live driver.
+  {
+    const mixer = player.getFaceMixer();
+    player.setFaceProceduralBlendshapeSource(mixer ?? puppet);
+  }
   // Mark which row is playing.
   for (const row of animList.querySelectorAll<HTMLDivElement>('.anim-row')) {
     row.classList.toggle('playing', row.dataset.name === name);

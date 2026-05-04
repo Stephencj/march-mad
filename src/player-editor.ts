@@ -381,7 +381,11 @@ async function applyFaceAnim(name: string): Promise<void> {
   facePuppet = createFacePuppet(builtFaceMeshCache, { smooth: false });
   // Phase E: hand the puppet to the procedural face for conditional-feature
   // visibility (teeth, tongue) driven off smoothed jawOpen.
-  player?.setFaceProceduralBlendshapeSource(facePuppet);
+  // Phase H4: route through the keyframe mixer when a Mii face is mounted.
+  {
+    const mixer = player?.getFaceMixer();
+    player?.setFaceProceduralBlendshapeSource(mixer ?? facePuppet);
+  }
 
   // Phase 8.2a: source-video overlay. Same logic as anim-viewer — only
   // mounted when the toggle is on AND the clip carries a Blob; the
