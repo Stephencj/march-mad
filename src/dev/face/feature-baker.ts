@@ -237,6 +237,21 @@ export async function bakeFeatureImages(
   if (crops.hat) bundle.hat = crops.hat;
   if (facePlate) bundle.facePlate = facePlate;
 
+  // UV-cranium pivot — bake an equirectangular cranium texture whose
+  // front-UV region (u=0.25, v=0.5) carries the user's face photo
+  // composited over a skin-tone base. When present, the head-mesh
+  // builder uploads this texture onto the cranium SphereGeometry's
+  // built-in UVs, so the face IS the head silhouette (no separate
+  // floating plate, no plate-vs-cranium seam).
+  let faceCraniumTexture: FaceFeatureCrop | null = null;
+  try {
+    faceCraniumTexture = bakeFaceCraniumTexture(ctx, landmarks, sampledColors, warnings);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    warnings.push(`faceCraniumTexture: bake threw: ${msg}`);
+  }
+  if (faceCraniumTexture) bundle.faceCraniumTexture = faceCraniumTexture;
+
   return { bundle, warnings };
 }
 
@@ -1302,6 +1317,229 @@ function paintBeardOntoPlate(
 
   // packColor reference kept so the import doesn't go stale across iterations.
   void packColor;
+}
+
+// ---------------------------------------------------------------------------
+// UV-cranium texture bake
+// ---------------------------------------------------------------------------
+
+/** Output dimensions of the cranium equirectangular texture. 1024×512 is
+ *  the standard equirectangular ratio (2:1) and gives generous resolution
+ *  for the front-UV face region (~185×256 px) without exploding GPU mem. */
+const CRANIUM_TEX_W = 1024;
+const CRANIUM_TEX_H = 512;
+/** Skin-tone fallback when sampler didn't latch one. Same mid-tan as
+ *  the legacy facePlate path so old saves keep their look. */
+const CRANIUM_SKIN_FALLBACK = 0xc9a08a;
+
+/**
+ * UV-cranium pivot — bake a 1024×512 equirectangular RGBA canvas whose
+ * front-UV region holds the user's face photo composited over a skin-tone
+ * background. The head-mesh-builder mounts this as the cranium
+ * SphereGeometry's `MeshBasicMaterial.map`, so the cranium IS the head
+ * and the face IS the cranium's front patch — no separate plate, no
+ * plate-vs-cranium seam.
+ *
+ * UV math for the default Three.js SphereGeometry (phiStart=0):
+ *   - u=0   at phi=0       → +X (subject's left)
+ *   - u=0.25 at phi=π/2     → +Z (FRONT of head)
+ *   - u=0.5 at phi=π        → -X
+ *   - u=0.75 at phi=3π/2    → -Z (BACK of head)
+ *   - v=0   at top pole     (+Y)
+ *   - v=1   at bottom pole  (-Y)
+ *
+ * The face photo is centered at u=0.25, v=0.5 (front equator). We use
+ * a generous front-UV target rectangle (width ~0.18 of equator, height
+ * ~0.50 of meridian) with a soft elliptical alpha feather so the face
+ * pixels blend smoothly into the surrounding skin-tone fill — the seam
+ * is in TEXTURE SPACE only, never in 3D, so no mismatch ring is possible.
+ *
+ * Returns null only on degenerate inputs (missing core landmarks).
+ */
+export function bakeFaceCraniumTexture(
+  ctx: SampleContext,
+  landmarks: NormalizedLandmark[],
+  sampledColors: SampledColors | undefined,
+  warnings: string[],
+): FaceFeatureCrop | null {
+  const forehead = landmarks[FACE_TOP_INDEX];
+  const chin = landmarks[FACE_BOTTOM_INDEX];
+  const leftTemple = landmarks[234];
+  const rightTemple = landmarks[454];
+  if (!forehead || !chin || !leftTemple || !rightTemple) {
+    warnings.push('faceCraniumTexture: anchor landmarks missing');
+    return null;
+  }
+  const faceHeightPx = (chin.y - forehead.y) * ctx.height;
+  const faceWidthPx = (rightTemple.x - leftTemple.x) * ctx.width;
+  if (faceHeightPx <= 0 || faceWidthPx <= 0) {
+    warnings.push('faceCraniumTexture: degenerate face dimensions');
+    return null;
+  }
+
+  // Source-photo bbox: same generous padding as bakeFacePlate so the
+  // photo carries enough surrounding face context (sides, just-below-chin,
+  // just-above-forehead). Top padding capped so the cap brim isn't
+  // baked in (the procedural 3D hat handles that).
+  const padTop = faceHeightPx * 0.06;
+  const padBottom = faceHeightPx * 0.18;
+  const padX = faceWidthPx * 0.18;
+  const yTop = Math.max(0, forehead.y * ctx.height - padTop);
+  const yBottom = Math.min(ctx.height, chin.y * ctx.height + padBottom);
+  const xLeft = Math.max(0, leftTemple.x * ctx.width - padX);
+  const xRight = Math.min(ctx.width, rightTemple.x * ctx.width + padX);
+  const srcBbox: PixelBbox = {
+    x: Math.floor(xLeft),
+    y: Math.floor(yTop),
+    w: Math.ceil(xRight - xLeft),
+    h: Math.ceil(yBottom - yTop),
+  };
+
+  const out = document.createElement('canvas');
+  out.width = CRANIUM_TEX_W;
+  out.height = CRANIUM_TEX_H;
+  const octx = out.getContext('2d', { willReadFrequently: true });
+  if (!octx) {
+    warnings.push('faceCraniumTexture: 2D context unavailable');
+    return null;
+  }
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = 'high';
+
+  // 1. Fill the entire canvas with skin tone — the back/sides/crown of
+  //    the cranium pull from u in [0,0.18]∪[0.32,1] which is all this
+  //    fill. The cranium silhouette therefore reads as solid skin from
+  //    every angle the face doesn't cover.
+  const skin = sampledColors?.skinTone ?? CRANIUM_SKIN_FALLBACK;
+  octx.fillStyle = `#${skin.toString(16).padStart(6, '0')}`;
+  octx.fillRect(0, 0, CRANIUM_TEX_W, CRANIUM_TEX_H);
+
+  // 2. Front-UV target rectangle — generous size so the face covers the
+  //    front equator zone of the head fully. With width 0.18 of equator
+  //    (≈ 65° of head turn) and height 0.50 of meridian (≈ 90° from
+  //    above-brow to below-chin), the photo wraps the front cap of the
+  //    head exactly where a real face lives.
+  //
+  //    Centered at (u=0.25, v=0.5) — that's +Z, equator.
+  //
+  //    Iter 3 — back the equatorial span up from 0.13 to 0.15 (~54° of
+  //    head-turn). Iter 2's 0.13 was clipping the cheeks/temples too
+  //    early; faces read as inset on a head that's wider than they
+  //    are. 0.15 covers temple-to-temple cleanly when projected onto
+  //    the head's actual width while keeping profile/3-quarter views
+  //    free of wrap-around face content.
+  const faceUVW = CRANIUM_TEX_W * 0.15; // ~154 px
+  const faceUVH = CRANIUM_TEX_H * 0.55; // ~282 px
+  const faceUVCx = CRANIUM_TEX_W * 0.25; // u=0.25
+  const faceUVCy = CRANIUM_TEX_H * 0.50; // v=0.50
+  const dstX = faceUVCx - faceUVW * 0.5;
+  const dstY = faceUVCy - faceUVH * 0.5;
+
+  // 3. Composite the face photo into a TEMP canvas at the target size,
+  //    then alpha-feather its rectangular edges via destination-in
+  //    radial gradient so it blends into the skin background when drawn
+  //    onto the main canvas.
+  const tmp = document.createElement('canvas');
+  tmp.width = Math.max(1, Math.ceil(faceUVW));
+  tmp.height = Math.max(1, Math.ceil(faceUVH));
+  const tctx = tmp.getContext('2d', { willReadFrequently: true });
+  if (!tctx) {
+    warnings.push('faceCraniumTexture: tmp 2D context unavailable');
+    return null;
+  }
+  tctx.imageSmoothingEnabled = true;
+  tctx.imageSmoothingQuality = 'high';
+
+  // Fit the source bbox into the target rect with a 'cover' aspect
+  // strategy — the face photo's aspect (~0.7 wide×tall) should map
+  // cleanly into the target's ~0.65 ratio, so cover trims a small band
+  // from the longer side rather than letterboxing skin pixels into the
+  // photo region.
+  const srcAspect = srcBbox.w / srcBbox.h;
+  const dstAspect = tmp.width / tmp.height;
+  let sx = srcBbox.x;
+  let sy = srcBbox.y;
+  let sw = srcBbox.w;
+  let sh = srcBbox.h;
+  if (srcAspect > dstAspect) {
+    const newSw = srcBbox.h * dstAspect;
+    sx = srcBbox.x + (srcBbox.w - newSw) / 2;
+    sw = newSw;
+  } else if (srcAspect < dstAspect) {
+    const newSh = srcBbox.w / dstAspect;
+    sy = srcBbox.y + (srcBbox.h - newSh) / 2;
+    sh = newSh;
+  }
+  tctx.drawImage(ctx.canvas, sx, sy, sw, sh, 0, 0, tmp.width, tmp.height);
+
+  // 4. Asymmetric alpha feather — fade more aggressively along the X
+  //    (equator) axis than the Y (meridian) axis. The cranium's UV map
+  //    wraps the X axis around the head circumference, so a face pixel
+  //    near the rectangle's X edge ends up far around the side of the
+  //    head; a Y-edge pixel just rides up/down the front meridian
+  //    toward the crown/chin (where the cranium fill takes over
+  //    cleanly). We want the lateral wraparound to disappear early.
+  //
+  //    Implementation: walk the pixel grid manually and compute alpha
+  //    from an asymmetric ellipse where the X axis has a TIGHTER falloff
+  //    than the Y axis. This avoids the "small dark almond at profile"
+  //    artifact (the lateral tail of the photo wrapping past the
+  //    silhouette).
+  const fxc = tmp.width / 2;
+  const fyc = tmp.height / 2;
+  const fImg = tctx.getImageData(0, 0, tmp.width, tmp.height);
+  const fData = fImg.data;
+  // Iter 6 — restore generous lateral inner zone. Tighter fades hurt
+  // the front-view face quality without resolving the persistent
+  // dark-almond profile artifact (which turned out to be from the
+  // simple-sphere eye structure showing through, not from texture
+  // wrap-around). The asymmetric falloff still helps soften the
+  // wraparound at 3/4 view; we just don't push it so far that the
+  // front face goes washed-out.
+  const xInner = 0.55;
+  const xOuter = 1.00;
+  const yInner = 0.78;
+  const yOuter = 1.05;
+  for (let py = 0; py < tmp.height; py++) {
+    for (let px = 0; px < tmp.width; px++) {
+      const dx = (px - fxc) / fxc; // [-1..+1]
+      const dy = (py - fyc) / fyc;
+      // Per-axis fade factor in [0..1]. 1 = full opaque, 0 = fully
+      // transparent. Use abs(dx) so left and right are symmetric.
+      const ax = Math.abs(dx);
+      const ay = Math.abs(dy);
+      let fx: number;
+      if (ax <= xInner) fx = 1;
+      else if (ax >= xOuter) fx = 0;
+      else fx = 1 - (ax - xInner) / (xOuter - xInner);
+      let fy: number;
+      if (ay <= yInner) fy = 1;
+      else if (ay >= yOuter) fy = 0;
+      else fy = 1 - (ay - yInner) / (yOuter - yInner);
+      const alphaFactor = fx * fy;
+      const idx = (py * tmp.width + px) * 4;
+      fData[idx + 3] = Math.round(fData[idx + 3] * alphaFactor);
+    }
+  }
+  tctx.putImageData(fImg, 0, 0);
+
+  // 5. Draw the feathered face onto the main canvas at the front-UV
+  //    target. The skin-tone fill underneath shows through the feathered
+  //    edge, producing a smooth photo→skin transition in TEXTURE SPACE.
+  octx.drawImage(tmp, dstX, dstY, faceUVW, faceUVH);
+
+  // 3D placement / sizing fields are unused for the cranium texture
+  // (the cranium is built from profile-derived geometry, not landmark
+  // centroids), but FaceFeatureCrop requires them. Use the same span
+  // bakeFacePlate emits so a future migration that re-uses these
+  // values doesn't have to invent new numbers.
+  const PLATE_INDICES: ReadonlyArray<number> = [10, 152, 234, 454];
+  return {
+    dataUrl: out.toDataURL('image/png'),
+    srcBbox,
+    center3D: landmarkCentroid3D(landmarks, PLATE_INDICES),
+    size3D: landmarkSize3D(landmarks, PLATE_INDICES, 0.05),
+  };
 }
 
 /**

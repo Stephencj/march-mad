@@ -205,8 +205,24 @@ export interface FeatureImagesBundle {
    *  read as photo-rectangle artifacts). Eyes/brows/mouth still mount as
    *  alpha-masked overlay planes on TOP of the plate. Optional for
    *  backward compatibility — old saves without it fall back to the per-
-   *  feature plane layout. */
+   *  feature plane layout.
+   *
+   *  UV-cranium pivot — the renderer no longer mounts this as a curved
+   *  floating plate (the dual-oval seam was visible in 3/4 / face-mirror
+   *  views). Production callers use `faceCraniumTexture` instead. The
+   *  field is kept on the bundle for backward compatibility with saves
+   *  baked before the pivot but is otherwise unused. */
   facePlate?: FaceFeatureCrop;
+  /** UV-cranium pivot — equirectangular 1024×512 RGBA texture whose
+   *  front-UV region (u=0.25, v=0.5) carries the user's face photo
+   *  composited over a skin-tone background. The head-mesh-builder
+   *  uploads this as `MeshBasicMaterial.map` on the cranium
+   *  SphereGeometry, so the cranium IS the head and the face IS the
+   *  cranium's front patch — no separate floating plate, no dual-oval
+   *  seam visible at any camera angle. Optional for backward compat
+   *  with saves baked before the pivot — when absent, the head-mesh
+   *  builder falls back to a solid skin-tone material on the cranium. */
+  faceCraniumTexture?: FaceFeatureCrop;
 }
 
 /** Beard / facial-hair region tags. Used as keys on `mesh3d.beard`. */

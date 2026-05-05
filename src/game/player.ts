@@ -1836,6 +1836,60 @@ export class GamePlayer {
    * `applyFaceMode(this)` at the end so concurrent mounts don't
    * double-render.
    */
+  /** UV-cranium pivot — load the equirectangular face texture from a
+   *  data URL and swap it onto the cranium ellipsoid's material. The
+   *  cranium was built (in setFaceMesh3D) with a solid skin-tone
+   *  material; this replaces that material with a textured
+   *  `MeshBasicMaterial({ map: tex })` so the user's face wraps the
+   *  cranium's front surface. Disposes the prior material (and its
+   *  shared skin material if no other extras reference it).
+   *
+   *  The cranium is identified by name (`head-cranium`) inside the
+   *  `faceHeadMeshExtras` array. If no head mesh group is mounted (e.g.
+   *  the rig fell back to the sphere head because no profile poses
+   *  were available), this is a no-op.
+   *
+   *  Returns once the texture's `<img>` has decoded — guarantees the
+   *  next render frame sees the textured cranium, not a flash of
+   *  solid skin tone. */
+  private async applyCraniumTexture(dataUrl: string): Promise<void> {
+    if (typeof Image === 'undefined') {
+      throw new Error('player.applyCraniumTexture: Image unavailable (non-DOM environment)');
+    }
+    const cranium = this.faceHeadMeshExtras.find(
+      (m) => m.name === 'head-cranium',
+    ) as THREE.Mesh | undefined;
+    if (!cranium) return;
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = (err) => reject(new Error(`cranium-texture decode failed: ${String(err)}`));
+      im.src = dataUrl;
+    });
+    const texture = new THREE.Texture(img);
+    texture.needsUpdate = true;
+    // Equirectangular textures need clamp-to-edge (or repeat) in U for
+    // a clean wrap at the seam; v is naturally bounded by the poles.
+    // Default RepeatWrapping is fine — Three.js's SphereGeometry UVs go
+    // 0..1 across u, so we never read outside the texture.
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    // Replace the material. Dispose the old one (no `.map` to dispose
+    // — the legacy material was a solid color). If multiple extras
+    // shared the old skin material, the old material now has fewer
+    // referrers but isn't fully orphaned, so we DON'T dispose it
+    // (clearFaceMesh3DInternal walks all extras and disposes each
+    // unique material once on the next swap).
+    const newMat = new THREE.MeshBasicMaterial({
+      map: texture,
+      color: 0xffffff,
+      side: THREE.DoubleSide,
+    });
+    newMat.name = 'head-cranium-uv-mat';
+    cranium.material = newMat;
+  }
+
   async setFaceMii(bundle: FeatureImagesBundle | null): Promise<void> {
     const slot = this.group.getObjectByName('face-mesh-3d') as
       | THREE.Group
@@ -1904,6 +1958,29 @@ export class GamePlayer {
     const built = await buildMiiFace(bundle, { meshScale, irisMidpoint });
     this.faceMiiBuilt = built;
     slot.add(built.group);
+
+    // UV-cranium pivot — when the bundle has a baked equirectangular
+    // cranium texture, swap the cranium ellipsoid's solid skin material
+    // for a textured `MeshBasicMaterial({ map: <face texture> })`. The
+    // head-mesh-builder built the cranium with a solid skin material at
+    // setFaceMesh3D time (which runs synchronously before this async
+    // setFaceMii); we patch the material in here so the texture lands as
+    // soon as the bundle's dataUrl decodes. The replaced solid skin
+    // material is disposed to avoid GPU leak. The new material's
+    // texture is disposed by `clearFaceMesh3DInternal` on the next swap
+    // (it walks `faceHeadMeshExtras` and disposes each unique material's
+    // `.map`).
+    if (bundle.faceCraniumTexture) {
+      try {
+        await this.applyCraniumTexture(bundle.faceCraniumTexture.dataUrl);
+      } catch (err) {
+        // Non-fatal — leave the cranium with its solid skin tone (the
+        // legacy look). Keeps the rest of the Mii path working when the
+        // texture decode fails (rare; only happens on jsdom or a
+        // genuinely malformed dataUrl).
+        console.warn('setFaceMii: applyCraniumTexture failed', err);
+      }
+    }
 
     // Fallback path: when `mesh3d.hat` was missing (so `setFaceMesh3D`
     // didn't mount a procedural 3D hat) BUT the bake produced a
@@ -2085,20 +2162,29 @@ export class GamePlayer {
     // before disposing the face mesh + mouth interior.
     if (this.faceHeadMeshGroup) {
       if (slot) slot.remove(this.faceHeadMeshGroup);
-      // Dispose the back/sides/ears geometries. The shared skin material
-      // is referenced by all of them — dispose once after the loop.
-      let sharedSkinMat: THREE.Material | null = null;
+      // Dispose the back/sides/ears geometries. UV-cranium pivot — the
+      // cranium may carry its OWN material (textured with the
+      // equirectangular face/skin map) distinct from the shared skin
+      // material on the ears / nose-bump / beard fringe. Track materials
+      // in a Set so each unique one gets disposed once.
+      const seenMats = new Set<THREE.Material>();
       for (const extra of this.faceHeadMeshExtras) {
-        // Detach from group too (defensive — group is already detached
-        // from the scene, but child geometries still need explicit
-        // disposal).
         extra.geometry.dispose();
         const m = extra.material as THREE.Material | THREE.Material[];
-        if (!Array.isArray(m)) {
-          if (m && !sharedSkinMat) sharedSkinMat = m;
+        if (Array.isArray(m)) {
+          for (const mm of m) if (mm) seenMats.add(mm);
+        } else if (m) {
+          seenMats.add(m);
         }
       }
-      if (sharedSkinMat) sharedSkinMat.dispose();
+      for (const mat of seenMats) {
+        // Dispose any maps the material carries (the UV cranium texture
+        // is a CanvasTexture / THREE.Texture loaded from the bundle's
+        // dataUrl — it owns GPU mem until disposed).
+        const asBasic = mat as THREE.MeshBasicMaterial;
+        if (asBasic.map) asBasic.map.dispose();
+        mat.dispose();
+      }
       this.faceHeadMeshExtras = [];
       // Re-show the rig's head sphere (it was hidden when the head
       // mesh mounted).

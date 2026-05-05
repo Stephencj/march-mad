@@ -95,7 +95,6 @@ export interface MiiFaceMountOpts {
  *  acting as the "skin canvas" the eyes/brows/mouth float in front of. */
 const Z_BIAS: Record<FeatureName, number> = {
   hat:       0.020,
-  facePlate: 0.005,
   beard:     0.030,
   nose:      0.020,
   mouth:     0.015,
@@ -149,18 +148,6 @@ const TARGET_SIZE_M: Record<FeatureName, { w: number; h: number }> = {
   // a recognizable cap at this physical size; previously 0.32×0.18 was
   // visibly oversized vs the cranium silhouette.
   hat:       { w: 0.200, h: 0.100 },
-  // Phase H2c-fix — facePlate sized to fit INSIDE the cranium silhouette.
-  // Cranium front cap is ~0.36m wide × ~0.59m tall; face area chin-to-
-  // forehead is ~0.42m. A 0.20×0.27m plate sits well inside the cranium
-  // silhouette, with the elliptical vignette feathering into the cranium
-  // skin tone seamlessly. The eye anchors at ±0.030m X fall well inside
-  // the plate's solid (0.85 radius) region.
-  // The face plate spans the FULL cranium silhouette (chin to crown,
-  // ear to ear) so the photographic face IS the head — not a small
-  // inset on a big bald cranium. Cranium is ~0.21m wide × ~0.59m tall;
-  // plate matches width and covers the chin-to-forehead vertical range
-  // (the cap covers above the brow, so plate stops at ~forehead level).
-  facePlate: { w: 0.220, h: 0.420 },
 };
 
 /** Per-feature ANCHOR position in METERS of mesh-local-scaled coords,
@@ -207,13 +194,6 @@ const ANCHOR_OFFSET_M: Record<FeatureName, { x: number; y: number }> = {
   // cranium crown (~+0.38). The cap (now forward-facing/visor) reads
   // as a cap perched on the head rather than a halo floating above.
   hat:       { x:  0.000, y:  0.160 },
-  // Plate spans the FULL cranium silhouette. With h=0.42m and center
-  // y=-0.020 the plate covers Y ∈ [-0.230, +0.190]. The cranium's chin
-  // sits at ~-0.21 and the brow line at ~+0.18 — the plate's chin-end
-  // falls just below the cranium chin (vignette feathers it out) and
-  // the top end reaches the forehead/brow region just below where the
-  // hat brim sits. Photographic face IS the head, not an inset.
-  facePlate: { x:  0.000, y: -0.020 },
 };
 
 /** Per-feature renderOrder. Group is at 10; higher = drawn later =
@@ -224,12 +204,11 @@ const ANCHOR_OFFSET_M: Record<FeatureName, { x: number; y: number }> = {
  *  upper lip, but a low-hanging mustache still looks right behind the
  *  mouth's upper-lip pixels). */
 const RENDER_ORDER: Record<FeatureName, number> = {
-  // facePlate sits BELOW everything — it's the skin canvas the overlays
-  // float on top of. Hat then overlays anything outside the face plate
-  // (forehead/scalp). Beard/mustache overlap with facePlate but are
-  // omitted from the render path entirely when facePlate is present
-  // (they're already composited into the plate).
-  facePlate: 7,
+  // UV-cranium pivot — facePlate is gone; the face renders as a texture
+  // on the cranium itself. Hat overlays the front of the cranium /
+  // forehead silhouette. Per-feature overlays render on top when
+  // explicitly opted in (default off — the cranium texture carries the
+  // user's eyes/brows/mouth photographically).
   hat:       8,
   beard:     9,
   mustache:  10,
@@ -245,8 +224,7 @@ type FeatureName =
   | 'leftEye' | 'rightEye'
   | 'leftBrow' | 'rightBrow'
   | 'nose' | 'mouth'
-  | 'beard' | 'mustache' | 'hat'
-  | 'facePlate';
+  | 'beard' | 'mustache' | 'hat';
 
 // Phase H2c-perfect: with the whole-face plate baking the user's actual
 // eyes/brows/nose/mouth/mustache/beard photographically, the per-feature
@@ -258,7 +236,6 @@ type FeatureName =
 // anim use, where swapping expression variants per feature requires
 // independent plane control.
 const ORDERED_FEATURES: FeatureName[] = [
-  'facePlate',
   'hat', 'beard', 'mustache',
   'nose', 'mouth',
   'leftEye', 'rightEye',
@@ -356,16 +333,12 @@ export async function buildMiiFace(
   const ownedMaterials: THREE.Material[] = [];
   const ownedGeometries: THREE.BufferGeometry[] = [];
 
-  // Phase H2c — when bundle has a facePlate, the nose/beard/mustache
-  // pixels are already composited into the plate. Skip those individual
-  // overlay planes (they read as photo rectangles, defeating the whole
-  // pivot). Old saves without facePlate fall through to the original
-  // per-feature plane layout.
-  const hasFacePlate = !!(bundle as Partial<Record<FeatureName, FaceFeatureCrop>>).facePlate;
-
-  // Resolve which features to render. Required ones (eyes/brows/nose/mouth)
-  // always present; conditional ones gated by both bundle presence AND
-  // opts.show* flags.
+  // UV-cranium pivot — the cranium ellipsoid carries the user's face
+  // photographically via its baked equirectangular texture. Per-feature
+  // overlay planes (leftEye/rightEye/leftBrow/rightBrow/nose/mouth) are
+  // gated behind `showFeatureOverlays`, defaulting OFF — they'd just
+  // double-paint photo pixels on top of the cranium texture. Hat is
+  // always opt-in (the procedural 3D hat takes precedence in production).
   const featuresToBuild: FeatureName[] = [];
   for (const name of ORDERED_FEATURES) {
     const crop = (bundle as Partial<Record<FeatureName, FaceFeatureCrop>>)[name];
@@ -373,17 +346,10 @@ export async function buildMiiFace(
     if (name === 'hat' && !showHat) continue;
     if (name === 'beard' && !showBeard) continue;
     if (name === 'mustache' && !showMustache) continue;
-    // Per-feature overlay planes (leftEye/rightEye/leftBrow/rightBrow/
-    // nose/mouth) gated behind showFeatureOverlays. When facePlate is
-    // present, the whole-face photo bake covers these features already;
-    // mounting overlay planes layers redundant photo crops on top.
     const isOverlay = name === 'leftEye' || name === 'rightEye' ||
                       name === 'leftBrow' || name === 'rightBrow' ||
                       name === 'nose' || name === 'mouth';
     if (isOverlay && !showFeatureOverlays) continue;
-    // When facePlate is present, drop the individual nose/beard/mustache
-    // planes — they're already in the plate.
-    if (hasFacePlate && (name === 'nose' || name === 'beard' || name === 'mustache')) continue;
     featuresToBuild.push(name);
   }
 
@@ -416,38 +382,7 @@ export async function buildMiiFace(
     const target = TARGET_SIZE_M[name];
     const w = Math.max(1e-4, target.w);
     const h = Math.max(1e-4, target.h);
-    // The facePlate gets curved to match the cranium's front-pole curvature
-    // so the photographic face wraps around the head shape instead of
-    // appearing as a flat billboard. From 3/4 and side angles this lets
-    // the face read as part of a 3D head, not a Polaroid stuck on a sphere.
-    // Other features (eyes/brows/etc when overlay-mounted) stay flat.
-    let geom: THREE.BufferGeometry;
-    if (name === 'facePlate') {
-      // Subdivide the plane more so the curve renders smoothly.
-      const plane = new THREE.PlaneGeometry(w, h, 16, 20);
-      // Bend the plane vertices into a gentle dome whose center stays at
-      // z=0 (closest to the camera) and edges recede to -z (toward the
-      // cranium body). Curvature radius R chosen to roughly match the
-      // cranium's front-pole curvature: at 0.20m wide the rim recedes
-      // about 1.5cm, which approximates the head's rounding.
-      // Curvature radius matches the cranium's effective curvature so the
-      // photographic face wraps around the head shape. Larger plates need
-      // larger R or the corners bend too steeply and pull the photo
-      // pixels back behind the head silhouette.
-      const CURVE_R = 0.26;
-      const pos = plane.attributes.position as THREE.BufferAttribute;
-      for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i);
-        const y = pos.getY(i);
-        const z = -(x * x + y * y) / (2 * CURVE_R);
-        pos.setZ(i, z);
-      }
-      pos.needsUpdate = true;
-      plane.computeVertexNormals();
-      geom = plane;
-    } else {
-      geom = new THREE.PlaneGeometry(w, h);
-    }
+    const geom: THREE.BufferGeometry = new THREE.PlaneGeometry(w, h);
     ownedGeometries.push(geom);
 
     const mat = new THREE.MeshBasicMaterial({

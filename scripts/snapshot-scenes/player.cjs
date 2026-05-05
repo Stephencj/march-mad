@@ -46,6 +46,16 @@ const presets = {
     animState: 'idle', freezeAnim: true,
     camera: { yaw: -PI / 4, pitch: 0, dist: 1.6, target: 'head' },
   }),
+  // UV-cranium pivot — matches the face-mirror.html OrbitControls
+  // default camera (yaw≈0.15, pitch≈0.05, dist≈1.4) so visual
+  // artifacts the user sees in the actual game surface in CI snapshots
+  // too. Adding this preset means future iterations catch the dual-
+  // oval / cranium-vs-plate seam class of bug that the prior yaw=0,
+  // dist=4 framing was hiding.
+  'face-mirror-pose': cap('face-mirror-pose', {
+    animState: 'idle', freezeAnim: true,
+    camera: { yaw: 0.15, pitch: 0.05, dist: 1.4, target: 'head' },
+  }),
   // G4 — beer-can in hand, close-up for orientation inspection. The beer
   // is mounted as a child of `elbow-left`, so target the left hand and
   // dolly in close. yaw -π/4 puts the beer at 3/4 view; yaw 0 frames it
@@ -84,6 +94,7 @@ presets.all = [
   presets['walk-front'],
   presets['dribble-3q'],
   presets['head-closeup'],
+  presets['face-mirror-pose'],
   ...presets['face-vs-cranium'],
 ];
 

@@ -116,6 +116,15 @@ export interface BuildHeadMeshOptions extends BuildFaceMeshOptions {
   skinTone?: number;
   /** Whether to include geometric ears. Default true. */
   ears?: boolean;
+  /** UV-cranium pivot — equirectangular face/skin texture for the
+   *  cranium ellipsoid. When supplied, the cranium uses
+   *  `MeshBasicMaterial({ map: faceCraniumTexture })` instead of a
+   *  solid-color material, and the SphereGeometry segment counts are
+   *  bumped to (32, 24) for smoother UV interpolation across the
+   *  front-face region. Caller owns the texture's lifecycle; the
+   *  cranium material this function builds will be disposed when the
+   *  player drops the head mesh. */
+  faceCraniumTexture?: THREE.Texture;
 }
 
 /** Convert a flat landmark array `[x0,y0,z0,...]` into mesh-local Three.js
@@ -402,6 +411,7 @@ function buildCraniumEllipsoid(
   profileHeadDepth: number,
   material: THREE.Material,
   irisMidpoint: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 },
+  faceCraniumTexture?: THREE.Texture,
 ): THREE.Mesh {
   const faceHeight = Math.abs(frontForeheadY - frontChinY);
   // Width: prefer the cheek-derived width, but clamp to a sane fraction
@@ -458,10 +468,39 @@ function buildCraniumEllipsoid(
   // skull silhouette sit too low.
   const cx = irisMidpoint.x;
   // Use a SphereGeometry with sufficient segments to read as a smooth
-  // cranium. 24 longitudinal × 16 latitudinal = 384 verts, ~720 tris —
-  // light enough that mounting one per player isn't a draw-call concern.
-  const sphere = new THREE.SphereGeometry(0.5, 24, 16);
-  const mesh = new THREE.Mesh(sphere, material);
+  // cranium. UV-cranium pivot bumps to (32, 24) when a cranium texture
+  // is mounted so the face photo's UV interpolation across the front
+  // cap stays smooth (the lower-resolution legacy mesh produced
+  // visible seams along quad boundaries when the texture's high-detail
+  // face region was stretched across 8 longitudinal segments). Without
+  // a texture the legacy (24, 16) is fine — the surface is solid color.
+  const seg = faceCraniumTexture ? { wide: 32, tall: 24 } : { wide: 24, tall: 16 };
+  const sphere = new THREE.SphereGeometry(0.5, seg.wide, seg.tall);
+  // UV-cranium — when a baked cranium texture is supplied, use a fresh
+  // MeshBasicMaterial with the texture as `.map` instead of the solid-
+  // color skin material. We BUILD a new material here (rather than
+  // mutating the passed-in `material`) because the same skin material
+  // is shared by ears / nose-bump and we don't want to texture those
+  // with the equirectangular face map.
+  let craniumMat: THREE.Material = material;
+  if (faceCraniumTexture) {
+    const skinColor =
+      material instanceof THREE.MeshBasicMaterial && material.color
+        ? material.color.getHex()
+        : 0xffffff;
+    craniumMat = new THREE.MeshBasicMaterial({
+      map: faceCraniumTexture,
+      // Tint white so the texture's photo pixels render at full
+      // saturation. The skin-tone fill on the texture itself sets the
+      // back/sides color; multiplying by anything other than white
+      // would double-apply skin tone.
+      color: 0xffffff,
+      side: THREE.DoubleSide,
+    });
+    craniumMat.name = 'head-cranium-uv-mat';
+    void skinColor;
+  }
+  const mesh = new THREE.Mesh(sphere, craniumMat);
   mesh.position.set(cx, cy, cz);
   // Per-axis scale on the unit-radius sphere.
   mesh.scale.set(headWidth, headHeight, headDepth);
@@ -693,6 +732,10 @@ export function buildHeadMesh(
     // irises). Cancels the residual feature-vs-cranium gap visible from
     // 3/4 and profile views.
     frontBuilt.irisMidpoint,
+    // UV-cranium pivot — when present, the cranium swaps its solid skin
+    // material for a textured one whose front-UV region holds the user's
+    // face. Absent → legacy solid-color cranium.
+    opts.faceCraniumTexture,
   );
   headGroup.add(cranium);
   extras.push(cranium);

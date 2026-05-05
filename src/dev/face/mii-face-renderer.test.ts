@@ -101,18 +101,21 @@ describe('buildMiiFace', () => {
     built.dispose();
   });
 
-  it('default-mounts plate-only when bundle has facePlate (no per-feature overlays)', async () => {
-    // The whole-face plate carries eyes/brows/nose/mouth/beard/mustache
-    // photographically. Per-feature planes default OFF to avoid layering
-    // photo-rectangle artifacts on top of the plate.
+  it('UV-cranium pivot: default-mounts no per-feature overlays (cranium texture carries face)', async () => {
+    // UV-cranium pivot — facePlate is gone. The cranium ellipsoid
+    // carries the user's face via its equirectangular texture (mounted
+    // by the head-mesh-builder, not by this renderer). The Mii face
+    // group's job in production is just decal slots + opt-in feature
+    // overlays for keyframe expression swaps.
     const bundle: FeatureImagesBundle = {
       ...makeMinBundle(),
-      facePlate: makeCrop(0.0, 0.0, 0.020, 0.20, 0.27),
+      // Even with a faceCraniumTexture present, the renderer's group
+      // shouldn't mount any plane for it (the cranium owns it).
+      faceCraniumTexture: makeCrop(0.0, 0.0, 0.020, 0.20, 0.27),
     };
     const built = await buildMiiFace(bundle);
-    // facePlate + 3 decal slots (no overlays default-mounted).
-    expect(built.group.children.length).toBe(1 + 3);
-    expect(built.planes.has('facePlate')).toBe(true);
+    // 0 feature overlays + 3 decal slots (no overlays default-mounted).
+    expect(built.group.children.length).toBe(0 + 3);
     expect(built.planes.has('leftEye')).toBe(false);
     built.dispose();
   });
