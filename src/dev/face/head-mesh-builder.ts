@@ -417,12 +417,20 @@ function buildCraniumEllipsoid(
   // Width: prefer the cheek-derived width, but clamp to a sane fraction
   // of face-height so a degenerate cheek read can't squash the cranium.
   const cheekWidth = Math.max(cheekHalfWidth * 2, faceHeight * 0.75);
-  const headWidth = Math.min(cheekWidth * 1.05, faceHeight * 1.05);
+  // Thinner cranium — was cheekWidth*1.05 / faceHeight*1.05. Narrowing
+  // both by ~5-10% so the silhouette doesn't overshoot the actual face
+  // content; from front view, photo can fill ear-to-ear without bare
+  // cranium bands at the sides.
+  const headWidth = Math.min(cheekWidth * 1.00, faceHeight * 0.95);
   const headHeight = faceHeight * 1.40; // 40% crown above the brow
   // Depth: prefer profile-derived headDepth (= 0.85 × faceHeight from
   // alignProfile), inflated to 1.15× faceHeight for crown rear bulge,
   // clamped to a sane minimum so the head never looks paper-thin.
-  const headDepth = Math.max(profileHeadDepth * 1.35, faceHeight * 1.10);
+  // Flatter cranium front-to-back — was profileHeadDepth*1.35 /
+  // faceHeight*1.10 (depth ~80% of height = nearly spherical). Now
+  // ~65% of height = head-shaped not ball-shaped. Floor at faceHeight*0.85
+  // prevents pancake-from-profile when scan's profile depth is degenerate.
+  const headDepth = Math.max(profileHeadDepth * 1.00, faceHeight * 0.85);
 
   const faceMidY = (frontChinY + frontForeheadY) * 0.5;
   // Crown bias: shift the ellipsoid Y-center UP so 60% of its height is

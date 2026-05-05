@@ -60,16 +60,15 @@ export interface Point2 {
 export const FACE_UV_REGION = {
   centerU: 0.25,
   centerV: 0.50,
-  // Iter 3 — expand the face region's UV footprint so the warped
-  // face content fills more of the visible cranium silhouette in
-  // front view. The prior 0.15 width was correct ANATOMICALLY but
-  // visually small because the warp pins the silhouette ring at the
-  // box edges (no padding around the temples), unlike the prior
-  // rectangle-stretch which 'cover'-fit the photo bbox into the
-  // region (effectively inflating the face to fill the rectangle).
-  // Bumping width to 0.18 / height to 0.62 gets the face to occupy
-  // the same screen area as the prior bake on front view.
-  widthU: 0.18,
+  // Iter 4 — coordinated with head-mesh-builder geometry change: the
+  // cranium was narrowed (headWidth: cheekWidth*1.05 → 1.00, faceHeight
+  // *1.05 → 0.95) and flattened front-to-back (depth: faceHeight*1.10
+  // → 0.85). With the silhouette now narrower from front, bumping U-
+  // extent 0.18 → 0.26 fills the visible cranium silhouette ear-to-
+  // ear without wrapping onto the back of the head. u > 0.46 would
+  // start crossing the ±X poles into the back hemisphere — 0.26 stays
+  // safely within the front cap.
+  widthU: 0.26,
   heightV: 0.62,
 } as const;
 
