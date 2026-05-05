@@ -35,7 +35,6 @@ import {
   type FaceGameStateDriver,
 } from '@/dev/face/face-game-state-driver';
 import type { FeatureImagesBundle } from '@/dev/face/types';
-import { sampleDominantColorFromDataUrl } from '@/dev/face/feature-baker';
 
 /**
  * Hair style types for Bobblehead Ballers.
@@ -1982,25 +1981,15 @@ export class GamePlayer {
       }
     }
 
-    // Fallback path: when `mesh3d.hat` was missing (so `setFaceMesh3D`
-    // didn't mount a procedural 3D hat) BUT the bake produced a
-    // `featureImages.hat` crop (the photo did contain a hat region the
-    // baker latched onto), sample the dominant color from the crop and
-    // mount a default cap-forward 3D hat. Beats showing nothing — the
-    // hat sampler in `hair-hat.ts` is conservative and misses caps the
-    // user is clearly wearing. The user explicitly wants the procedural
-    // 3D geometry over the flat plane in every case.
-    if (!this.faceHat && bundle.hat) {
-      const dominantColor = await sampleDominantColorFromDataUrl(bundle.hat.dataUrl);
-      // Defensive: skip the mount if sampling failed (jsdom test env, or
-      // a malformed dataUrl) — leaving no hat is fine, the user's head
-      // just renders bald-on-the-Mii-plate as it would have without this
-      // path. Also re-check `!this.faceHat` because async nature of the
-      // setFaceMii path means setFaceMesh3D could have raced in a hat.
-      if (dominantColor !== null && !this.faceHat) {
-        this.setFaceHat({ type: 'cap-forward', color: dominantColor });
-      }
-    }
+    // No-hat-fallback intentionally REMOVED. The bake unconditionally crops
+    // the top region of every face photo (forehead/hair pixels), so any
+    // fallback that mounts a hat from `bundle.hat` produces phantom hats
+    // for hatless users. Hat detection is `hair-hat.ts`'s job — we mount
+    // a procedural 3D hat ONLY when `mesh3d.hat` is populated by the
+    // sampler (handled by setFaceMesh3D's `featuresExt.hat` path above).
+    // The cost: a real hat the sampler misses won't render. The benefit:
+    // hatless users render hatless. The user explicitly flagged phantom
+    // hats as the regression, so we err on the side of false negatives.
     // Phase H4 — spin up the keyframe mixer alongside the Mii face. The
     // mixer is what drives idle blinks (and, in later phases, game-state
     // expression sequences + live-puppet-driven keyframes). Lazily
